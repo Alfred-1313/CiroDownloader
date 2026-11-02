@@ -1,0 +1,146 @@
+<?php
+declare(strict_types=1);
+
+namespace Zero;
+
+final class Config
+{
+    public function __construct(
+        public string $token, public array $admins, public string $storage,
+        public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
+        public string $ytDlp = '/opt/yt/bin/yt-dlp', public int $timeout = 600,
+    ) {}
+
+    public static function load(): self
+    {
+        // Values are data, never sourced by a shell. Container env takes precedence.
+        $path = dirname(__DIR__) . '/.env';
+        if (is_file($path)) {
+            foreach (file($path, FILE_IGNORE_NEW_LINES) as $line) {
+                if (!preg_match('/^([A-Z_]+)=(.*)$/', trim($line), $m)) continue;
+                if (getenv($m[1]) === false) putenv($m[1] . '=' . trim($m[2], " \t\"'"));
+            }
+        }
+        $token = getenv('BOT_TOKEN') ?: '';
+        $ids = getenv('ADMIN_IDS') ?: '';
+        if (!preg_match('/^\d+:[A-Za-z0-9_-]+$/', $token)) throw new \RuntimeException('BOT_TOKEN is missing or invalid');
+        if (!preg_match('/^[1-9]\d*(,[1-9]\d*)*$/', $ids)) throw new \RuntimeException('ADMIN_IDS must contain numeric IDs');
+        $max = (int)(getenv('MAX_FILE_BYTES') ?: 49000000);
+        $api = rtrim(getenv('BOT_API_URL') ?: 'https://api.telegram.org', '/');
+        if ($max < 1000000 || $max > 2000000000 || ($api === 'https://api.telegram.org' && $max > 49000000)) {
+            throw new \RuntimeException('Invalid file limit for configured Bot API');
+        }
+        return new self($token, array_map('intval', explode(',', $ids)),
+            getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
+            getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp');
+    }
+}
+
+interface Api { public function call(string $method, array $params = []): mixed; }
+
+final class Telegram implements Api
+{
+    public function __construct(private Config $config) {}
+    public function call(string $method, array $params = []): mixed
+    {
+        foreach ($params as &$value) {
+            if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        }
+        unset($value);
+        $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
+        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15,
+            CURLOPT_TIMEOUT => $method === 'sendVideo' ? 600 : 45]);
+        $body = curl_exec($ch);
+        $errno = curl_errno($ch);
+        curl_close($ch);
+        if ($body === false) throw new \RuntimeException('Telegram transport error ' . $errno);
+        $result = json_decode($body, true);
+        if (!($result['ok'] ?? false)) {
+            // Raw API errors may include credentials/URLs. Log only numeric status.
+            throw new \RuntimeException('Telegram API error ' . ($result['error_code'] ?? 0));
+        }
+        return $result['result'];
+    }
+}
+
+final class Store
+{
+    public \PDO $db;
+    public function __construct(string $directory)
+    {
+        if (!is_dir($directory)) mkdir($directory, 0700, true);
+        $this->db = new \PDO('sqlite:' . $directory . '/zero.sqlite', null, null,
+            [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]);
+        $this->db->exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;');
+        $this->db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS states (user_id INTEGER PRIMARY KEY, key TEXT NOT NULL, expires INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, update_id INTEGER UNIQUE NOT NULL,
+                user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, url TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running');
+            CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, last_request INTEGER NOT NULL DEFAULT 0);");
+    }
+    public function query(string $sql, array $args = []): \PDOStatement
+    {
+        $q = $this->db->prepare($sql); $q->execute($args); return $q;
+    }
+    public function get(string $key, string $default = ''): string
+    {
+        $v = $this->query('SELECT value FROM settings WHERE key=?', [$key])->fetchColumn();
+        return $v === false ? $default : (string)$v;
+    }
+    public function set(string $key, string $value): void
+    {
+        $this->query('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [$key,$value]);
+    }
+    public function enabled(): bool { return $this->get('enabled', '1') === '1'; }
+    public function enqueue(int $update, int $user, int $chat, string $url): string
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            if ($this->query('SELECT 1 FROM jobs WHERE update_id=?', [$update])->fetchColumn()) $result = 'duplicate';
+            elseif ($this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running')", [$user])->fetchColumn()) $result = 'busy';
+            elseif ((int)$this->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')")->fetchColumn() >= 20) $result = 'full';
+            elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15) $result = 'cooldown';
+            else {
+                $this->query('INSERT INTO jobs(update_id,user_id,chat_id,url,created) VALUES(?,?,?,?,?)', [$update,$user,$chat,$url,time()]);
+                $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
+                $result = 'queued';
+            }
+            $this->db->exec('COMMIT'); return $result;
+        } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
+    public function claim(): ?array
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $job = $this->query("SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
+            if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
+            $this->db->exec('COMMIT'); return $job ?: null;
+        } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
+}
+
+function youtubeUrl(string $input): ?string
+{
+    $input = trim($input);
+    if (strlen($input)>2048 || preg_match('/\s/u', $input)) return null;
+    if (preg_match('~^(www\.)?(youtube\.com|youtu\.be)/~', $input)) $input = 'https://' . $input;
+    $u = parse_url($input);
+    if (!$u || !in_array($u['scheme'] ?? '', ['http','https'], true) || isset($u['user']) || isset($u['pass']) || isset($u['port'])) return null;
+    $id = '';
+    if (($u['host'] ?? '') === 'youtu.be') $id = trim($u['path'] ?? '', '/');
+    elseif (in_array($u['host'] ?? '', ['youtube.com','www.youtube.com','m.youtube.com','music.youtube.com'], true)) {
+        if (($u['path'] ?? '') === '/watch') { parse_str($u['query'] ?? '', $q); $id = $q['v'] ?? ''; }
+        elseif (preg_match('~^/(shorts|embed|live)/([\w-]{11})/?$~', $u['path'] ?? '', $m)) $id = $m[2];
+    }
+    return is_string($id) && preg_match('/^[A-Za-z0-9_-]{11}$/D', $id) ? 'https://www.youtube.com/watch?v='.$id : null;
+}
+
+function lockProcess(string $path): mixed
+{
+    $lock = fopen($path, 'c');
+    if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) throw new \RuntimeException('Another instance is already running');
+    return $lock; // Caller retains handle for lifetime of process.
+}
