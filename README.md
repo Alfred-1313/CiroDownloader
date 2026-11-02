@@ -9,62 +9,14 @@ Simple YouTube video downloads through Telegram.
 
 </div>
 
-## Features
+Download YouTube videos and Shorts as MP4 files up to 480p with audio.
 
-- YouTube videos and Shorts as MP4
-- Up to 480p with audio
-- Queue and download status updates
-- English Telegram interface
-- Private admin panel
-- Docker + SQLite
+## Install
 
-## Quick install
-
-Requirements: Linux, Docker, a Telegram bot token and your Telegram user ID.
+Run this command on your Linux server as root:
 
 ```bash
-git clone https://github.com/Alfred-1313/CiroDownloader.git
-cd CiroDownloader
-sudo bash install.sh
+bash <(curl -fsSL https://raw.githubusercontent.com/Alfred-1313/CiroDownloader/main/install.sh)
 ```
 
-The installer asks for your bot token and admin IDs, then starts the bot automatically.
-
-## Bot commands
-
-```text
-/start   Open the main menu
-/id      Show your Telegram ID
-/admin   Open the admin panel
-```
-
-Only IDs listed in `ADMIN_IDS` can access the admin panel.
-
-## Manual setup
-
-```bash
-cp .env.example .env
-chmod 600 .env
-nano .env
-docker compose up -d --build
-```
-
-Required values:
-
-```dotenv
-BOT_TOKEN=your_bot_token
-ADMIN_IDS=123456789
-```
-
-## Useful commands
-
-```bash
-docker compose ps
-docker compose logs --tail=100
-docker compose restart
-docker compose stop
-```
-
-## License
-
-Provided as-is. Follow YouTube and Telegram rules when deploying.
+The installer asks for your Telegram bot token and admin ID, then starts the bot automatically.
