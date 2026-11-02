@@ -17,8 +17,10 @@ foreach($interrupted as $job) {
     try { $bot->send((int)$job['chat_id'],$bot->text('restarted')); } catch(Throwable) {}
 }
 echo "Ciro Downloader worker started\n";
+$lastHeartbeat=0;
 while(true) {
     try {
+        if(time()-$lastHeartbeat>=10) { $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time(); }
         if(!$store->enabled()||!($job=$store->claim())) { sleep(1); continue; }
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
@@ -28,14 +30,15 @@ while(true) {
             $media=$downloader->fetch($job['url'],$folder);
             $bot->send((int)$job['chat_id'],$bot->text('uploading'));
             $caption=strtr($bot->text('video_caption'),[
-                '{title}'=>htmlspecialchars(mb_substr($media['title'],0,100), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
-                '{quality}'=>htmlspecialchars($media['height'].'p', ENT_QUOTES, 'UTF-8'),
-                '{url}'=>htmlspecialchars($job['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                '{title}'=>mb_substr($media['title'],0,100),
+                '{quality}'=>$media['height'].'p',
+                '{url}'=>$job['url'],
             ]);
             // Limit UTF-16 units conservatively for Telegram captions (including emoji).
             $caption=mb_substr($caption,0,500);
             $api->call('sendVideo',['chat_id'=>(int)$job['chat_id'],'video'=>new CURLFile($media['path'],'video/mp4','video.mp4'),
-                'caption'=>$caption,'width'=>$media['width'],'height'=>$media['height'],'duration'=>$media['duration']]);
+                'caption'=>$caption,'supports_streaming'=>true,
+                'width'=>$media['width'],'height'=>$media['height'],'duration'=>$media['duration']]);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         } catch(Throwable $e) {
             error_log('Job '.$job['id'].' failed: '.get_class($e));

@@ -1,0 +1,38 @@
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, mbstring, pdo_sqlite
+          coverage: none
+
+      - name: Run PHP tests
+        run: php tests/run.php
+
+      - name: Check PHP syntax
+        run: find src bin tests -name '*.php' -exec php -l {} +
+
+      - name: Check shell syntax
+        run: bash -n install.sh manager.sh setup.sh
+
+      - name: Validate Compose configuration
+        run: cp .env.example .env && docker compose config --quiet
+
+      - name: Build production image
+        run: docker build --tag ciro-downloader:ci .

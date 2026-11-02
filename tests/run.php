@@ -27,6 +27,7 @@ try {
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');
     $bot->handle(msg(1,$url,10)); check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===0,'offline denies downloads');
     $bot->handle(msg(42,'/admin')); check(end($api->calls)[0]==='sendMessage','admin accessible while offline');
+    $bot->handle(msg(42,'/health')); check(str_contains((string)end($api->calls)[1]['text'],'System status'),'admin health status');
     $bot->handle(cb(42,'set:on')); check($store->enabled(),'admin turns bot on');
     $bot->handle(cb(42,'edit:button:download')); $bot->handle(msg(42,'Get video'));
     check($bot->label('download')==='Get video','edit button label');

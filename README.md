@@ -16,7 +16,7 @@ Download YouTube videos and Shorts as MP4 files up to 480p with audio.
 Run this command on your Linux server as root:
 
 ```bash
-bash <(curl -fsSL "https://raw.githubusercontent.com/Alfred-1313/CiroDownloader/main/setup.sh?$(date +%s)")
+bash <(curl -fsSL https://raw.githubusercontent.com/Alfred-1313/CiroDownloader/refs/heads/main/install.sh)
 ```
 
 The installer asks for your Telegram bot token and admin ID, then starts the bot automatically.

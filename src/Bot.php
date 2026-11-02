@@ -12,7 +12,7 @@ final class Bot
         'queued' => ['Queue message', 'Your request is queued. I will send an update when processing starts.'],
         'downloading' => ['Download status', 'Downloading and preparing your video…'],
         'uploading' => ['Upload status', 'Download complete. Uploading the video now…'],
-        'video_caption' => ['File caption', "<b>Your video is ready</b>\n\n<b>{title}</b>\nQuality: <code>{quality}</code>\n{url}"],
+        'video_caption' => ['File caption', "Your video is ready\n\n{title}\nQuality: {quality}\n{url}"],
         'failed' => ['Download error', 'The video could not be downloaded or uploaded. It may be restricted, live, too long or larger than the configured file limit.'],
         'invalid' => ['Invalid link message', 'That does not look like a valid YouTube video link. Please send a youtube.com or youtu.be URL.'],
         'restarted' => ['Restart message', 'The worker restarted while processing your request. If you did not receive a file, please send the link again.'],
@@ -23,6 +23,7 @@ final class Bot
         'off' => ['Disable button', 'Pause downloader'],
         'texts' => ['Message settings button', 'Edit messages'],
         'buttons' => ['Button settings button', 'Edit buttons'],
+        'health' => ['System status button', 'System status'],
         'back' => ['Back button', 'Back'],
     ];
     public function __construct(public Config $config, public Store $store, public Api $api) {}
@@ -49,7 +50,7 @@ final class Bot
         if ($this->admin($user)) {
             $this->sendKeyboard($chat, $this->text('welcome'), [
                 [$this->replyButton('download'), $this->replyButton('help')],
-                [$this->replyButton('admin')],
+                [$this->replyButton('admin'), $this->replyButton('health')],
             ]);
             return;
         }
@@ -62,8 +63,26 @@ final class Bot
         $this->send($chat, '<b>Admin panel</b>\nStatus: <b>'.($on ? 'Enabled' : 'Paused').'</b>', [
             [$this->button($on?'off':'on', $on?'set:off':'set:on')],
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
+            [$this->button('health','health')],
             [$this->button('back','home')],
         ]);
+    }
+    public function health(int $chat): void
+    {
+        $now=time();
+        $worker=(int)$this->store->get('worker_heartbeat','0');
+        $poller=(int)$this->store->get('poller_heartbeat','0');
+        $queued=(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='queued'")->fetchColumn();
+        $running=(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='running'")->fetchColumn();
+        $workerOk=$worker>0&&$now-$worker<20;
+        $pollerOk=$poller>0&&$now-$poller<60;
+        $enabled=$this->store->enabled();
+        $workerStatus=$running>0?'Busy':($workerOk?'Online':'No recent heartbeat');
+        $this->send($chat,"<b>System status</b>\n\n".
+            'Bot: <b>'.($enabled?'Enabled':'Paused')."</b>\n".
+            'Poller: <b>'.($pollerOk?'Online':'No recent heartbeat')."</b>\n".
+            'Worker: <b>'.$workerStatus."</b>\n".
+            "Queue: <b>$queued waiting / $running active</b>");
     }
     public function catalog(string $kind): array { return $kind === 'text' ? self::TEXTS : ($kind === 'button' ? self::BUTTONS : []); }
     public function listItems(int $chat, string $kind): void
@@ -112,6 +131,7 @@ final class Bot
             elseif ($action==='help') $this->send($chat,$this->text('help'));
             elseif ($action==='download') $this->send($chat,$this->text('prompt'));
             elseif ($action==='admin') $this->panel($chat);
+            elseif ($action==='health') $this->health($chat);
             elseif (in_array($action,['set:on','set:off'],true)) {
                 $this->store->set('enabled',$action==='set:on'?'1':'0'); $this->panel($chat);
             } else {
@@ -132,10 +152,11 @@ final class Bot
         $text=trim((string)($message['text']??''));
         if ($text==='') return;
         if ($text==='/id') { $this->send($chat,"Your Telegram ID: <code>$user</code>"); return; }
-        if (in_array($text,['/cancel','/start','/admin',$this->label('admin'),$this->label('help'),$this->label('download')],true)) {
+        if (in_array($text,['/cancel','/start','/admin','/health',$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         }
         if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
+        if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if ($text===$this->label('help')) { $this->send($chat,$this->text('help')); return; }

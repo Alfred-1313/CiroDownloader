@@ -10,8 +10,10 @@ $api->call('getMe');
 $webhook=$api->call('getWebhookInfo');
 if(!empty($webhook['url'])) throw new RuntimeException('Webhook is configured. Remove it before starting this polling bot.');
 echo "Ciro Downloader poller started\n";
+$lastHeartbeat=0;
 while(true) {
     try {
+        if(time()-$lastHeartbeat>=10) { $store->set('poller_heartbeat',(string)time()); $lastHeartbeat=time(); }
         $updates=$api->call('getUpdates',['offset'=>(int)$store->get('offset','0'),'timeout'=>30,'allowed_updates'=>['message','callback_query']]);
         foreach($updates as $update) {
             try { $bot->handle($update); }
