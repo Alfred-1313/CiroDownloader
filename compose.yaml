@@ -1,0 +1,32 @@
+name: ciro-downloader
+x-common: &common
+  build: .
+  image: ciro-downloader:local
+  env_file: .env
+  restart: unless-stopped
+  init: true
+  read_only: true
+  volumes:
+    - data:/app/storage
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  mem_limit: 768m
+  cpus: 1.0
+  pids_limit: 128
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 15s
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: '3'
+services:
+  bot:
+    <<: *common
+    command: [php, bin/bot.php]
+  worker:
+    <<: *common
+    command: [php, bin/worker.php]
+volumes:
+  data:
