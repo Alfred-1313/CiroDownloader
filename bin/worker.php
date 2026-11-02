@@ -14,7 +14,7 @@ $interrupted=$store->query("SELECT * FROM jobs WHERE status='running'")->fetchAl
 $store->query("UPDATE jobs SET status='failed' WHERE status='running'");
 foreach(glob($downloads.'/job-*')?:[] as $dir) Zero\Download::clean($dir);
 foreach($interrupted as $job) {
-    try { $bot->send((int)$job['chat_id'],'ربات هنگام پردازش دوباره راه‌اندازی شد؛ اگر فایل نرسیده، لینک را مجدد بفرست.'); } catch(Throwable) {}
+    try { $bot->send((int)$job['chat_id'],$bot->text('restarted')); } catch(Throwable) {}
 }
 echo "Ciro Downloader worker started\n";
 while(true) {
@@ -27,7 +27,11 @@ while(true) {
             $bot->send((int)$job['chat_id'],$bot->text('downloading'));
             $media=$downloader->fetch($job['url'],$folder);
             $bot->send((int)$job['chat_id'],$bot->text('uploading'));
-            $caption=strtr($bot->text('video_caption'),['{title}'=>mb_substr($media['title'],0,100),'{quality}'=>$media['height'].'p','{url}'=>$job['url']]);
+            $caption=strtr($bot->text('video_caption'),[
+                '{title}'=>htmlspecialchars(mb_substr($media['title'],0,100), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+                '{quality}'=>htmlspecialchars($media['height'].'p', ENT_QUOTES, 'UTF-8'),
+                '{url}'=>htmlspecialchars($job['url'], ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'),
+            ]);
             // Limit UTF-16 units conservatively for Telegram captions (including emoji).
             $caption=mb_substr($caption,0,500);
             $api->call('sendVideo',['chat_id'=>(int)$job['chat_id'],'video'=>new CURLFile($media['path'],'video/mp4','video.mp4'),

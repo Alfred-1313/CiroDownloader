@@ -1,36 +1,42 @@
 # Ciro Downloader
 
-نسخهٔ اولیه ربات عمومی دانلود یوتیوب با PHP 8.3، پنل ادمین فارسی و نصب‌کننده Bash.
+A focused Telegram bot that downloads YouTube videos and Shorts as MP4 files up to 480p. It is written in PHP 8.3, uses SQLite for a durable queue, and runs the polling bot and download worker as isolated Docker services.
 
-## نسخهٔ اول چه می‌کند؟
+## What it does
 
-- کاربر لینک یوتیوب یا Shorts می‌فرستد و فایل MP4 با صدا دریافت می‌کند.
-- بهترین کیفیت موجود تا **۴۸۰p** انتخاب می‌شود؛ اگر منبع ۴۸۰ نداشته باشد کیفیت پایین‌تر ارسال می‌شود. فایل بالاتر از ۴۸۰ ارسال نمی‌شود.
-- دکمه «پنل ادمین» فقط برای شناسه‌های `ADMIN_IDS` ظاهر می‌شود. `/admin` همیشه راه ورود ادمین است، حتی پس از تغییر نام دکمه.
-- پنل: روشن/خاموش، شخصی‌سازی متن دکمه‌ها، پیام‌ها و کپشن فایل، نمایش مقدار فعلی و پیش‌فرض و بازگردانی هر مورد.
-- ویرایش متن: انتخاب مورد ← ویرایش ← ارسال متن؛ `/cancel` لغو می‌کند. مهلت ویرایش ۱۰ دقیقه است.
-- متغیرهای کپشن: `{title}`، `{quality}`، `{url}`. متن‌ها plain text هستند و HTML/Markdown تفسیر نمی‌شوند.
-- خاموش‌کردن، ثبت درخواست عمومی و شروع دانلودهای صف را متوقف می‌کند؛ کار در حال اجرا تکمیل می‌شود. پنل ادمین فعال می‌ماند.
-- صف پایدار SQLite، یک دانلود فعال، سقف ۲۰ درخواست فعال/صف، یک درخواست هم‌زمان برای هر کاربر و فاصله ۱۵ ثانیه‌ای بین درخواست‌ها.
-- دانلود در worker جدا انجام می‌شود و پنل هنگام دانلود پاسخ می‌دهد. بعد از ارسال یا خطا فایل موقت پاک می‌شود.
+- Accepts YouTube watch, Shorts, live-page and `youtu.be` links.
+- Downloads one video per request and sends it back with audio as an MP4.
+- Selects MP4 video up to 480p and rejects playlists, live streams and videos longer than 20 minutes.
+- Shows clear progress states: queued, downloading, uploading and failed.
+- Limits one active request per user, 20 active/queued jobs globally and 15 seconds between requests.
+- Keeps the admin panel private to the IDs in `ADMIN_IDS`.
+- Gives admins a real Telegram reply keyboard for the main controls and inline controls for detailed settings.
+- Lets admins pause the service and edit/reset English messages, buttons and the video caption.
 
-## نصب
+## Requirements
 
-سرور Linux با دسترسی sudo/root، ترجیحاً Ubuntu 24.04 یا Debian 12، حداقل ۲ گیگابایت RAM و چند گیگابایت فضای آزاد. سرور باید به Telegram، YouTube، Docker Hub و مخزن بسته‌ها دسترسی داشته باشد. دامنه، SSL، وب‌سرور یا پورت ورودی لازم نیست.
+- Ubuntu 24.04 or Debian 12 recommended
+- At least 2 GB RAM and several GB of free disk space
+- Root or sudo access
+- A Telegram bot token from [@BotFather](https://t.me/BotFather)
+- The numeric Telegram ID of each administrator
+- Outbound access to Telegram, YouTube, Docker Hub and the OS package repositories
 
-کد پروژه را دریافت کنید، وارد پوشه شوید و اجرا کنید:
+No domain, SSL certificate or inbound web-server port is required. The bot uses long polling.
+
+## Install
+
+Clone the repository and run the installer as root:
 
 ```bash
+git clone https://github.com/Alfred-1313/CiroDownloader.git
+cd CiroDownloader
 sudo bash install.sh
 ```
 
-گزینه ۱: اگر Docker موجود نباشد نصب‌کننده رسمی Docker اجرا می‌شود؛ سپس توکن و شناسه عددی ادمین درخواست می‌شود، `.env` با دسترسی ۶۰۰ ساخته شده و دو سرویس poller و worker اجرا می‌شوند. `.env` موجود بازنویسی نمی‌شود. رمزها در فرمان shell یا گیت ذخیره نمی‌شوند.
+The installer installs Docker if needed, asks for the bot token and administrator IDs, creates a protected `.env`, builds the image, starts the `bot` and `worker` services, and checks the token and webhook state.
 
-منو: نصب، روشن‌کردن سرویس، توقف، Restart، لاگ، وضعیت و Update. Update فقط در clone گیت با درخت کاری تمیز اجرا می‌شود و داده‌ها و تنظیمات حفظ می‌شوند.
-
-اگر Docker از قبل نصب است ولی Compose ندارد، افزونه Compose را نصب کنید. این اسکریپت Docker موجود یا وب‌سرورهای فعلی را حذف نمی‌کند.
-
-### راه‌اندازی دستی
+## Manual Docker setup
 
 ```bash
 cp .env.example .env
@@ -40,43 +46,72 @@ docker compose up -d --build
 docker compose logs --tail=100
 ```
 
-نمونه فایل `.env` در گیت است؛ فایل واقعی `.env` به دلیل داشتن توکن در گیت قرار نمی‌گیرد. ادمین‌ها را با کاما جدا کنید؛ فاصله نگذارید. شناسه عددی را می‌توانید با فرمان `/id` ربات ببینید. برای اولین نصب حداقل شناسه یک ادمین لازم است.
+Example configuration:
 
-## تست پذیرش در تلگرام
+```dotenv
+BOT_TOKEN=123456789:replace_with_your_token
+ADMIN_IDS=123456789,987654321
+BOT_API_URL=https://api.telegram.org
+MAX_FILE_BYTES=49000000
+STORAGE_DIR=/app/storage
+YT_DLP_BIN=/opt/yt/bin/yt-dlp
+```
 
-۱. با حساب ادمین `/start` بزنید؛ «پنل ادمین» باید دیده شود.
+Never commit the real `.env` file, bot token or SQLite database. They are excluded by `.gitignore` and runtime data is stored in a private Compose volume.
 
-۲. با یک حساب معمولی `/start` بزنید؛ دکمه ادمین نباید دیده شود.
+## Admin controls
 
-۳. لینک ویدیوی عمومی کوتاه بفرستید؛ ابتدا صف/دانلود/ارسال و سپس MP4 با صدا دریافت کنید.
+- Send `/start` to see the main menu.
+- Send `/id` to display your Telegram ID.
+- Send `/admin` to open the admin panel.
+- Use the reply keyboard to pause or resume the downloader.
+- Use **Edit messages** or **Edit buttons** to customize copy.
+- Use `/cancel` to leave an editing flow.
 
-۴. از پنل ربات را خاموش کنید؛ کاربر عادی پیام خاموش بودن دریافت کند. دوباره روشن کنید.
+The Help button gives immediate callback feedback and then shows the full guide in the chat. Admin controls are hidden from non-admin users and callback authorization is checked server-side.
 
-۵. نام دکمه دانلود و کپشن فایل را تغییر دهید، با `/start` و دانلود جدید نتیجه را ببینید و پیش‌فرض را بازگردانید.
+## Service commands
 
-۶. سرویس را Restart کنید؛ تنظیمات باید باقی بمانند. کار در حال اجرا پس از Restart تکرار نمی‌شود و کاربر پیام درخواست مجدد می‌گیرد؛ صف منتظر باقی می‌ماند.
+```bash
+docker compose up -d
+docker compose stop
+docker compose restart
+docker compose ps
+docker compose logs --tail=100
+docker compose down
+```
 
-دکمه‌های پیام‌های قدیمی خودکار ویرایش نمی‌شوند؛ پیام جدید یا `/start` متن‌های تازه را نشان می‌دهد.
+The installer also provides an interactive menu with install, start, stop, restart, logs, status and update actions. Updates require a clean Git worktree and preserve `.env` plus the persistent data volume.
 
-## محدودیت‌های این مرحله
+## Architecture
 
-- Bot API عمومی: حداکثر فایل ۴۹ میلیون بایت؛ ویدیو حداکثر ۲۰ دقیقه، مهلت دانلود ۱۰ دقیقه.
-- فایل بزرگ فشرده یا بخش‌بندی نمی‌شود. Local Bot API در این نسخه نصب نمی‌شود؛ پشتیبانی از فایل‌های بزرگ مرحلهٔ جداگانه است. متغیرهای `BOT_API_URL` و `MAX_FILE_BYTES` برای اتصال به API آماده‌شده در دسترس‌اند.
-- ویدیوی خصوصی، محدودیت سنی/منطقه‌ای، پخش زنده و IP مسدودشدهٔ دیتاسنتر ممکن است خطا دهند. دانلود موفق برای همه لینک‌ها و سرورها تضمین نمی‌شود.
-- انتخاب کیفیت، دانلود صدا، پرداخت، عضویت اجباری، آمار و مدیریت کاربران در دامنه این نسخه نیستند.
-- فقط گفت‌وگوی خصوصی؛ هر توکن فقط یک poller داشته باشد. webhook موجود خودکار حذف نمی‌شود.
-- تنظیمات در Docker volume با نام `ciro-downloader_data` ذخیره می‌شوند؛ `docker compose down -v` داده‌ها را حذف می‌کند. پیش از ارتقا از volume بکاپ بگیرید.
+- `bin/bot.php` polls Telegram and manages user/admin interactions.
+- `bin/worker.php` claims queued jobs and performs downloads.
+- `src/Core.php` contains configuration, Telegram transport, SQLite storage and URL validation.
+- `src/Bot.php` contains the interaction model, copy and admin settings.
+- `src/Download.php` runs `yt-dlp`, FFmpeg and ffprobe with timeouts and size limits.
+- `storage/` is a private persistent Docker volume and is not part of the repository.
 
-## تست توسعه
+## Testing
 
-با PHP 8.3 و افزونه‌های curl، pdo_sqlite و mbstring:
+With PHP 8.3 and the required extensions installed:
 
 ```bash
 php tests/run.php
-find src bin tests -name '*.php' -exec php -l {} \;
+find src bin tests -name '*.php' -exec php -l {} +
 bash -n install.sh
+docker compose config
 ```
 
-ربات و پنل با PHP نوشته شده‌اند؛ yt-dlp ابزار خارجی دانلود و FFmpeg ابزار بررسی/ترکیب صدا و تصویر است. وابستگی Python فقط مربوط به yt-dlp است.
+The test suite covers URL allowlisting, admin authorization, maintenance mode, copy persistence/reset, editing cancellation, duplicate updates, queue capacity and subprocess timeout/failure handling.
 
-مراجع: [Telegram Bot API](https://core.telegram.org/bots/api)، [yt-dlp](https://github.com/yt-dlp/yt-dlp)، [Docker Engine](https://docs.docker.com/engine/install/).
+## Limitations
+
+- Telegram's public Bot API has a practical upload limit of about 49 MB in this configuration.
+- Private, age-restricted, region-blocked or unavailable videos may fail.
+- YouTube availability and `yt-dlp` compatibility can change over time.
+- Each bot token should have one polling instance.
+
+## License
+
+This project is provided as-is. Review YouTube and Telegram terms, copyright law and local regulations before deploying it.
