@@ -4,6 +4,7 @@ umask 077
 
 REPOSITORY_URL='https://github.com/Alfred-1313/CiroDownloader.git'
 INSTALL_DIR='/opt/ciro-downloader'
+INSTALLER_VERSION='2.0.0'
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 [[ $EUID -eq 0 ]] || { echo 'Run this installer with sudo or as root.' >&2; exit 1; }
@@ -196,7 +197,7 @@ delete_bot() {
 menu() {
   while true; do
     printf '\033[2J\033[H'
-    printf '%s%sCIRO DOWNLOADER%s\n' "$C_BOLD$C_BLUE" '' "$C_RESET"
+    printf '%sCIRO DOWNLOADER%s  %sv%s%s\n' "$C_BOLD$C_BLUE" "$C_RESET" "$C_MUTED" "$INSTALLER_VERSION" "$C_RESET"
     line
     printf 'Project: %s\n' "$PROJECT_DIR"
     printf 'Status:  '; service_state; printf '\n'
