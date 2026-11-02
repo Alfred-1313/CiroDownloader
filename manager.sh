@@ -5,7 +5,7 @@ umask 077
 
 REPOSITORY_URL='https://github.com/Alfred-1313/CiroDownloader.git'
 INSTALL_DIR='/opt/ciro-downloader'
-INSTALLER_VERSION='2.0.0'
+INSTALLER_VERSION='2.1.0'
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 [[ $EUID -eq 0 ]] || { echo 'Run this installer with sudo or as root.' >&2; exit 1; }
@@ -190,6 +190,28 @@ run_diagnostics() {
   success 'Diagnostics passed. Check Telegram for the test video.'
 }
 
+import_youtube_cookies() {
+  require_docker || return
+  configure || return
+  title 'YouTube sign-in cookies'
+  printf 'Export your own YouTube cookies in Netscape cookies.txt format.\n'
+  printf 'Copy that file to this server, then enter its absolute path below.\n'
+  printf 'Cookies are stored privately in the data volume and used for new downloads.\n'
+  local cookie_file
+  read -rp 'Cookies file path (Enter to cancel): ' cookie_file
+  [[ -n "$cookie_file" ]] || return 0
+  [[ "$cookie_file" = /* && -f "$cookie_file" && -r "$cookie_file" ]] || {
+    warning 'Enter an absolute path to a readable cookie export.'
+    return 0
+  }
+  docker compose build
+  if docker compose run --rm --no-deps -T worker php bin/import-cookies.php < "$cookie_file"; then
+    success 'Cookies imported. Choose 8 and enter a YouTube URL to test delivery.'
+  else
+    warning 'Import failed. The previous cookie file was preserved.'
+  fi
+}
+
 delete_bot() {
   title 'Delete Ciro Downloader'
   warning 'This removes the project containers, image, persistent SQLite data and local .env token file.'
@@ -227,6 +249,7 @@ menu() {
     printf '%s7%s  Update from GitHub\n' "$C_BLUE" "$C_RESET"
     printf '%s8%s  Run delivery diagnostics\n' "$C_BLUE" "$C_RESET"
     printf '%s9%s  Delete installation%s\n' "$C_RED" "$C_RESET" "$C_RESET"
+    printf '%s10%s Import YouTube cookies\n' "$C_BLUE" "$C_RESET"
     printf '%s0%s  Exit\n' "$C_MUTED" "$C_RESET"
     line
     read -rp 'Choose an option: ' choice || exit 0
@@ -241,6 +264,7 @@ menu() {
       7) update_bot; pause ;;
       8) run_diagnostics; pause ;;
       9) delete_bot; pause ;;
+      10) import_youtube_cookies; pause ;;
       0) exit 0 ;;
       *) warning 'Choose a number from the menu.'; pause ;;
     esac

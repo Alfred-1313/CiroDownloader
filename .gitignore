@@ -4,3 +4,4 @@
 storage/
 *.log
 *.zip
+*cookies*.txt

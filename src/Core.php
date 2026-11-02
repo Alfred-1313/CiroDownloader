@@ -9,6 +9,7 @@ final class Config
         public string $token, public array $admins, public string $storage,
         public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
         public string $ytDlp = '/opt/yt/bin/yt-dlp', public int $timeout = 600,
+        public string $youtubeCookies = '', public string $youtubeProxy = '',
     ) {}
 
     public static function load(): self
@@ -30,10 +31,42 @@ final class Config
         if ($max < 1000000 || $max > 2000000000 || ($api === 'https://api.telegram.org' && $max > 49000000)) {
             throw new \RuntimeException('Invalid file limit for configured Bot API');
         }
+        $proxy=getenv('YOUTUBE_PROXY')?:'';
+        if($proxy!=='') {
+            $parts=parse_url($proxy);
+            if(!$parts||empty($parts['host'])||!in_array($parts['scheme']??'', ['http','https','socks5','socks5h'],true)) {
+                throw new \RuntimeException('YOUTUBE_PROXY must be an HTTP, HTTPS or SOCKS5 URL');
+            }
+        }
         return new self($token, array_map('intval', explode(',', $ids)),
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
-            getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp');
+            getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',600,
+            getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy);
     }
+
+    public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
+}
+
+// Validate the export without including session contents in errors or logs.
+function validateYouTubeCookies(string $content): void
+{
+    if(strlen($content)>1048576||!preg_match('/^# (?:Netscape )?HTTP Cookie File/', $content)) {
+        throw new \RuntimeException('Expected a Netscape cookies.txt export smaller than 1 MB');
+    }
+    $youtube=false;
+    foreach(preg_split('/\r?\n/',$content) as $line) {
+        if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+        elseif($line===''||str_starts_with($line,'#')) continue;
+        $fields=explode("\t",$line);
+        if(count($fields)!==7||!ctype_digit($fields[4])||!in_array($fields[1],['TRUE','FALSE'],true)
+            ||!in_array($fields[3],['TRUE','FALSE'],true)) throw new \RuntimeException('Invalid Netscape cookie row');
+        $domain=ltrim(strtolower($fields[0]),'.');
+        if($domain==='youtube.com'||str_ends_with($domain,'.youtube.com')) $youtube=true;
+        elseif($domain!=='google.com'&&!str_ends_with($domain,'.google.com')) {
+            throw new \RuntimeException('Export only YouTube cookies and related google.com cookies');
+        }
+    }
+    if(!$youtube) throw new \RuntimeException('No youtube.com cookies found in this export');
 }
 
 interface Api { public function call(string $method, array $params = []): mixed; }
@@ -42,7 +75,7 @@ interface Api { public function call(string $method, array $params = []): mixed;
 function diagnosticMessage(string $message): string
 {
     $message=preg_replace('/\x1b\[[0-9;]*[A-Za-z]/', '', $message)??'';
-    $message=preg_replace('~https?://[^\s<>]+~i', '[url]', $message)??'';
+    $message=preg_replace('~(?:https?|socks5h?)://[^\s<>]+~i', '[url]', $message)??'';
     $message=preg_replace('/\b\d+:[A-Za-z0-9_-]{10,}\b/', '[token]', $message)??'';
     return mb_substr(trim(preg_replace('/\s+/u',' ', $message)??''),0,1200);
 }

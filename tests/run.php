@@ -18,6 +18,18 @@ try {
     $url='https://www.youtube.com/watch?v=dQw4w9WgXcQ';
     check(Zero\youtubeUrl('https://youtu.be/dQw4w9WgXcQ?si=foo')===$url,'short URL canonicalization');
     check(Zero\youtubeUrl('https://youtube.com/shorts/dQw4w9WgXcQ')===$url,'Shorts URL');
+    $cookies="# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_TEST_VALUE\n";
+    Zero\validateYouTubeCookies($cookies);
+    check(true,'accept YouTube Netscape cookie export');
+    foreach(['not a cookie export',str_replace('youtube.com','unrelated.test',$cookies),str_replace("\tTRUE\t/", "\tINVALID\t/",$cookies)] as $badCookies) {
+        $rejected=false;
+        try { Zero\validateYouTubeCookies($badCookies); } catch(RuntimeException $e) {
+            $rejected=true;
+            check(!str_contains($e->getMessage(),'FAKE_TEST_VALUE'),'cookie validation does not expose session values');
+        }
+        check($rejected,'reject malformed or unrelated cookie export');
+    }
+    check(!str_contains(Zero\diagnosticMessage('Proxy socks5://username:SECRET_PASSWORD@example.test:1080 failed'),'SECRET_PASSWORD'),'redact SOCKS proxy credentials');
     foreach(['http://127.0.0.1/','https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ','https://youtube.com@evil.test/','https://youtube.com/watch?v[]=bad','https://youtube.com:99/watch?v=dQw4w9WgXcQ','https://youtube.com/playlist?list=abc'] as $bad) check(Zero\youtubeUrl($bad)===null,'reject invalid URL');
     $bot->handle(msg(1,'/start'));
     check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('admin')),'public menu hides admin');

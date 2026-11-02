@@ -16,6 +16,9 @@ $server=null;
 try {
     $config=new Zero\Config('123:fake-test-token',[42],$temp);
     $runner=new Zero\Download($config);
+    $cookieExport="# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_TEST_VALUE\n";
+    file_put_contents($config->cookiePath(),$cookieExport);
+    $config->youtubeProxy='socks5://test-user:test-password@127.0.0.1:1080';
     foreach([
         ['landscape','640x360','libx264','aac','mp4'],
         ['shorts','480x854','libx264','aac','mp4'],
@@ -33,11 +36,17 @@ try {
         $stub=$temp.'/download-'.$name;
         file_put_contents($stub,"#!/usr/bin/env php\n<?php\n".
             '$template=$argv[array_search("-o",$argv,true)+1];'."\n".
+            'file_put_contents(dirname($template)."/arguments.json",json_encode($argv));'."\n".
+            '$cookie=$argv[array_search("--cookies",$argv,true)+1]; file_put_contents($cookie,"# modified by downloader");'."\n".
             'copy('.var_export($source,true).',str_replace("%(ext)s",'.var_export($ext,true).',$template));'."\n".
             'echo json_encode("Test <title> & audio").PHP_EOL;');
         chmod($stub,0700);
         $config->ytDlp=$stub;
         $media=$runner->fetch('https://www.youtube.com/watch?v=ybNMMK5Q318',$work);
+        $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
+        verify($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt',"$name uses a private cookie copy");
+        verify(file_get_contents($config->cookiePath())===$cookieExport,"$name preserves shared cookies during download");
+        verify($arguments[array_search('--proxy',$arguments,true)+1]===$config->youtubeProxy,"$name passes the configured YouTube proxy");
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$media['path']],$work,10),true);
         $streams=array_column($probe['streams'],'codec_name','codec_type');
         verify(($streams['video']??'')==='h264'&&($streams['audio']??'')==='aac',"$name produces H.264 video and AAC audio");

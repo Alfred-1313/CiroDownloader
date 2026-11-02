@@ -77,13 +77,17 @@ final class Bot
         $workerOk=$worker>0&&$now-$worker<20;
         $pollerOk=$poller>0&&$now-$poller<60;
         $enabled=$this->store->enabled();
+        clearstatcache(true,$this->config->cookiePath());
+        $cookieStatus=is_readable($this->config->cookiePath())?'بارگذاری شده (اعتبار ورود هنوز نیاز به تست دارد)':'تنظیم نشده';
+        $proxyStatus=$this->config->youtubeProxy!==''?'تنظیم شده':'تنظیم نشده';
         $workerStatus=$running>0?'در حال پردازش':($workerOk?'آنلاین':'بدون پاسخ اخیر');
         $lastError=htmlspecialchars($this->store->get('last_job_error','ثبت نشده'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $this->send($chat,"<b>وضعیت ربات</b>\n\n".
             'ربات: <b>'.($enabled?'فعال':'متوقف')."</b>\n".
             'دریافت پیام: <b>'.($pollerOk?'آنلاین':'بدون پاسخ اخیر')."</b>\n".
             'پردازشگر: <b>'.$workerStatus."</b>\n".
-            "صف: <b>$queued منتظر / $running در حال اجرا</b>\n\nآخرین خطا:\n<code>$lastError</code>");
+            "صف: <b>$queued منتظر / $running در حال اجرا</b>\n".
+            "کوکی یوتیوب: $cookieStatus\nپراکسی یوتیوب: $proxyStatus\n\nآخرین خطا:\n<code>$lastError</code>");
     }
     public function catalog(string $kind): array { return $kind === 'text' ? self::TEXTS : ($kind === 'button' ? self::BUTTONS : []); }
     public function listItems(int $chat, string $kind): void

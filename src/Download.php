@@ -12,7 +12,8 @@ final class MediaFailure extends \RuntimeException
     public function userMessage(): string
     {
         return match($this->reason) {
-            'blocked'=>'یوتیوب دسترسی این سرور را محدود کرده و تأیید ورود می‌خواهد. مدیر باید اتصال سرور به یوتیوب را بررسی کند.',
+            'blocked'=>'یوتیوب دسترسی این سرور را محدود کرده است. مدیر باید کوکی ورود یا اتصال خروجی سرور را تنظیم و آزمایش کند.',
+            'cookies'=>'کوکی ورود یوتیوب معتبر یا قابل خواندن نیست؛ مدیر باید آن را به‌روز کند.',
             'size'=>'حجم این ویدیو از سقف ارسال ربات بیشتر است؛ یک ویدیوی کوتاه‌تر بفرست.',
             'restricted'=>'این ویدیو خصوصی، حذف‌شده یا دارای محدودیت دسترسی است و قابل دانلود نیست.',
             'duration'=>'پخش زنده یا ویدیوی بیشتر از ۲۰ دقیقه پشتیبانی نمی‌شود.',
@@ -25,7 +26,7 @@ final class MediaFailure extends \RuntimeException
     public static function process(int $exit, string $detail): self
     {
         $reason=match(true) {
-            preg_match('/not a bot|sign in to confirm|po.?token|HTTP Error (403|429)/i',$detail)===1=>'blocked',
+            preg_match('/not a bot|sign in to confirm|HTTP Error (403|429)/i',$detail)===1=>'blocked',
             preg_match('/max.filesize|larger than|too large|size limit/i',$detail)===1=>'size',
             preg_match('/private video|video unavailable|removed|age.restricted|not available in your country/i',$detail)===1=>'restricted',
             preg_match('/does not pass filter|live stream|duration limit/i',$detail)===1=>'duration',
@@ -77,14 +78,31 @@ final class Download
     {
         $canonical=youtubeUrl($url);
         if (!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        $title=$this->run([$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
+        $access=[];
+        $cookies=$this->config->cookiePath();
+        clearstatcache(true,$cookies);
+        if(is_file($cookies)) {
+            if(!is_readable($cookies)||filesize($cookies)>1048576) throw new MediaFailure('cookies','YouTube cookie file is unreadable or too large');
+            $content=(string)file_get_contents($cookies);
+            try { validateYouTubeCookies($content); }
+            catch(\RuntimeException $e) { throw new MediaFailure('cookies',$e->getMessage()); }
+            // yt-dlp saves cookies at exit. A private job copy avoids concurrent writers.
+            $private=$folder.'/cookies.txt';
+            if(file_put_contents($private,$content)===false) throw new MediaFailure('cookies','Cannot create private cookie copy');
+            chmod($private,0600);
+            $access=['--cookies',$private];
+        } elseif($this->config->youtubeCookies!=='') {
+            throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
+        }
+        if($this->config->youtubeProxy!=='') $access=array_merge($access,['--proxy',$this->config->youtubeProxy]);
+        $title=$this->run(array_merge([$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
             '--no-cache-dir','--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live & duration <= 1200','--break-on-reject',
             // res uses the shorter edge: 480x854 Shorts are valid 480p videos.
             '-f','bv*+ba/b','-S','res:480,vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
-            '-o',$folder.'/video.%(ext)s','--',$canonical],$folder,$this->config->timeout);
+            '-o',$folder.'/video.%(ext)s'],$access,['--',$canonical]),$folder,$this->config->timeout);
         $files=array_values(array_filter(glob($folder.'/video.*')?:[],
             fn($file)=>in_array(pathinfo($file,PATHINFO_EXTENSION),['mp4','mkv','webm','mov'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete video');

@@ -23,6 +23,8 @@ try {
     if(!empty($webhook['url'])) throw new RuntimeException('A webhook is configured; polling cannot receive updates.');
     if(!is_executable($config->ytDlp)) throw new RuntimeException('yt-dlp is not executable.');
     $store->set('diagnostic_at',(string)time());
+    echo 'YouTube cookies: '.(is_readable($config->cookiePath())?'loaded (validity checked during download)':'not configured').PHP_EOL;
+    echo 'YouTube proxy: '.($config->youtubeProxy!==''?'configured':'not configured').PHP_EOL;
 
     if($url!=='') {
         echo "Testing the real YouTube download pipeline…\n";
