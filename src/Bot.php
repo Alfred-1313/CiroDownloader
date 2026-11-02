@@ -132,7 +132,9 @@ final class Bot
         $text=trim((string)($message['text']??''));
         if ($text==='') return;
         if ($text==='/id') { $this->send($chat,"Your Telegram ID: <code>$user</code>"); return; }
-        if (in_array($text,['/cancel','/start','/admin'],true)) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        if (in_array($text,['/cancel','/start','/admin',$this->label('admin'),$this->label('help'),$this->label('download')],true)) {
+            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        }
         if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
