@@ -2,6 +2,41 @@
 declare(strict_types=1);
 namespace Zero;
 
+final class MediaFailure extends \RuntimeException
+{
+    public function __construct(public string $reason, string $detail)
+    {
+        parent::__construct(diagnosticMessage($detail));
+    }
+
+    public function userMessage(): string
+    {
+        return match($this->reason) {
+            'blocked'=>'یوتیوب دسترسی این سرور را محدود کرده و تأیید ورود می‌خواهد. مدیر باید اتصال سرور به یوتیوب را بررسی کند.',
+            'size'=>'حجم این ویدیو از سقف ارسال ربات بیشتر است؛ یک ویدیوی کوتاه‌تر بفرست.',
+            'restricted'=>'این ویدیو خصوصی، حذف‌شده یا دارای محدودیت دسترسی است و قابل دانلود نیست.',
+            'duration'=>'پخش زنده یا ویدیوی بیشتر از ۲۰ دقیقه پشتیبانی نمی‌شود.',
+            'network'=>'اتصال سرور به یوتیوب برقرار نشد؛ کمی بعد دوباره تلاش کن.',
+            'format'=>'فرمت قابل دانلود این ویدیو در دسترس نیست؛ جزئیات برای مدیر ثبت شد.',
+            default=>'دانلود یا آماده‌سازی ویدیو انجام نشد؛ جزئیات برای مدیر ثبت شد.',
+        };
+    }
+
+    public static function process(int $exit, string $detail): self
+    {
+        $reason=match(true) {
+            preg_match('/not a bot|sign in to confirm|po.?token|HTTP Error (403|429)/i',$detail)===1=>'blocked',
+            preg_match('/max.filesize|larger than|too large|size limit/i',$detail)===1=>'size',
+            preg_match('/private video|video unavailable|removed|age.restricted|not available in your country/i',$detail)===1=>'restricted',
+            preg_match('/does not pass filter|live stream|duration limit/i',$detail)===1=>'duration',
+            $exit===124||preg_match('/timed out|unable to download webpage|network is unreachable|name resolution|connection refused/i',$detail)===1=>'network',
+            preg_match('/requested format.*not available/i',$detail)===1=>'format',
+            default=>'process',
+        };
+        return new self($reason,"Media process exit $exit: $detail");
+    }
+}
+
 final class Download
 {
     public function __construct(private Config $config) {}
@@ -20,7 +55,7 @@ final class Download
                 if (!$status['running']) { $exit=$status['exitcode']; break; }
                 $bytes=0;
                 foreach (glob($folder.'/*')?:[] as $p) { clearstatcache(true,$p); if(is_file($p)) $bytes+=filesize($p); }
-                if ($bytes>$this->config->maxBytes*3) throw new \RuntimeException('Temporary size limit exceeded');
+                if ($bytes>$this->config->maxBytes*3) throw new MediaFailure('size','Temporary size limit exceeded');
                 usleep(250000);
             } while (true);
         } finally {
@@ -32,31 +67,65 @@ final class Download
             }
             proc_close($proc);
         }
-        if ($exit!==0) throw new \RuntimeException('Media process failed');
+        if ($exit!==0) {
+            $detail=is_file($stderr)?(string)file_get_contents($stderr):'';
+            throw MediaFailure::process($exit,substr($detail,-6000));
+        }
         return file_get_contents($stdout)?:'';
     }
     public function fetch(string $url, string $folder): array
     {
         $canonical=youtubeUrl($url);
         if (!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        $title=$this->run([$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet','--no-warnings',
+        $title=$this->run([$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
             '--no-cache-dir','--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
-            '--match-filter','!is_live & duration <= 1200',
-            '-f','bv[height<=480][ext=mp4][vcodec^=avc1]+ba[ext=m4a]/b[height<=480][ext=mp4]',
-            '--merge-output-format','mp4','--print','after_move:%(title)j',
+            '--match-filter','!is_live & duration <= 1200','--break-on-reject',
+            // res uses the shorter edge: 480x854 Shorts are valid 480p videos.
+            '-f','bv*+ba/b','-S','res:480,vcodec:h264,acodec:aac',
+            '--merge-output-format','mkv','--print','after_move:%(title)j',
             '-o',$folder.'/video.%(ext)s','--',$canonical],$folder,$this->config->timeout);
-        $file=$folder.'/video.mp4'; clearstatcache(true,$file);
-        if(!is_file($file)||filesize($file)<1||filesize($file)>$this->config->maxBytes) throw new \RuntimeException('Missing or oversized video');
-        $probe=$this->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$file],$folder,30);
-        $info=json_decode($probe,true,512,JSON_THROW_ON_ERROR); $video=null; $audio=false;
+        $files=array_values(array_filter(glob($folder.'/video.*')?:[],
+            fn($file)=>in_array(pathinfo($file,PATHINFO_EXTENSION),['mp4','mkv','webm','mov'],true)));
+        if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete video');
+        $file=$files[0];
+        $info=$this->probe($file,$folder);
+        $video=null; $audio=null;
         foreach($info['streams']??[] as $s) {
             if(($s['codec_type']??'')==='video') $video=$s;
-            if(($s['codec_type']??'')==='audio') $audio=true;
+            if(($s['codec_type']??'')==='audio') $audio=$s;
         }
-        if(!$video||!$audio||(int)$video['height']>480) throw new \RuntimeException('Invalid video streams');
-        return ['path'=>$file,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube',
-            'height'=>(int)$video['height'],'width'=>(int)$video['width'],'duration'=>(int)($info['format']['duration']??0)];
+        $duration=(float)($info['format']['duration']??0);
+        if(!$video||!$audio) throw new MediaFailure('format','Downloaded video or audio stream is missing');
+        if($duration<=0||$duration>1200) throw new MediaFailure('duration','Video exceeds duration limit or has no duration');
+
+        // Telegram clients need H.264/AAC MP4; accept other source codecs and convert them.
+        $ready=$folder.'/ready.mp4';
+        $compatible=($video['codec_name']??'')==='h264'&&($audio['codec_name']??'')==='aac'
+            &&min((int)$video['width'],(int)$video['height'])<=480;
+        $args=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$file,'-map','0:v:0','-map','0:a:0'];
+        if($compatible) {
+            $args=array_merge($args,['-c','copy']);
+        } else {
+            $args=array_merge($args,['-vf',"scale='if(gte(iw,ih),-2,min(480,iw))':'if(gte(iw,ih),min(480,ih),-2)'",
+                '-c:v','libx264','-preset','veryfast','-crf','25','-threads','2','-pix_fmt','yuv420p','-c:a','aac','-b:a','96k']);
+        }
+        $this->run(array_merge($args,['-movflags','+faststart',$ready]),$folder,$this->config->timeout);
+        clearstatcache(true,$ready);
+        if(!is_file($ready)||filesize($ready)<1) throw new MediaFailure('format','Prepared MP4 is missing');
+        if(filesize($ready)>$this->config->maxBytes) throw new MediaFailure('size','Prepared MP4 exceeds file size limit');
+        $info=$this->probe($ready,$folder); $video=null;
+        foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
+        if(!$video||min((int)$video['width'],(int)$video['height'])>480) throw new MediaFailure('format','Prepared resolution exceeds 480p');
+        return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube',
+            'height'=>(int)$video['height'],'width'=>(int)$video['width'],
+            'quality'=>min((int)$video['height'],(int)$video['width']).'p','duration'=>(int)ceil($duration)];
+    }
+
+    private function probe(string $file, string $folder): array
+    {
+        $probe=$this->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$file],$folder,30);
+        return json_decode($probe,true,512,JSON_THROW_ON_ERROR);
     }
     public static function clean(string $folder): void
     {

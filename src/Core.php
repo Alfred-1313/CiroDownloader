@@ -38,6 +38,15 @@ final class Config
 
 interface Api { public function call(string $method, array $params = []): mixed; }
 
+// Keep useful diagnostics without retaining bot tokens, signed media URLs or ANSI escapes.
+function diagnosticMessage(string $message): string
+{
+    $message=preg_replace('/\x1b\[[0-9;]*[A-Za-z]/', '', $message)??'';
+    $message=preg_replace('~https?://[^\s<>]+~i', '[url]', $message)??'';
+    $message=preg_replace('/\b\d+:[A-Za-z0-9_-]{10,}\b/', '[token]', $message)??'';
+    return mb_substr(trim(preg_replace('/\s+/u',' ', $message)??''),0,1200);
+}
+
 final class Telegram implements Api
 {
     public function __construct(private Config $config) {}

@@ -25,11 +25,17 @@ jobs:
       - name: Run PHP tests
         run: php tests/run.php
 
+      - name: Install FFmpeg for media regression tests
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Verify portrait video conversion and multipart upload
+        run: php tests/media.php
+
       - name: Check PHP syntax
         run: find src bin tests -name '*.php' -exec php -l {} +
 
       - name: Check shell syntax
-        run: bash -n install.sh manager.sh setup.sh
+        run: for script in install.sh manager.sh setup.sh; do bash -n "$script"; done
 
       - name: Validate Compose configuration
         run: cp .env.example .env && docker compose config --quiet

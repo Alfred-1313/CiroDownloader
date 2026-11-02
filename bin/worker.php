@@ -24,14 +24,16 @@ while(true) {
         if(!$store->enabled()||!($job=$store->claim())) { sleep(1); continue; }
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
+        $stage='download';
         try {
             if(disk_free_space($downloads)<$config->maxBytes*4) throw new RuntimeException('Insufficient disk space');
             $bot->send((int)$job['chat_id'],$bot->text('downloading'));
             $media=$downloader->fetch($job['url'],$folder);
+            $stage='upload';
             $bot->send((int)$job['chat_id'],$bot->text('uploading'));
             $caption=strtr($bot->text('video_caption'),[
                 '{title}'=>mb_substr($media['title'],0,100),
-                '{quality}'=>$media['height'].'p',
+                '{quality}'=>$media['quality'],
                 '{url}'=>$job['url'],
             ]);
             // Limit UTF-16 units conservatively for Telegram captions (including emoji).
@@ -41,9 +43,13 @@ while(true) {
                 'width'=>$media['width'],'height'=>$media['height'],'duration'=>$media['duration']]);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         } catch(Throwable $e) {
-            error_log('Job '.$job['id'].' failed: '.get_class($e));
+            $detail=Zero\diagnosticMessage($e->getMessage());
+            error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
+            $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-            try { $bot->send((int)$job['chat_id'],$bot->text('failed')); } catch(Throwable) {}
+            $notice=$e instanceof Zero\MediaFailure?$e->userMessage():
+                ($stage==='upload'?'ویدیو آماده شد، اما ارسال آن به تلگرام انجام نشد. لطفاً دوباره تلاش کن.':$bot->text('failed'));
+            try { $bot->send((int)$job['chat_id'],$notice); } catch(Throwable) {}
         } finally { Zero\Download::clean($folder); }
         $store->query("DELETE FROM jobs WHERE status IN ('done','failed') AND created<?",[time()-86400*7]);
     } catch(Throwable $e) { error_log('Worker error: '.get_class($e)); sleep(5); }

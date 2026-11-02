@@ -20,14 +20,14 @@ try {
     check(Zero\youtubeUrl('https://youtube.com/shorts/dQw4w9WgXcQ')===$url,'Shorts URL');
     foreach(['http://127.0.0.1/','https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ','https://youtube.com@evil.test/','https://youtube.com/watch?v[]=bad','https://youtube.com:99/watch?v=dQw4w9WgXcQ','https://youtube.com/playlist?list=abc'] as $bad) check(Zero\youtubeUrl($bad)===null,'reject invalid URL');
     $bot->handle(msg(1,'/start'));
-    check(!str_contains(json_encode(end($api->calls)), 'Admin panel'),'public menu hides admin');
+    check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('admin')),'public menu hides admin');
     $bot->handle(msg(42,'/start'));
-    check(str_contains(json_encode(end($api->calls)), 'Admin panel'),'admin menu visible');
+    check(str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('admin')),'admin menu visible');
     $bot->handle(cb(1,'set:off')); check($store->enabled(),'forged admin callback denied');
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');
     $bot->handle(msg(1,$url,10)); check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===0,'offline denies downloads');
     $bot->handle(msg(42,'/admin')); check(end($api->calls)[0]==='sendMessage','admin accessible while offline');
-    $bot->handle(msg(42,'/health')); check(str_contains((string)end($api->calls)[1]['text'],'System status'),'admin health status');
+    $bot->handle(msg(42,'/health')); check(str_contains((string)end($api->calls)[1]['text'],'وضعیت ربات'),'admin health status');
     $bot->handle(cb(42,'set:on')); check($store->enabled(),'admin turns bot on');
     $bot->handle(cb(42,'edit:button:download')); $bot->handle(msg(42,'Get video'));
     check($bot->label('download')==='Get video','edit button label');
@@ -54,5 +54,14 @@ try {
     $bad=false;
     try { $runner->run([PHP_BINARY,'-r','exit(3);'],$temp.'/process',2); } catch(RuntimeException) { $bad=true; }
     check($bad,'subprocess failure');
+    try { $runner->run([PHP_BINARY,'-r','fwrite(STDERR,"ERROR: Sign in to confirm you are not a bot. https://private.test/signed?key=SECRET"); exit(1);'],$temp.'/process',2); }
+    catch(Zero\MediaFailure $e) {
+        check($e->reason==='blocked','classify YouTube access restriction');
+        check(!str_contains($e->getMessage(),'SECRET'),'redact signed media URL from diagnostics');
+        check(str_contains($e->userMessage(),'یوتیوب'),'Persian actionable download failure');
+    }
+    $before=count($api->calls);
+    $bot->handle(cb(1,'help'));
+    check(count($api->calls)===$before+1&&end($api->calls)[0]==='answerCallbackQuery'&&end($api->calls)[1]['show_alert']===true,'help shown in a single callback alert');
     echo "All tests passed.\n";
 } finally { Zero\Download::clean($temp); }

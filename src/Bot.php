@@ -5,26 +5,26 @@ namespace Zero;
 final class Bot
 {
     public const TEXTS = [
-        'welcome' => ['Welcome message', "<b>Welcome to Ciro Downloader</b>\n\nSend a YouTube video or Shorts link and I will download an MP4 up to 480p.\n\nUse the buttons below to get started."],
-        'help' => ['Help message', "<b>How it works</b>\n\n1. Send one YouTube video or Shorts link.\n2. Wait while the video is downloaded and prepared.\n3. Receive the MP4 file here.\n\nLive streams, playlists and videos longer than 20 minutes are not supported. One active download is allowed per user."],
-        'offline' => ['Maintenance message', 'The downloader is temporarily paused. Please try again later.'],
-        'prompt' => ['Link prompt', '<b>Ready when you are</b>\n\nSend a YouTube video or Shorts link.'],
-        'queued' => ['Queue message', 'Your request is queued. I will send an update when processing starts.'],
-        'downloading' => ['Download status', 'Downloading and preparing your video…'],
-        'uploading' => ['Upload status', 'Download complete. Uploading the video now…'],
-        'video_caption' => ['File caption', "Your video is ready\n\n{title}\nQuality: {quality}\n{url}"],
-        'failed' => ['Download error', 'The video could not be downloaded or uploaded. It may be restricted, live, too long or larger than the configured file limit.'],
-        'invalid' => ['Invalid link message', 'That does not look like a valid YouTube video link. Please send a youtube.com or youtu.be URL.'],
-        'restarted' => ['Restart message', 'The worker restarted while processing your request. If you did not receive a file, please send the link again.'],
+        'welcome' => ['خوش‌آمدگویی', "<b>به سیرو دانلودر خوش آمدی</b>\n\nلینک ویدیو یا شورت یوتیوب را بفرست تا فایل MP4 همراه صدا، با کیفیت حداکثر ۴۸۰ دریافت کنی."],
+        'help' => ['راهنما', "لینک ویدیو یا Shorts یوتیوب را بفرست.\nهر بار یک درخواست؛ حداکثر ۲۰ دقیقه.\nپخش زنده و پلی‌لیست پشتیبانی نمی‌شوند.\nبعد از آماده‌سازی، فایل ویدیو همین‌جا ارسال می‌شود."],
+        'offline' => ['توقف ربات', 'ربات موقتاً متوقف است؛ لطفاً بعداً دوباره تلاش کن.'],
+        'prompt' => ['درخواست لینک', 'لینک ویدیو یا شورت یوتیوب را بفرست.'],
+        'queued' => ['ثبت در صف', 'درخواستت در صف قرار گرفت؛ به محض شروع دانلود خبر می‌دهم.'],
+        'downloading' => ['شروع دانلود', 'در حال دانلود و آماده‌سازی ویدیو…'],
+        'uploading' => ['شروع ارسال', 'دانلود تمام شد؛ در حال آپلود فایل ویدیو…'],
+        'video_caption' => ['کپشن ویدیو', "ویدیوی شما آماده است\n\n{title}\nکیفیت: {quality}\n{url}"],
+        'failed' => ['خطای پردازش', 'پردازش ویدیو انجام نشد. لطفاً دوباره تلاش کن؛ جزئیات خطا برای مدیر ثبت شد.'],
+        'invalid' => ['لینک نامعتبر', 'لینک معتبر یک ویدیوی یوتیوب یا Shorts را بفرست.'],
+        'restarted' => ['راه‌اندازی مجدد', 'ربات هنگام پردازش دوباره راه‌اندازی شد؛ اگر فایل را نگرفتی، لینک را مجدد بفرست.'],
     ];
     public const BUTTONS = [
-        'download' => ['Download button', 'Download video'], 'help' => ['Help button', 'Help'],
-        'admin' => ['Admin button', 'Admin panel'], 'on' => ['Enable button', 'Enable downloader'],
-        'off' => ['Disable button', 'Pause downloader'],
-        'texts' => ['Message settings button', 'Edit messages'],
-        'buttons' => ['Button settings button', 'Edit buttons'],
-        'health' => ['System status button', 'System status'],
-        'back' => ['Back button', 'Back'],
+        'download' => ['دکمه دانلود', 'دانلود ویدیو'], 'help' => ['دکمه راهنما', 'راهنما'],
+        'admin' => ['دکمه مدیریت', 'پنل مدیریت'], 'on' => ['دکمه فعال‌سازی', 'فعال‌کردن ربات'],
+        'off' => ['دکمه توقف', 'توقف ربات'],
+        'texts' => ['تنظیم پیام‌ها', 'ویرایش پیام‌ها'],
+        'buttons' => ['تنظیم دکمه‌ها', 'ویرایش دکمه‌ها'],
+        'health' => ['دکمه وضعیت', 'وضعیت ربات'],
+        'back' => ['دکمه بازگشت', 'بازگشت'],
     ];
     public function __construct(public Config $config, public Store $store, public Api $api) {}
     public function text(string $key): string { return $this->store->get('text.'.$key, str_replace('\\n', "\n", self::TEXTS[$key][1])); }
@@ -60,7 +60,7 @@ final class Bot
     public function panel(int $chat): void
     {
         $on = $this->store->enabled();
-        $this->send($chat, '<b>Admin panel</b>\nStatus: <b>'.($on ? 'Enabled' : 'Paused').'</b>', [
+        $this->send($chat, "<b>پنل مدیریت</b>\nوضعیت: <b>".($on ? 'فعال' : 'متوقف').'</b>', [
             [$this->button($on?'off':'on', $on?'set:off':'set:on')],
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
             [$this->button('health','health')],
@@ -77,12 +77,13 @@ final class Bot
         $workerOk=$worker>0&&$now-$worker<20;
         $pollerOk=$poller>0&&$now-$poller<60;
         $enabled=$this->store->enabled();
-        $workerStatus=$running>0?'Busy':($workerOk?'Online':'No recent heartbeat');
-        $this->send($chat,"<b>System status</b>\n\n".
-            'Bot: <b>'.($enabled?'Enabled':'Paused')."</b>\n".
-            'Poller: <b>'.($pollerOk?'Online':'No recent heartbeat')."</b>\n".
-            'Worker: <b>'.$workerStatus."</b>\n".
-            "Queue: <b>$queued waiting / $running active</b>");
+        $workerStatus=$running>0?'در حال پردازش':($workerOk?'آنلاین':'بدون پاسخ اخیر');
+        $lastError=htmlspecialchars($this->store->get('last_job_error','ثبت نشده'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        $this->send($chat,"<b>وضعیت ربات</b>\n\n".
+            'ربات: <b>'.($enabled?'فعال':'متوقف')."</b>\n".
+            'دریافت پیام: <b>'.($pollerOk?'آنلاین':'بدون پاسخ اخیر')."</b>\n".
+            'پردازشگر: <b>'.$workerStatus."</b>\n".
+            "صف: <b>$queued منتظر / $running در حال اجرا</b>\n\nآخرین خطا:\n<code>$lastError</code>");
     }
     public function catalog(string $kind): array { return $kind === 'text' ? self::TEXTS : ($kind === 'button' ? self::BUTTONS : []); }
     public function listItems(int $chat, string $kind): void
@@ -90,7 +91,7 @@ final class Bot
         $rows=[];
         foreach ($this->catalog($kind) as $key=>$item) $rows[]=[['text'=>$item[0], 'callback_data'=>"item:$kind:$key"]];
         $rows[]=[$this->button('back','admin')];
-        $this->send($chat, '<b>Choose a section</b>\nSelect the messages or buttons you want to manage.', $rows);
+        $this->send($chat, '<b>موردی را برای ویرایش انتخاب کن</b>', $rows);
     }
     public function item(int $chat, string $kind, string $key): void
     {
@@ -99,9 +100,9 @@ final class Bot
         $default=str_replace('\\n',"\n",$this->catalog($kind)[$key][1]);
         $current=htmlspecialchars($current, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         $default=htmlspecialchars($default, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $this->send($chat,"<b>Current value</b>\n$current\n\n<b>Default value</b>\n$default",[
-            [['text'=>'Edit value','callback_data'=>"edit:$kind:$key"]],
-            [['text'=>'Restore default','callback_data'=>"reset:$kind:$key"]],
+        $this->send($chat,"<b>مقدار فعلی</b>\n$current\n\n<b>پیش‌فرض</b>\n$default",[
+            [['text'=>'ویرایش','callback_data'=>"edit:$kind:$key"]],
+            [['text'=>'بازگردانی پیش‌فرض','callback_data'=>"reset:$kind:$key"]],
             [$this->button('back',"list:$kind")],
         ]);
     }
@@ -120,7 +121,7 @@ final class Bot
             // Check every callback, including forged/stale ones, before state changes.
             $this->api->call('answerCallbackQuery',[
                 'callback_query_id'=>$cb['id'],
-                'text'=>($privileged&&!$this->admin($user))?'Admin access required.':($isHelp?'Help is shown below.':''),
+                'text'=>($privileged&&!$this->admin($user))?'این بخش فقط برای مدیر است.':($isHelp?mb_substr(strip_tags($this->text('help')),0,190):''),
                 'show_alert'=>$isHelp,
                 'cache_time'=>1,
             ]);
@@ -128,7 +129,7 @@ final class Bot
             if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
             if ($action==='home') $this->home($chat,$user);
-            elseif ($action==='help') $this->send($chat,$this->text('help'));
+            elseif ($action==='help') return;
             elseif ($action==='download') $this->send($chat,$this->text('prompt'));
             elseif ($action==='admin') $this->panel($chat);
             elseif ($action==='health') $this->health($chat);
@@ -143,7 +144,7 @@ final class Bot
                         $this->store->query('DELETE FROM settings WHERE key=?',["$kind.$key"]); $this->item($chat,$kind,$key);
                     } elseif ($op==='edit') {
                         $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,"$kind.$key",time()+600]);
-                        $this->send($chat,'<b>Send the new value</b>\nUse /cancel to stop editing.'.($key==='video_caption'?"\nAvailable variables: <code>{title}</code>, <code>{quality}</code>, <code>{url}</code>":''));
+                        $this->send($chat,"<b>مقدار جدید را بفرست</b>\nبرای لغو /cancel را بزن.".($key==='video_caption'?"\nمتغیرها: <code>{title}</code>، <code>{quality}</code>، <code>{url}</code>":''));
                     }
                 }
             }
@@ -151,7 +152,7 @@ final class Bot
         }
         $text=trim((string)($message['text']??''));
         if ($text==='') return;
-        if ($text==='/id') { $this->send($chat,"Your Telegram ID: <code>$user</code>"); return; }
+        if ($text==='/id') { $this->send($chat,"شناسه تلگرام شما: <code>$user</code>"); return; }
         if (in_array($text,['/cancel','/start','/admin','/health',$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         }
@@ -159,7 +160,7 @@ final class Bot
         if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
-        if ($text===$this->label('help')) { $this->send($chat,$this->text('help')); return; }
+        if ($text===$this->label('help')||$text==='/help') { $this->send($chat,$this->text('help')); return; }
         if ($text===$this->label('download')) { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND expires>?',[$user,time()])->fetchColumn();
         if ($state && $this->admin($user)) {
@@ -167,7 +168,7 @@ final class Bot
             if (!isset($this->catalog($kind)[$key])) return;
             $limit=$kind==='button'?48:($key==='video_caption'?700:1200);
             if (mb_strlen($text)>$limit || ($kind==='button'&&str_contains($text,"\n"))) {
-                $this->send($chat,"The value must be at most $limit characters; button labels must stay on one line."); return;
+                $this->send($chat,"حداکثر $limit نویسه مجاز است؛ متن دکمه باید تک‌خطی باشد."); return;
             }
             $this->store->set($state,$text);
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
@@ -177,8 +178,8 @@ final class Bot
         if (!$url) { $this->send($chat,$this->text('invalid')); return; }
         $result=$this->store->enqueue((int)$update['update_id'],$user,$chat,$url);
         $response=match($result) {
-            'busy'=>'Your previous request is still being processed.', 'full'=>'The queue is full. Please try again shortly.',
-            'cooldown'=>'Please wait 15 seconds between requests.', 'duplicate'=>null,
+            'busy'=>'درخواست قبلی شما هنوز در حال پردازش است.', 'full'=>'صف پر است؛ کمی بعد تلاش کن.',
+            'cooldown'=>'بین درخواست‌ها ۱۵ ثانیه فاصله بگذار.', 'duplicate'=>null,
             default=>$this->text('queued'),
         };
         if ($response!==null) $this->send($chat,$response);

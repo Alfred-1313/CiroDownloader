@@ -27,7 +27,7 @@ try {
     if($url!=='') {
         echo "Testing the real YouTube download pipeline…\n";
         $media=$downloader->fetch($url,$folder);
-        $caption='Ciro Downloader diagnostic: YouTube download and Telegram upload succeeded.';
+        $caption='تست سیرو دانلودر: دانلود از یوتیوب و ارسال فایل به تلگرام با موفقیت انجام شد.';
     } else {
         echo "Generating a local diagnostic video…\n";
         $path=$folder.'/diagnostic.mp4';
@@ -40,7 +40,7 @@ try {
         ],$folder,60);
         if(!is_file($path)||filesize($path)<1) throw new RuntimeException('FFmpeg did not create the diagnostic video.');
         $media=['path'=>$path,'width'=>640,'height'=>360,'duration'=>2];
-        $caption='Ciro Downloader diagnostic: Telegram video upload succeeded. Add a YouTube URL in the manager to test the full download pipeline.';
+        $caption='تست سیرو دانلودر: ارسال ویدیوی آزمایشی به تلگرام موفق بود. برای تست دانلود، در منوی نصب لینک یوتیوب وارد کن.';
     }
 
     $api->call('sendVideo',[
