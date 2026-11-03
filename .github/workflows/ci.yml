@@ -36,6 +36,8 @@ jobs:
         run: |
           php tests/media.php
           php tests/quality_worker.php
+          php tests/quality_worker.php --audio
+          php tests/audio.php
 
       - name: Check PHP syntax
         run: find src bin tests -name '*.php' -exec php -l {} +
