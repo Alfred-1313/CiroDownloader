@@ -142,7 +142,9 @@ class Agent:
 
     def progress(self, text):
         self.beat()
-        self.notify('<b>🔄 به‌روزرسانی سیرو دانلودر</b>\n\n' + text + '\n\nلطفاً منتظر بمان؛ نتیجه در همین پیام نمایش داده می‌شود.')
+        self.notify('<blockquote><b>🔄 به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
+                    + '<blockquote><b>در حال انجام</b>\n' + html.escape(text) + '</blockquote>'
+                    + '\n\nلطفاً منتظر بمان؛ نتیجه در همین پیام نمایش داده می‌شود.')
 
     def run(self, *args, timeout=900):
         with tempfile.TemporaryFile() as output:
@@ -242,17 +244,22 @@ class Agent:
         self.set('update_in_progress', 0)
         version, changes = release_notes()
         previous = STATE / 'previous.json'
-        buttons = [[{'text': '🔄 بررسی دوباره و به‌روزرسانی', 'callback_data': 'update:run'}]]
+        buttons = [[{'text': '🔄 بررسی دوباره و به‌روزرسانی', 'callback_data': 'update:run', 'style': 'success'}]]
         if previous.is_file():
-            buttons.append([{'text': '↩️ بازگشت به نسخهٔ قبلی', 'callback_data': 'update:rollback'}])
-        buttons.append([{'text': 'پنل مدیریت', 'callback_data': 'admin'}])
+            buttons.append([{'text': '↩️ بازگشت به نسخهٔ قبلی', 'callback_data': 'update:rollback', 'style': 'danger'}])
+        buttons.append([{'text': 'پنل مدیریت', 'callback_data': 'admin', 'style': 'primary'}])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
         notes = '\n'.join('• ' + html.escape(item) for item in changes)
-        text = ('<b>' + title + '</b>\n\nنسخهٔ فعلی: <code>' + html.escape(version) + '</code>\n'
-                + 'زمان بررسی: ' + stamp + ' (تهران)\n\n' + detail + '\n\n<b>تغییرات این نسخه</b>\n' + notes
-                + '\n\nتنظیمات، کاربران و کوکی فعلی حفظ می‌شوند. پشتیبان روی سرور نگه‌داری می‌شود.')
+        text = ('<blockquote><b>' + html.escape(title) + '</b>'
+                + ('\n' + detail if detail else '') + '</blockquote>\n\n'
+                + '<b>🔄 به‌روزرسانی سیرو دانلودر</b>\n\n'
+                + 'نسخهٔ فعلی: <b>' + html.escape(version) + '</b>\n'
+                + 'آخرین بررسی: <b>' + stamp + '</b> (تهران)\n\n'
+                + '<blockquote expandable><b>✨ تغییرات این نسخه</b>\n' + notes + '</blockquote>\n\n'
+                + '<blockquote><b>✅ اطلاعات شما محفوظ است</b>\n'
+                + 'تنظیمات، کاربران و کوکی فعلی حفظ می‌شوند. پشتیبان ارتقا روی سرور نگه‌داری می‌شود.</blockquote>')
         self.set('last_update_at', stamp)
-        self.notify(text[:4000], buttons)
+        self.notify(text, buttons)
         with self.db() as db:
             db.execute('UPDATE update_requests SET status=? WHERE id=?', ('failed' if failed else 'done', self.job['id']))
 

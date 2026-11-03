@@ -19,9 +19,11 @@ final class Updates
             $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>'هنوز نسخهٔ قبلی برای بازگشت ثبت نشده است.']);
             return;
         }
-        $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>"به نسخهٔ قبلی برگردیم؟\nکد و تصویر اجرایی برمی‌گردند؛ کاربران، تنظیمات و کوکی فعلی حفظ می‌شوند.",
+        $version=htmlspecialchars($this->store->get('update_previous_version'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+        $this->api->call('sendMessage',['chat_id'=>$chat,'parse_mode'=>'HTML',
+            'text'=>"<blockquote><b>↩️ بازگشت به نسخهٔ قبلی</b></blockquote>\n\nنسخهٔ مقصد: <b>$version</b>\n\nکد و تصویر اجرایی به نسخهٔ قبلی برمی‌گردند.\n\n<blockquote><b>اطلاعات شما حفظ می‌شود</b>\nکاربران، تنظیمات و کوکی فعلی تغییر نمی‌کنند.</blockquote>\n\nبازگشت را تأیید می‌کنی؟",
             'reply_markup'=>['inline_keyboard'=>[
-                [['text'=>'تأیید بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback:confirm']],
+                [['text'=>'تأیید بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback:confirm','style'=>'danger']],
                 [['text'=>'انصراف','callback_data'=>'admin']],
             ]]]);
     }
@@ -46,7 +48,7 @@ final class Updates
         }
         try {
             $result=$this->api->call('sendMessage',['chat_id'=>$chat,'parse_mode'=>'HTML',
-                'text'=>"<b>🔄 به‌روزرسانی سیرو دانلودر</b>\n\nنسخهٔ فعلی: <code>".htmlspecialchars(self::version())."</code>\n\n⏳ درخواست ثبت شد؛ در انتظار سرویس سرور…\n\nپیشرفت و نتیجه در همین پیام نمایش داده می‌شود."]);
+                'text'=>"<blockquote><b>🔄 به‌روزرسانی سیرو دانلودر</b></blockquote>\n\nنسخهٔ فعلی: <b>".htmlspecialchars(self::version())."</b>\n\n<blockquote><b>⏳ درخواست ثبت شد</b>\nدر انتظار بررسی آخرین نسخه در سرور…</blockquote>\n\nپیشرفت و نتیجه در همین پیام نمایش داده می‌شود."]);
             if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing update message ID');
             $this->store->query('UPDATE update_requests SET message_id=? WHERE id=?',[(int)$result['message_id'],$id]);
         } catch(\Throwable $e) {

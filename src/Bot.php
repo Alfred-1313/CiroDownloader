@@ -33,8 +33,16 @@ final class Bot
     public function text(string $key): string { return $this->store->get('text.'.$key, str_replace('\\n', "\n", self::TEXTS[$key][1])); }
     public function label(string $key): string { return $this->store->get('button.'.$key, self::BUTTONS[$key][1]); }
     public function admin(int $id): bool { return in_array($id, $this->config->admins, true); }
-    public function button(string $key, string $data): array { return ['text'=>$this->label($key), 'callback_data'=>$data]; }
-    public function replyButton(string $key): array { return ['text'=>$this->label($key)]; }
+    private function buttonStyle(string $key): array
+    {
+        $style=match($key) {
+            'update','on'=>'success', 'off'=>'danger',
+            'admin','health','cookies','help'=>'primary', default=>'',
+        };
+        return $style!==''?['style'=>$style]:[];
+    }
+    public function button(string $key, string $data): array { return ['text'=>$this->label($key), 'callback_data'=>$data]+$this->buttonStyle($key); }
+    public function replyButton(string $key): array { return ['text'=>$this->label($key)]+$this->buttonStyle($key); }
     public function send(int $chat, string $text, array $rows = []): void
     {
         $params = ['chat_id'=>$chat, 'text'=>$text, 'parse_mode'=>'HTML', 'disable_web_page_preview'=>true];
@@ -64,7 +72,7 @@ final class Bot
     public function panel(int $chat): void
     {
         $on = $this->store->enabled();
-        $this->send($chat, "<b>پنل مدیریت</b>\nوضعیت: <b>".($on ? 'فعال' : 'متوقف').'</b>', [
+        $this->send($chat, "<blockquote><b>⚙️ پنل مدیریت سیرو دانلودر</b></blockquote>\n\nوضعیت ربات: <b>".($on ? '🟢 فعال' : '🔴 متوقف')."</b>\n\nبخش موردنظر را انتخاب کن:", [
             [$this->button($on?'off':'on', $on?'set:off':'set:on')],
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
             [$this->button('health','health')],
