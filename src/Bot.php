@@ -2,332 +2,226 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/Updates.php';
+require_once __DIR__.'/Personalization.php';
 
 final class Bot
 {
-    public const TEXTS = [
-        'welcome' => ['خوش‌آمدگویی', "<b>به سیرو دانلودر خوش آمدی</b>\n\nلینک ویدیو یا شورت یوتیوب را بفرست تا فایل MP4 همراه صدا، با کیفیت حداکثر ۴۸۰ دریافت کنی."],
-        'help' => ['راهنما', "لینک ویدیو یا شورت یوتیوب را بفرست؛ فایل MP4 با صدا همین‌جا می‌آید.\nهر بار یک لینک؛ بدون سقف زمانی، تا سقف حجم ارسال ربات.\nپخش زنده و پلی‌لیست پشتیبانی نمی‌شوند."],
-        'offline' => ['توقف ربات', 'ربات موقتاً متوقف است؛ لطفاً بعداً دوباره تلاش کن.'],
-        'prompt' => ['درخواست لینک', 'لینک ویدیو یا شورت یوتیوب را بفرست.'],
-        'queued' => ['ثبت در صف', 'درخواستت در صف قرار گرفت؛ به محض شروع دانلود خبر می‌دهم.'],
-        'downloading' => ['شروع دانلود', 'در حال دانلود و آماده‌سازی ویدیو…'],
-        'uploading' => ['شروع ارسال', 'دانلود تمام شد؛ در حال آپلود فایل ویدیو…'],
-        'delivered' => ['ارسال موفق', '✅ ویدیو با موفقیت ارسال شد.'],
-        'video_caption' => ['کپشن ویدیو', "ویدیوی شما آماده است\n\n{title}\nکیفیت: {quality}\n{url}"],
-        'failed' => ['خطای پردازش', 'پردازش ویدیو انجام نشد. لطفاً دوباره تلاش کن؛ جزئیات خطا برای مدیر ثبت شد.'],
-        'invalid' => ['لینک نامعتبر', 'لینک معتبر یک ویدیوی یوتیوب یا Shorts را بفرست.'],
-        'restarted' => ['راه‌اندازی مجدد', 'ربات هنگام پردازش دوباره راه‌اندازی شد؛ اگر فایل را نگرفتی، لینک را مجدد بفرست.'],
-    ];
-    public const BUTTONS = [
-        'download' => ['دکمه دانلود', 'دانلود ویدیو'], 'help' => ['دکمه راهنما', 'راهنما'],
-        'admin' => ['دکمه مدیریت', 'پنل مدیریت'], 'on' => ['دکمه فعال‌سازی', 'فعال‌کردن ربات'],
-        'off' => ['دکمه توقف', 'توقف ربات'],
-        'texts' => ['تنظیم پیام‌ها', 'ویرایش پیام‌ها'],
-        'buttons' => ['تنظیم دکمه‌ها', 'ویرایش دکمه‌ها'],
-        'health' => ['دکمه وضعیت', 'وضعیت ربات'],
-        'cookies' => ['دکمه واردکردن کوکی', 'واردکردن کوکی یوتیوب'],
-        'update' => ['دکمه به‌روزرسانی', 'به‌روزرسانی ربات'],
-        'back' => ['دکمه بازگشت', 'بازگشت'],
-    ];
-    public function __construct(public Config $config, public Store $store, public Api $api) {}
-    public function text(string $key): string { return $this->store->get('text.'.$key, str_replace('\\n', "\n", self::TEXTS[$key][1])); }
-    public function label(string $key): string { return $this->store->get('button.'.$key, self::BUTTONS[$key][1]); }
-    public function admin(int $id): bool { return in_array($id, $this->config->admins, true); }
-    private function buttonStyle(string $key): array
+    public Ui $ui;
+    public function __construct(public Config $config,public Store $store,public Api $api) { $this->ui=new Ui($store); }
+    public function text(string $key,array $values=[],array $raw=[]): string { return $this->ui->text($key,$values,$raw); }
+    public function label(string $key): string { return $this->ui->label($key); }
+    public function admin(int $id): bool { return in_array($id,$this->config->admins,true); }
+    public function allowed(int $id): bool { return $this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1'); }
+    public function denial(): string { return $this->text($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline'); }
+    public function button(string $key,string $data): array { return $this->ui->button($key,$data); }
+    public function replyButton(string $key): array { return $this->ui->button($key); }
+    public function send(int $chat,string $text,array $rows=[],int $message=0): void
     {
-        $style=match($key) {
-            'update','on'=>'success', 'off'=>'danger',
-            'admin','health','cookies','help'=>'primary', default=>'',
-        };
-        return $style!==''?['style'=>$style]:[];
-    }
-    public function button(string $key, string $data): array { return ['text'=>$this->label($key), 'callback_data'=>$data]+$this->buttonStyle($key); }
-    public function replyButton(string $key): array { return ['text'=>$this->label($key)]+$this->buttonStyle($key); }
-    public function send(int $chat, string $text, array $rows = [], int $message = 0): void
-    {
-        $params = ['chat_id'=>$chat, 'text'=>$text, 'parse_mode'=>'HTML', 'disable_web_page_preview'=>true];
-        if ($rows) $params['reply_markup'] = ['inline_keyboard'=>$rows];
+        $params=['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true];
+        if($rows||$message>0) $params['reply_markup']=['inline_keyboard'=>$rows];
         if($message>0) $params['message_id']=$message;
-        $this->api->call($message>0?'editMessageText':'sendMessage', $params);
+        $this->api->call($message>0?'editMessageText':'sendMessage',$params);
     }
-    public function sendKeyboard(int $chat, string $text, array $rows): void
+    public function sendKeyboard(int $chat,string $text,array $rows): void
     {
-        $this->api->call('sendMessage', [
-            'chat_id'=>$chat, 'text'=>$text, 'parse_mode'=>'HTML', 'disable_web_page_preview'=>true,
-            'reply_markup'=>['keyboard'=>$rows, 'resize_keyboard'=>true, 'is_persistent'=>true],
-        ]);
+        $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,
+            'reply_markup'=>['keyboard'=>$rows,'resize_keyboard'=>true,'is_persistent'=>true]]);
     }
-    public function jobMessage(array $job, string $text): void
+    public function jobMessage(array $job,string $text,array $rows=[]): void
     {
         $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
-        $params=['chat_id'=>(int)$job['chat_id'],'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true];
+        $params=['chat_id'=>(int)$job['chat_id'],'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,'reply_markup'=>['inline_keyboard'=>$rows]];
         if($message>0) {
             try { $this->api->call('editMessageText',$params+['message_id'=>$message]); return; }
             catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; }
         }
-        // Only create a replacement when no known message exists or it was deleted.
         $result=$this->api->call('sendMessage',$params);
         if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing download status message ID');
         $this->store->query('UPDATE jobs SET message_id=? WHERE id=?',[(int)$result['message_id'],$job['id']]);
     }
-    public function home(int $chat, int $user): void
+    public function home(int $chat,int $user): void
     {
-        if ($this->admin($user)) {
-            $this->sendKeyboard($chat, $this->text('welcome'), [
-                [$this->replyButton('help')],
-                [$this->replyButton('admin'), $this->replyButton('health')],
-                [$this->replyButton('update')],
-            ]);
-            return;
+        $rows=[[$this->replyButton('help')]];
+        if($this->admin($user)) {
+            $rows[]=[$this->replyButton('admin'),$this->replyButton('health')];
+            $rows[]=[$this->replyButton('update')];
         }
-        $rows = [[$this->button('help','help')]];
-        $this->send($chat, $this->text('welcome'), $rows);
+        $this->sendKeyboard($chat,$this->text('welcome'),$rows);
     }
-    public function panel(int $chat, int $message = 0): void
+    public function panel(int $chat,int $message=0): void
     {
-        $on = $this->store->enabled();
-        $this->send($chat, "<blockquote><b>⚙️ پنل مدیریت سیرو دانلودر</b></blockquote>\n\nوضعیت ربات: <b>".($on ? '🟢 فعال' : '🔴 متوقف')."</b>\n\nبخش موردنظر را انتخاب کن:", [
-            [$this->button($on?'off':'on', $on?'set:off':'set:on')],
-            [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
-            [$this->button('health','health')],
-            [$this->button('cookies','cookies')],
-            [$this->button('update','update:open')],
-            [$this->button('back','home')],
+        $on=$this->store->enabled();
+        $this->send($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off')],['state']),[
+            [$this->button($on?'off':'on',$on?'set:off':'set:on')],
+            [$this->button('customize','custom:home')],
+            [$this->button('health','health')],[$this->button('cookies','cookies')],
+            [$this->button('update','update:open')],[$this->button('back','home')],
         ],$message);
     }
     public function health(int $chat): void
     {
-        $now=time();
-        $worker=(int)$this->store->get('worker_heartbeat','0');
-        $poller=(int)$this->store->get('poller_heartbeat','0');
-        $queued=(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='queued'")->fetchColumn();
-        $running=(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='running'")->fetchColumn();
-        $workerOk=$worker>0&&$now-$worker<20;
-        $pollerOk=$poller>0&&$now-$poller<60;
-        $enabled=$this->store->enabled();
-        clearstatcache(true,$this->config->cookiePath());
-        $cookieStatus=is_readable($this->config->cookiePath())?'بارگذاری شده (اعتبار ورود هنوز نیاز به تست دارد)':'تنظیم نشده';
-        $proxyStatus=$this->config->youtubeProxy!==''?'تنظیم شده':'تنظیم نشده';
-        $workerStatus=$running>0?'در حال پردازش':($workerOk?'آنلاین':'بدون پاسخ اخیر');
-        $lastError=htmlspecialchars($this->store->get('last_job_error','ثبت نشده'), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $this->send($chat,"<b>وضعیت ربات</b>\n\n".
-            'ربات: <b>'.($enabled?'فعال':'متوقف')."</b>\n".
-            'دریافت پیام: <b>'.($pollerOk?'آنلاین':'بدون پاسخ اخیر')."</b>\n".
-            'پردازشگر: <b>'.$workerStatus."</b>\n".
-            "صف: <b>$queued منتظر / $running در حال اجرا</b>\n".
-            "کوکی یوتیوب: $cookieStatus\nپراکسی یوتیوب: $proxyStatus\n\nآخرین خطا:\n<code>$lastError</code>");
+        $now=time(); $running=(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='running'")->fetchColumn();
+        $this->send($chat,$this->text('health',[
+            'state'=>$this->text($this->store->enabled()?'state_on':'state_off'),
+            'poller'=>$this->text($now-(int)$this->store->get('poller_heartbeat','0')<60?'online':'unresponsive'),
+            'worker'=>$this->text($running>0?'processing':($now-(int)$this->store->get('worker_heartbeat','0')<20?'online':'unresponsive')),
+            'queued'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','choosing','confirming')")->fetchColumn(),
+            'running'=>$running,'cookies'=>$this->text(is_readable($this->config->cookiePath())?'cookies_loaded':'not_configured'),
+            'proxy'=>$this->text($this->config->youtubeProxy!==''?'configured':'not_configured'),
+            'error'=>$this->store->get('last_job_error',$this->ui->plain('not_recorded')),
+        ],['state','poller','worker','cookies','proxy']));
     }
-    public function catalog(string $kind): array { return $kind === 'text' ? self::TEXTS : ($kind === 'button' ? self::BUTTONS : []); }
-
-    public function beginCookieImport(int $chat, int $user): void
+    public function qualityMenu(array $job,array $media): void
+    {
+        $this->store->query("UPDATE jobs SET status='choosing',title=?,options=?,expires=? WHERE id=?",
+            [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),time()+900,$job['id']]);
+        $rows=[]; $row=[];
+        foreach($media['options'] as $height=>$formats) {
+            $row[]=$this->ui->button('quality','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
+            if(count($row)===2) { $rows[]=$row; $row=[]; }
+        }
+        if($row) $rows[]=$row;
+        $rows[]=[$this->button('cancel_quality','quality:'.$job['id'].':cancel')];
+        $this->jobMessage($job,$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]),$rows);
+    }
+    private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
+    {
+        $quality=$parts[2]==='cancel'?null:(int)$parts[2];
+        $job=$this->store->choose((int)$parts[1],$user,$chat,$quality);
+        $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain('quality_expired'),'show_alert'=>!$job,'cache_time'=>0]);
+        if(!$job) return;
+        try {
+            $this->jobMessage($job,$this->text($quality===null?'cancelled':'queued'));
+            if($quality!==null) $this->store->query("UPDATE jobs SET status='queued' WHERE id=? AND status='confirming'",[$job['id']]);
+        } catch(\Throwable $e) {
+            $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+            throw $e;
+        }
+    }
+    public function beginCookieImport(int $chat,int $user): void
     {
         $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'cookie.upload',time()+600]);
-        clearstatcache(true,$this->config->cookiePath());
-        $status=is_readable($this->config->cookiePath())?'کوکی فعلی موجود است؛ فایل جدید جایگزین آن می‌شود.':'هنوز کوکی وارد نشده است.';
-        $this->send($chat,"<b>واردکردن کوکی یوتیوب</b>\n\n$status\n\n".
-            "فایل <code>youtube-cookies.txt</code> را همین‌جا به‌صورت <b>فایل / Document</b> بفرست.\n".
-            "فرمت: Netscape؛ حداکثر حجم: ۱ مگابایت.\n".
-            "مهلت ارسال: ۱۰ دقیقه. برای لغو /cancel را بزن.\n\n".
-            'فایل بعد از دریافت بررسی می‌شود؛ فایل نامعتبر جای کوکی قبلی نمی‌نشیند. پس از واردکردن، برای بررسی اعتبار ورود یک لینک ویدیو بفرست.',[
-                [['text'=>'کوکی چیست و چه زمانی باطل می‌شود؟','callback_data'=>'cookies:info']],
-                [$this->button('back','admin')],
-            ]);
+        $this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(is_readable($this->config->cookiePath())?'cookie_present':'cookie_missing')]),[
+            [$this->button('cookie_info','cookies:info')],[$this->button('back','admin')],
+        ]);
     }
-
-    public function cookieInfo(int $chat): void
+    public function cookieInfo(int $chat): void { $this->send($chat,$this->text('cookie_info'),[[$this->button('cookies','cookies')],[$this->button('back','admin')]]); }
+    private function cookieDocument(int $chat,int $user,array $message): void
     {
-        $this->send($chat,"<b>کوکی چطور کار می‌کند؟</b>\n\n".
-            "کوکی مثل کلید نشست ورود به یوتیوب است؛ بستهٔ دانلود یا حجم مصرفی نیست و با هر دانلود یکی از آن کم نمی‌شود.\n\n".
-            "تاریخ اعتبار هر کوکی و اعتبار نشست را یوتیوب تعیین می‌کند. خروج از حساب، تغییر رمز، لغو نشست یا تصمیم امنیتی گوگل ممکن است آن را بی‌اعتبار کند. بازکردن دوبارهٔ همان نشست مرورگر هم می‌تواند باعث چرخش کوکی شود.\n\n".
-            "تعداد زیاد درخواست ممکن است محدودیت موقت ایجاد کند؛ این به معنی تمام‌شدن کوکی نیست.\n\n".
-            "مرورگر لازم نیست باز بماند. بعد از خروجی‌گرفتن از پنجرهٔ ناشناس، آن پنجره را ببند و همان نشست را دوباره باز نکن. ربات کوکی را روی سرور نگه می‌دارد و تغییرات معتبر دریافتی را ذخیره می‌کند؛ اما نمی‌تواند نشست باطل‌شده را زنده کند.\n\n".
-            "فایل معتبر از نظر فرمت الزاماً ورود معتبر ندارد. بعد از جایگزینی یک لینک ویدیو بفرست؛ اگر خطای ورود ادامه داشت، فایل تازه یا اتصال سرور را بررسی کن.\n\n".
-            'فایل کوکی اطلاعات ورود دارد؛ فقط در گفت‌وگوی خصوصی همین ربات و با حساب ادمین واردش کن.',[
-                [$this->button('cookies','cookies')],[$this->button('back','admin')],
-            ]);
-    }
-
-    private function cookieDocument(int $chat, int $user, array $message): void
-    {
-        if(!$this->admin($user)) { $this->send($chat,'دریافت کوکی فقط برای مدیر مجاز است.'); return; }
+        if(!$this->admin($user)) { $this->send($chat,$this->text('cookie_admin_only')); return; }
         $state=$this->store->query('SELECT key,expires FROM states WHERE user_id=?',[$user])->fetch();
-        if(!$state||$state['key']!=='cookie.upload') {
-            $this->send($chat,'برای واردکردن کوکی، ابتدا دکمهٔ «واردکردن کوکی یوتیوب» را در پنل مدیریت بزن.');
-            return;
-        }
-        $phase='metadata';
+        if(!$state||$state['key']!=='cookie.upload') { $this->send($chat,$this->text('cookie_begin_first')); return; }
         $saved=false;
         try {
             if((int)$state['expires']<=time()) {
                 $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-                $this->send($chat,'مهلت ارسال تمام شده؛ دوباره دکمهٔ واردکردن کوکی را بزن.');
-                return;
+                $this->send($chat,$this->text('cookie_expired')); return;
             }
-            $document=$message['document'];
-            if(strtolower(pathinfo((string)($document['file_name']??''),PATHINFO_EXTENSION))!=='txt'
-                ||(int)($document['file_size']??0)>1048576||empty($document['file_id'])) {
-                $this->send($chat,'یک فایل txt با فرمت Netscape و حجم حداکثر ۱ مگابایت بفرست. کوکی قبلی حفظ شد.');
-                return;
+            $doc=$message['document'];
+            if(strtolower(pathinfo((string)($doc['file_name']??''),PATHINFO_EXTENSION))!=='txt'||(int)($doc['file_size']??0)>1048576||empty($doc['file_id'])) {
+                $this->send($chat,$this->text('cookie_file_invalid')); return;
             }
-            $phase='download';
-            $file=$this->api->call('getFile',['file_id'=>$document['file_id']]);
-            if(!is_array($file)||empty($file['file_path'])||(int)($file['file_size']??0)>1048576||!($this->api instanceof FileApi)) {
-                throw new \RuntimeException('Telegram cookie file unavailable or too large');
-            }
+            $file=$this->api->call('getFile',['file_id'=>$doc['file_id']]);
+            if(!is_array($file)||empty($file['file_path'])||(int)($file['file_size']??0)>1048576||!($this->api instanceof FileApi)) throw new \RuntimeException('Cookie file unavailable');
             $content=$this->api->downloadFile((string)$file['file_path'],1048576);
-            $phase='validation';
-            validateYouTubeCookies($content);
-            $phase='save';
-            saveYouTubeCookies($this->config,$content);
-            $saved=true;
+            saveYouTubeCookies($this->config,$content); $saved=true;
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-            $this->send($chat,"<b>کوکی جدید با موفقیت جایگزین شد.</b>\n\n".
-                'از دانلود بعدی استفاده می‌شود؛ نیازی به راه‌اندازی مجدد نیست. برای بررسی ورود، یک لینک یوتیوب بفرست.',[
-                    [$this->button('back','admin')],
-                ]);
+            $this->send($chat,$this->text('cookie_saved'),[[$this->button('back','admin')]]);
         } catch(\Throwable $e) {
-            // File contents and upstream cookie parser errors never enter logs or replies.
-            error_log('Cookie import failed at '.$phase.': '.get_class($e));
-            if($saved) {
-                $this->send($chat,'کوکی جدید ذخیره شد، اما تکمیل پیام تأیید با خطا مواجه شد. /cancel را بزن و سپس یک لینک ویدیو برای تست بفرست.');
-                return;
-            }
-            $reason=match($phase) {
-                'validation'=>'فایل، خروجی معتبر Netscape از یوتیوب نیست.',
-                'save'=>'ذخیره‌سازی کوکی روی سرور انجام نشد.',
-                default=>'دریافت فایل از تلگرام انجام نشد یا حجم آن بیش از حد مجاز است.',
-            };
-            $this->send($chat,$reason.' کوکی قبلی حفظ شد؛ فایل صحیح را دوباره بفرست یا /cancel را بزن.');
+            error_log('Cookie import failure: '.get_class($e));
+            if(!$saved) $this->send($chat,$this->text('cookie_failed'));
         } finally {
             if(isset($message['message_id'])) {
                 try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message['message_id']]); }
-                catch(\Throwable) { $this->send($chat,'حذف خودکار پیام فایل انجام نشد؛ لطفاً فایل کوکی را از گفت‌وگو پاک کن.'); }
+                catch(\Throwable) { $this->send($chat,$this->text('cookie_delete_failed')); }
             }
         }
     }
-    public function listItems(int $chat, string $kind): void
-    {
-        $rows=[];
-        foreach ($this->catalog($kind) as $key=>$item) $rows[]=[['text'=>$item[0], 'callback_data'=>"item:$kind:$key"]];
-        $rows[]=[$this->button('back','admin')];
-        $this->send($chat, '<b>موردی را برای ویرایش انتخاب کن</b>', $rows);
-    }
-    public function item(int $chat, string $kind, string $key): void
-    {
-        if (!isset($this->catalog($kind)[$key])) return;
-        $current=$kind==='text'?$this->text($key):$this->label($key);
-        $default=str_replace('\\n',"\n",$this->catalog($kind)[$key][1]);
-        $current=htmlspecialchars($current, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $default=htmlspecialchars($default, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        $this->send($chat,"<b>مقدار فعلی</b>\n$current\n\n<b>پیش‌فرض</b>\n$default",[
-            [['text'=>'ویرایش','callback_data'=>"edit:$kind:$key"]],
-            [['text'=>'بازگردانی پیش‌فرض','callback_data'=>"reset:$kind:$key"]],
-            [$this->button('back',"list:$kind")],
-        ]);
-    }
+    public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
     public function handle(array $update): void
     {
-        $cb=$update['callback_query']??null;
-        $message=$cb['message']??$update['message']??null;
+        $cb=$update['callback_query']??null; $message=$cb['message']??$update['message']??null;
         $user=(int)($cb['from']['id']??$message['from']['id']??0);
-        if (!$message || ($message['chat']['type']??'')!=='private' || !$user) return;
+        if(!$message||($message['chat']['type']??'')!=='private'||!$user) return;
         $chat=(int)$message['chat']['id'];
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
-        if ($cb) {
-            $action=(string)($cb['data']??'');
-            $privileged = !in_array($action,['home','download','help'],true);
-            $isHelp = $action === 'help';
-            // Check every callback, including forged/stale ones, before state changes.
-            $this->api->call('answerCallbackQuery',[
-                'callback_query_id'=>$cb['id'],
-                'text'=>($privileged&&!$this->admin($user))?'این بخش فقط برای مدیر است.':($isHelp?mb_substr(strip_tags($this->text('help')),0,190):''),
-                'show_alert'=>$isHelp,
-                'cache_time'=>1,
-            ]);
-            if ($privileged&&!$this->admin($user)) return;
-            if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
-            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-            if ($action==='home') $this->home($chat,$user);
-            elseif ($action==='help') return;
-            elseif ($action==='download') $this->send($chat,$this->text('prompt'));
-            elseif ($action==='admin') $this->panel($chat);
-            elseif ($action==='health') $this->health($chat);
-            elseif ($action==='cookies') $this->beginCookieImport($chat,$user);
-            elseif ($action==='cookies:info') $this->cookieInfo($chat);
-            elseif (in_array($action,['update:menu','update:run','update:open'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,(int)($message['message_id']??0),'',$action!=='update:menu');
-            elseif ($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',(int)($message['message_id']??0));
-            elseif ($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,(int)($message['message_id']??0));
-            elseif ($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback',(int)($message['message_id']??0));
-            elseif ($action==='update:changes') (new Updates($this->config,$this->store,$this->api))->changes($chat,$user,(int)($message['message_id']??0));
-            elseif ($action==='update:progress') return;
-            elseif ($action==='update:back') {
-                if($this->store->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) return;
-                $this->store->set('update_menu_hash.'.$user,''); $this->panel($chat,(int)($message['message_id']??0));
+        $custom=new Personalization($this);
+        if($cb) {
+            $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|cancel)$/D',$action,$choice)===1;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality;
+            if($privileged&&!$this->admin($user)) {
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
-            elseif (in_array($action,['set:on','set:off'],true)) {
+            if(!$this->allowed($user)) {
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
+                $this->send($chat,$this->denial()); return;
+            }
+            if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
+            $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$action==='help'?mb_substr($this->ui->plain('help'),0,190):'','show_alert'=>$action==='help','cache_time'=>0]);
+            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $menu=(int)($message['message_id']??0);
+            if($custom->handle($chat,$user,$action,$menu)) return;
+            if($action==='home') $this->home($chat,$user);
+            elseif($action==='help'||$action==='update:progress') return;
+            elseif($action==='download') $this->send($chat,$this->text('prompt'));
+            elseif($action==='admin') $this->panel($chat);
+            elseif($action==='health') $this->health($chat);
+            elseif($action==='cookies') $this->beginCookieImport($chat,$user);
+            elseif($action==='cookies:info') $this->cookieInfo($chat);
+            elseif(in_array($action,['update:menu','update:run','update:open'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,$menu,'',$action!=='update:menu');
+            elseif($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',$menu);
+            elseif($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,$menu);
+            elseif($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback',$menu);
+            elseif($action==='update:changes') (new Updates($this->config,$this->store,$this->api))->changes($chat,$user,$menu);
+            elseif($action==='update:back') {
+                if($this->store->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) return;
+                $this->store->set('update_menu_hash.'.$user,''); $this->panel($chat,$menu);
+            } elseif(in_array($action,['set:on','set:off'],true)) {
                 $this->store->set('enabled',$action==='set:on'?'1':'0'); $this->panel($chat);
             } else {
-                $parts=explode(':',$action); [$op,$kind,$key]=array_pad($parts,3,'');
-                if ($op==='list' && $this->catalog($kind)) $this->listItems($chat,$kind);
-                elseif (isset($this->catalog($kind)[$key])) {
-                    if ($op==='item') $this->item($chat,$kind,$key);
-                    elseif ($op==='reset') {
-                        $this->store->query('DELETE FROM settings WHERE key=?',["$kind.$key"]); $this->item($chat,$kind,$key);
-                    } elseif ($op==='edit') {
-                        $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,"$kind.$key",time()+600]);
-                        $this->send($chat,"<b>مقدار جدید را بفرست</b>\nبرای لغو /cancel را بزن.".($key==='video_caption'?"\nمتغیرها: <code>{title}</code>، <code>{quality}</code>، <code>{url}</code>":''));
-                    }
+                // Old administration buttons remain usable after upgrading.
+                [$op,$kind,$key]=array_pad(explode(':',$action),3,'');
+                if($op==='list'&&$this->catalog($kind)) $custom->groups($chat,$kind,$menu);
+                elseif(isset($this->catalog($kind)[$key])) {
+                    if($op==='item') $custom->item($chat,$kind,$key,$menu);
+                    elseif($op==='edit') $custom->begin($chat,$user,$kind,$key,$menu);
+                    elseif($op==='reset') $custom->handle($chat,$user,"custom:reset:$kind:$key",$menu);
                 }
             }
             return;
         }
-        if(isset($message['document'])) { $this->cookieDocument($chat,$user,$message); return; }
+        if(!$this->allowed($user)) { $this->send($chat,$this->denial()); return; }
         $text=trim((string)($message['text']??''));
-        if ($text==='') return;
-        if ($text==='/id') { $this->send($chat,"شناسه تلگرام شما: <code>$user</code>"); return; }
-        if (in_array($text,['/cancel','/start','/admin','/health','/cookies','/update',$this->label('update'),$this->label('cookies'),$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
-            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help',
+            $this->label('cookies'),$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download'),$this->label('update')];
+        if(in_array($text,$commands,true)) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
+        if($this->admin($user)) {
+            if($text==='/admin'||$text===$this->label('admin')) { $this->panel($chat); return; }
+            if($text==='/health'||$text===$this->label('health')) { $this->health($chat); return; }
+            if($text==='/cookies'||$text===$this->label('cookies')) { $this->beginCookieImport($chat,$user); return; }
+            if($text==='/update'||$text===$this->label('update')) { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
+            if($text==='/customize') { $custom->home($chat); return; }
         }
-        if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
-        if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
-        if (($text==='/cookies'||$text===$this->label('cookies'))&&$this->admin($user)) { $this->beginCookieImport($chat,$user); return; }
-        if (($text==='/update'||$text===$this->label('update'))&&$this->admin($user)) { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
-        if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
-        if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
-        if ($text===$this->label('help')||$text==='/help') { $this->send($chat,$this->text('help')); return; }
-        if ($text===$this->label('download')) { $this->send($chat,$this->text('prompt')); return; }
+        if(in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
+        if($text==='/help'||$text===$this->label('help')) { $this->send($chat,$this->text('help')); return; }
+        if($text===$this->label('download')) { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND expires>?',[$user,time()])->fetchColumn();
-        if ($state && $this->admin($user)) {
-            if($state==='cookie.upload') { $this->send($chat,'منتظر فایل txt هستم؛ آن را به‌صورت Document بفرست یا /cancel را بزن.'); return; }
-            [$kind,$key]=explode('.',$state,2);
-            if (!isset($this->catalog($kind)[$key])) return;
-            $limit=$kind==='button'?48:($key==='video_caption'?700:1200);
-            if (mb_strlen($text)>$limit || ($kind==='button'&&str_contains($text,"\n"))) {
-                $this->send($chat,"حداکثر $limit نویسه مجاز است؛ متن دکمه باید تک‌خطی باشد."); return;
-            }
-            $this->store->set($state,$text);
-            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-            $this->item($chat,$kind,$key); return;
+        if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
+            $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
+        if(isset($message['document'])) { $this->cookieDocument($chat,$user,$message); return; }
+        if($text==='') return;
+        if($state==='cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('cookie_waiting')); return; }
         $url=youtubeUrl($text);
-        if (!$url) { $this->send($chat,$this->text('invalid')); return; }
+        if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $result=$this->store->enqueue((int)$update['update_id'],$user,$chat,$url);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[(int)$update['update_id']])->fetch();
             try { $this->jobMessage($job,$this->text('queued')); }
-            catch(\Throwable $e) {
-                $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                throw $e;
-            }
+            catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
             return;
         }
-        $response=match($result) {
-            'busy'=>'درخواست قبلی شما هنوز در حال پردازش است.', 'full'=>'صف پر است؛ کمی بعد تلاش کن.',
-            'cooldown'=>'بین درخواست‌ها ۱۵ ثانیه فاصله بگذار.', 'duplicate'=>null,
-            'updating'=>'ربات در حال به‌روزرسانی است؛ چند دقیقه بعد لینک را دوباره بفرست.',
-            default=>$this->text('queued'),
-        };
-        if ($response!==null) $this->send($chat,$response);
+        if($result!=='duplicate') $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}));
     }
 }

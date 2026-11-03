@@ -5,7 +5,8 @@ namespace Zero;
 // The bot only queues fixed actions. A separate host service owns Docker/Git access.
 final class Updates
 {
-    public function __construct(private Config $config, private Store $store, private Api $api) {}
+    private Ui $ui;
+    public function __construct(private Config $config, private Store $store, private Api $api) { $this->ui=new Ui($store); }
 
     public static function version(): string
     {
@@ -56,20 +57,16 @@ final class Updates
         $active=$this->active();
         if($active&&(int)$active['user_id']===$user) return; // Preserve the live progress screen.
         if($fresh) $this->store->set('update_new_changes','');
-        $version=htmlspecialchars(self::version(),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
-        $checked=htmlspecialchars($this->store->get('last_update_at','هنوز بررسی نشده'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
-        $text="<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n";
-        if($notice!=='') $text.='<blockquote><b>'.htmlspecialchars($notice,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8')."</b></blockquote>\n\n";
-        $text.="نسخهٔ فعلی: <b>$version</b>\nآخرین بررسی: <b>$checked</b>\n\n".
-            "با زدن دکمهٔ زیر، آخرین نسخه بررسی و در صورت وجود نصب می‌شود.\nبازکردن این منو به‌تنهایی به‌روزرسانی را شروع نمی‌کند.";
+        $notice=$notice!==''?$this->ui->text('update_notice',['title'=>$notice,'detail'=>''],['title']):'';
+        $text=$this->ui->text('update_menu',['version'=>self::version(),'checked'=>$this->store->get('last_update_at',$this->ui->plain('not_checked')),'notice'=>$notice],['notice']);
         $rows=[];
-        if($active) $text.="\n\n<b>⏳ یک مدیر دیگر در حال به‌روزرسانی است.</b>";
+        if($active) $text.="\n\n".$this->ui->text('update_other_admin');
         else {
-            $rows[]=[['text'=>'🚀 شروع به‌روزرسانی','callback_data'=>'update:start','style'=>'success']];
-            if($this->store->get('update_previous_version')!=='') $rows[]=[['text'=>'↩️ بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback','style'=>'danger']];
+            $rows[]=[$this->ui->button('update_start','update:start')];
+            if($this->store->get('update_previous_version')!=='') $rows[]=[$this->ui->button('update_rollback','update:rollback')];
         }
-        if($this->freshChanges()) $rows[]=[['text'=>'✨ تغییرات تازهٔ این ارتقا','callback_data'=>'update:changes','style'=>'primary']];
-        $rows[]=[['text'=>'بازگشت به پنل مدیریت','callback_data'=>'update:back']];
+        if($this->freshChanges()) $rows[]=[$this->ui->button('update_changes','update:changes')];
+        $rows[]=[$this->ui->button('back_admin','update:back')];
         $this->view($chat,$user,$text,$rows,$message);
     }
 
@@ -78,20 +75,18 @@ final class Updates
         if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
         if($this->active()) return;
         $notes=array_slice($this->freshChanges(),0,12);
-        $text=$notes?"<blockquote><b>✨ تغییرات تازهٔ این ارتقا</b>\n".implode("\n",array_map(fn($note)=>'• '.htmlspecialchars(mb_substr($note,0,240),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'),$notes)).'</blockquote>':
-            '<blockquote><b>✅ قابلیت تازه‌ای در این بررسی اضافه نشده است.</b></blockquote>';
-        $this->view($chat,$user,$text,[[['text'=>'بازگشت به منوی به‌روزرسانی','callback_data'=>'update:menu','style'=>'primary']]],$message);
+        $text=$notes?$this->ui->text('update_changes',['changes'=>implode("\n",array_map(fn($note)=>'• '.Ui::escape(mb_substr($note,0,240)),$notes))],['changes']):$this->ui->text('update_no_changes');
+        $this->view($chat,$user,$text,[[$this->ui->button('back_update','update:menu')]],$message);
     }
 
     public function confirmRollback(int $chat, int $user, int $message): void
     {
         if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
         if($this->active()) return;
-        if($this->store->get('update_previous_version')==='') { $this->menu($chat,$user,$message,'نسخهٔ قبلی برای بازگشت موجود نیست.'); return; }
-        $version=htmlspecialchars($this->store->get('update_previous_version'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
-        $this->view($chat,$user,"<blockquote><b>↩️ بازگشت به نسخهٔ قبلی</b></blockquote>\n\nنسخهٔ مقصد: <b>$version</b>\n\nکد و تصویر اجرایی به نسخهٔ قبلی برمی‌گردند.\n\n<blockquote><b>اطلاعات شما حفظ می‌شود</b>\nکاربران، تنظیمات و کوکی فعلی تغییر نمی‌کنند.</blockquote>\n\nبازگشت را تأیید می‌کنی؟",[
-            [['text'=>'تأیید بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback:confirm','style'=>'danger']],
-            [['text'=>'انصراف','callback_data'=>'update:menu']],
+        if($this->store->get('update_previous_version')==='') { $this->menu($chat,$user,$message,$this->ui->text('update_no_previous')); return; }
+        $this->view($chat,$user,$this->ui->text('update_rollback_confirm',['version'=>$this->store->get('update_previous_version')]),[
+            [$this->ui->button('update_confirm','update:rollback:confirm')],
+            [$this->ui->button('cancel','update:menu')],
         ],$message);
     }
 
@@ -100,7 +95,7 @@ final class Updates
         if(!in_array($user,$this->config->admins,true)||$chat!==$user||!in_array($action,['update','rollback'],true)) return;
         if($message<1||$message!==(int)$this->store->get('update_menu.'.$user,'0')||$this->active()) return;
         if(time()-(int)$this->store->get('updater_heartbeat','0')>60) {
-            $this->menu($chat,$user,$message,'⚠️ سرویس به‌روزرسانی سرور در دسترس نیست؛ گزینهٔ ۱۱ منوی نصب را اجرا کن.');
+            $this->menu($chat,$user,$message,$this->ui->text('update_unavailable'));
             return;
         }
         $this->store->db->exec('BEGIN IMMEDIATE');
@@ -113,8 +108,8 @@ final class Updates
         if($active) return;
         $this->store->set('update_new_changes','');
         try {
-            $message=$this->view($chat,$user,"<blockquote><b>🔄 در حال به‌روزرسانی</b></blockquote>\n\n<code>▱▱▱▱▱▱▱▱▱▱ 0%</code>\n\n⏳ درخواست ثبت شد؛ در انتظار شروع بررسی سرور…\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.",
-                [[['text'=>'⏳ در انتظار شروع · 0%','callback_data'=>'update:progress','style'=>'primary']]],$message);
+            $message=$this->view($chat,$user,$this->ui->text('update_progress',['bar'=>'▱▱▱▱▱▱▱▱▱▱ 0%','stage'=>$this->ui->text('update_wait')],['stage']),
+                [[$this->ui->button('update_progress','update:progress',['percent'=>'0'])]],$message);
             $this->store->query('UPDATE update_requests SET message_id=? WHERE id=?',[$message,$id]);
         } catch(\Throwable $e) {
             $this->store->query("UPDATE update_requests SET status='failed' WHERE id=?",[$id]);

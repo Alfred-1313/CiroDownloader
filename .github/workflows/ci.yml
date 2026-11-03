@@ -27,12 +27,15 @@ jobs:
           php tests/run.php
           php tests/cookies.php
           php tests/jobs.php
+          php tests/customization.php
 
       - name: Install FFmpeg for media regression tests
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Verify portrait video conversion and multipart upload
-        run: php tests/media.php
+        run: |
+          php tests/media.php
+          php tests/quality_worker.php
 
       - name: Check PHP syntax
         run: find src bin tests -name '*.php' -exec php -l {} +
@@ -48,7 +51,7 @@ jobs:
 
       - name: Build production image
         run: |
-          chmod -R go-rwx src bin
+          chmod -R go-rwx src bin resources
           docker build --tag ciro-downloader:ci .
 
       - name: Verify runtime can read code from a restrictive checkout

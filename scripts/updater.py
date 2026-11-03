@@ -97,6 +97,13 @@ def valid_recovery(value):
             and bool(re.fullmatch(r'ciro-downloader:backup-[0-9a-f]{12}-\d+', value.get('image', ''))))
 
 
+def ui_definitions():
+    for path in (PROJECT / 'resources/ui.json', Path(__file__).with_name('ui.json'), Path(__file__).resolve().parents[1] / 'resources/ui.json'):
+        if path.is_file():
+            return json.loads(path.read_text(encoding='utf-8'))
+    raise RuntimeError('UI catalog is unavailable')
+
+
 class Agent:
     def __init__(self):
         self.env = environment()
@@ -141,6 +148,34 @@ class Agent:
         with self.db() as db:
             db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(value)))
 
+    def setting(self, key, default=''):
+        with self.db() as db:
+            value = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+        return value[0] if value else default
+
+    def ui(self, key, _raw=(), **values):
+        item = ui_definitions()['texts'][key]
+        replacements = {name: str(value) if name in _raw else html.escape(str(value)) for name, value in values.items()}
+        def render(template):
+            return re.sub(r'\{([a-z_]+)\}', lambda match: replacements.get(match[1], match[0]), template)
+        result = render(self.setting('text.' + key, item['value']))
+        if len(html.unescape(re.sub(r'<[^>]+>', '', result)).encode('utf-16-le')) // 2 > 3900:
+            result = render(item['value'])
+        return result
+
+    def button(self, key, data, **values):
+        item = ui_definitions()['buttons'][key]
+        label = self.setting('button.' + key, item['value'])
+        label = re.sub(r'\{([a-z_]+)\}', lambda match: str(values.get(match[1], match[0])), label)
+        result = {'text': label, 'callback_data': data}
+        style = self.setting('button.style.' + key, item.get('style', ''))
+        if style in ('primary', 'success', 'danger'):
+            result['style'] = style
+        icon = self.setting('button.icon.' + key)
+        if re.fullmatch(r'\d{5,24}', icon):
+            result['icon_custom_emoji_id'] = icon
+        return result
+
     def beat(self):
         if time.time() - self.last_beat >= 8:
             self.set('updater_heartbeat', int(time.time()))
@@ -176,11 +211,8 @@ class Agent:
         self.beat()
         self.percent = max(getattr(self, 'percent', 0), min(99, percent))
         number = str(self.percent)
-        self.notify('<blockquote><b>🔄 به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
-                    + '<code>' + self.bar(self.percent) + '</code>\n\n'
-                    + '<blockquote><b>در حال انجام</b>\n' + html.escape(text) + '</blockquote>'
-                    + '\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.',
-                    [[{'text': '⏳ در حال انجام · ' + number + '%', 'callback_data': 'update:progress', 'style': 'primary'}]])
+        self.notify(self.ui('update_progress', bar=self.bar(self.percent), stage=self.ui(text), _raw=('stage',)),
+                    [[self.button('update_progress', 'update:progress', percent=number)]])
 
     def run(self, *args, timeout=900):
         with tempfile.TemporaryFile() as output:
@@ -242,7 +274,7 @@ class Agent:
 
     def wait_idle(self):
         self.set('update_in_progress', 1)
-        self.progress('⏳ در انتظار پایان دانلود فعلی؛ درخواست جدید موقتاً پذیرفته نمی‌شود.', 20)
+        self.progress('update_idle', 20)
         deadline = time.monotonic() + 1300
         while True:
             with self.db() as db:
@@ -282,22 +314,18 @@ class Agent:
         additions = changes_since(from_version, version) if from_version and not failed else []
         self.set('update_new_changes', json.dumps({'from': from_version, 'to': version, 'changes': additions}, ensure_ascii=False) if additions else '')
         previous = STATE / 'previous.json'
-        buttons = [[{'text': '🚀 شروع به‌روزرسانی', 'callback_data': 'update:start', 'style': 'success'}]]
+        buttons = [[self.button('update_start', 'update:start')]]
         if previous.is_file():
-            buttons.append([{'text': '↩️ بازگشت به نسخهٔ قبلی', 'callback_data': 'update:rollback', 'style': 'danger'}])
+            buttons.append([self.button('update_rollback', 'update:rollback')])
         if additions:
-            buttons.append([{'text': '✨ تغییرات تازهٔ این ارتقا', 'callback_data': 'update:changes', 'style': 'primary'}])
-        buttons.append([{'text': 'بازگشت به پنل مدیریت', 'callback_data': 'update:back'}])
+            buttons.append([self.button('update_changes', 'update:changes')])
+        buttons.append([self.button('back_admin', 'update:back')])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
         notes = '\n'.join('• ' + html.escape(item[:240]) for item in additions[:12])
-        text = ('<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
-                + ('<blockquote><b>' + html.escape(title) + '</b>'
-                   + ('\n' + detail if failed and detail else '') + '</blockquote>\n\n' if title else '')
-                + 'نسخهٔ فعلی: <b>' + html.escape(version) + '</b>\n'
-                + 'آخرین بررسی: <b>' + stamp + '</b>\n\n'
-                + ('<blockquote expandable><b>✨ قابلیت‌های تازه</b>\n' + notes + '</blockquote>\n\n' if additions else '')
-                + 'با زدن دکمهٔ زیر، آخرین نسخه بررسی و در صورت وجود نصب می‌شود.\n'
-                + 'بازکردن این منو به‌تنهایی به‌روزرسانی را شروع نمی‌کند.')
+        notice = self.ui('update_notice', title=title, detail='\n' + detail if failed and detail else '', _raw=('title', 'detail')) if title else ''
+        if additions:
+            notice += self.ui('update_changes', changes=notes, _raw=('changes',)) + '\n\n'
+        text = self.ui('update_menu', version=version, checked=stamp, notice=notice, _raw=('notice',))
         self.set('last_update_at', stamp)
         self.set('update_menu.' + str(self.job['user_id']), self.job['message_id'])
         self.set('update_menu_hash.' + str(self.job['user_id']), '')
@@ -322,7 +350,7 @@ class Agent:
         if job['action'] not in ('update', 'rollback'):
             return
         self.job = dict(job)
-        self.finish('✅ با موفقیت نصب شد' if job['action'] == 'update' else '✅ نسخهٔ قبلی بازیابی شد',
+        self.finish(self.ui('update_success' if job['action'] == 'update' else 'update_rollback_done'),
                     from_version=saved['previous'].get('version') if job['action'] == 'update' else None)
         self.job = None
 
@@ -343,7 +371,7 @@ class Agent:
             command('git', 'cat-file', '-e', saved['sha'] + '^{commit}')
             target = saved['sha']
         else:
-            self.progress('🔎 در حال بررسی آخرین نسخه در گیت‌هاب…', 10)
+            self.progress('update_check', 10)
             self.run('git', 'fetch', '--prune', 'origin', 'main', timeout=120)
             target = command('git', 'rev-parse', 'origin/main')
             if target == current:
@@ -355,23 +383,23 @@ class Agent:
         self.wait_idle()
         command('docker', 'tag', IMAGE, previous['image'])
         atomic_json(recovery, {'previous': previous, 'job': self.job})
-        self.progress('📦 در حال تهیهٔ پشتیبان از نسخه، تنظیمات و داده‌ها…', 35)
+        self.progress('update_backup', 35)
         self.run('docker', 'compose', 'stop', timeout=60)
         previous['backup'] = self.backup()
         atomic_json(recovery, {'previous': previous, 'job': self.job})
         if self.job['action'] == 'rollback':
-            self.progress('↩️ در حال بازگردانی نسخهٔ قبلی…', 65)
+            self.progress('update_restore', 65)
             command('git', 'checkout', '--detach', target)
             command('docker', 'tag', saved['image'], IMAGE)
         else:
             command('git', 'merge', '--ff-only', target)
-            self.progress('⚙️ در حال ساخت نسخهٔ جدید؛ این مرحله ممکن است چند دقیقه طول بکشد…', 65)
+            self.progress('update_build', 65)
             self.run('docker', 'compose', 'build', '--pull', timeout=1200)
-        self.progress('🚀 در حال راه‌اندازی ربات و پردازشگر…', 85)
+        self.progress('update_starting', 85)
         self.set('poller_heartbeat', 0)
         self.set('worker_heartbeat', 0)
         self.run('docker', 'compose', 'up', '-d', '--no-build', '--force-recreate', timeout=180)
-        self.progress('🧪 در حال بررسی سلامت نسخهٔ جدید…', 95)
+        self.progress('update_health', 95)
         self.verify()
         # Update the next invocation of this agent only after the new application is healthy.
         if (PROJECT / 'scripts/install-updater.sh').is_file():
@@ -379,8 +407,7 @@ class Agent:
         atomic_json(STATE / 'previous.json', previous)
         self.set('update_previous_version', previous['version'])
         recovery.unlink(missing_ok=True)
-        detail = 'نسخهٔ قبلی پشتیبان گرفته شد:\n<code>' + html.escape(previous['backup']) + '</code>'
-        self.finish('✅ ' + ('نسخهٔ قبلی بازیابی شد' if self.job['action'] == 'rollback' else 'با موفقیت نصب شد'), detail,
+        self.finish(self.ui('update_rollback_done' if self.job['action'] == 'rollback' else 'update_success'),
                     from_version=previous['version'] if self.job['action'] == 'update' else None)
 
     def tick(self):
@@ -389,10 +416,10 @@ class Agent:
         if recovery.is_file():
             saved = json.loads(recovery.read_text())
             self.job = saved['job']
-            self.progress('♻️ عملیات قبلی ناتمام مانده؛ در حال بازیابی نسخهٔ سالم…', 90)
+            self.progress('update_restore', 90)
             self.restore(saved['previous'])
             recovery.unlink()
-            self.finish('♻️ نسخهٔ قبلی پس از توقف عملیات بازیابی شد', failed=True)
+            self.finish(self.ui('update_recovered'), failed=True)
             return
         self.refresh_completion()
         self.beat()
@@ -408,15 +435,15 @@ class Agent:
             print('Update failed: ' + type(exc).__name__, flush=True)
             if recovery.is_file():
                 try:
-                    self.progress('♻️ به‌روزرسانی ناموفق بود؛ در حال بازیابی خودکار نسخهٔ قبلی…', 95)
+                    self.progress('update_restore', 95)
                     self.restore(json.loads(recovery.read_text())['previous'])
                     recovery.unlink()
-                    self.finish('⚠️ ارتقا ناموفق بود؛ نسخهٔ قبلی بازیابی شد', 'جزئیات اجرایی در لاگ سرویس سرور ثبت شده است.', failed=True)
+                    self.finish(self.ui('update_recovered'), self.ui('update_recovered_detail'), failed=True)
                 except Exception:
-                    self.notify('<b>⚠️ بازیابی خودکار کامل نشد.</b>\nمدیر باید سرویس ciro-downloader-updater و کانتینرها را روی سرور بررسی کند. پشتیبان محفوظ است.')
+                    self.notify(self.ui('update_recovery_failed'))
                     raise
             else:
-                self.finish('⚠️ به‌روزرسانی انجام نشد', 'اتصال گیت‌هاب، تغییرات محلی، فضای دیسک یا سرویس سرور را بررسی کن. نسخهٔ اجراشده تغییر نکرده است.', failed=True)
+                self.finish(self.ui('update_failed'), self.ui('update_failed_detail'), failed=True)
 
 
 def main():
