@@ -113,8 +113,8 @@ final class Updates
         if($active) return;
         $this->store->set('update_new_changes','');
         try {
-            $message=$this->view($chat,$user,"<blockquote><b>🔄 در حال به‌روزرسانی</b></blockquote>\n\n<code>▱▱▱▱▱▱▱▱▱▱ ۰٪</code>\n\n⏳ درخواست ثبت شد؛ در انتظار شروع بررسی سرور…\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.",
-                [[['text'=>'⏳ در انتظار شروع · ۰٪','callback_data'=>'update:progress','style'=>'primary']]],$message);
+            $message=$this->view($chat,$user,"<blockquote><b>🔄 در حال به‌روزرسانی</b></blockquote>\n\n<code>▱▱▱▱▱▱▱▱▱▱ 0%</code>\n\n⏳ درخواست ثبت شد؛ در انتظار شروع بررسی سرور…\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.",
+                [[['text'=>'⏳ در انتظار شروع · 0%','callback_data'=>'update:progress','style'=>'primary']]],$message);
             $this->store->query('UPDATE update_requests SET message_id=? WHERE id=?',[$message,$id]);
         } catch(\Throwable $e) {
             $this->store->query("UPDATE update_requests SET status='failed' WHERE id=?",[$id]);

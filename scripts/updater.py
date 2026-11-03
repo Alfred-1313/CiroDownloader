@@ -168,19 +168,19 @@ class Agent:
 
     @staticmethod
     def bar(percent):
-        number = str(percent).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+        number = str(percent)
         filled = percent // 10
-        return '▰' * filled + '▱' * (10 - filled) + ' ' + number + '٪'
+        return '▰' * filled + '▱' * (10 - filled) + ' ' + number + '%'
 
     def progress(self, text, percent=5):
         self.beat()
         self.percent = max(getattr(self, 'percent', 0), min(99, percent))
-        number = str(self.percent).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+        number = str(self.percent)
         self.notify('<blockquote><b>🔄 به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
                     + '<code>' + self.bar(self.percent) + '</code>\n\n'
                     + '<blockquote><b>در حال انجام</b>\n' + html.escape(text) + '</blockquote>'
                     + '\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.',
-                    [[{'text': '⏳ در حال انجام · ' + number + '٪', 'callback_data': 'update:progress', 'style': 'primary'}]])
+                    [[{'text': '⏳ در حال انجام · ' + number + '%', 'callback_data': 'update:progress', 'style': 'primary'}]])
 
     def run(self, *args, timeout=900):
         with tempfile.TemporaryFile() as output:
@@ -291,11 +291,10 @@ class Agent:
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
         notes = '\n'.join('• ' + html.escape(item[:240]) for item in additions[:12])
         text = ('<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
-                + '<blockquote><b>' + html.escape(title) + '</b>'
-                + ('\n' + detail if failed and detail else '') + '</blockquote>\n\n'
-                + ('<code>' + self.bar(100) + '</code>\n\n' if not failed else '')
+                + ('<blockquote><b>' + html.escape(title) + '</b>'
+                   + ('\n' + detail if failed and detail else '') + '</blockquote>\n\n' if title else '')
                 + 'نسخهٔ فعلی: <b>' + html.escape(version) + '</b>\n'
-                + 'آخرین بررسی: <b>' + stamp + '</b> (تهران)\n\n'
+                + 'آخرین بررسی: <b>' + stamp + '</b>\n\n'
                 + ('<blockquote expandable><b>✨ قابلیت‌های تازه</b>\n' + notes + '</blockquote>\n\n' if additions else '')
                 + 'با زدن دکمهٔ زیر، آخرین نسخه بررسی و در صورت وجود نصب می‌شود.\n'
                 + 'بازکردن این منو به‌تنهایی به‌روزرسانی را شروع نمی‌کند.')
@@ -305,6 +304,27 @@ class Agent:
         self.notify(text, buttons)
         with self.db() as db:
             db.execute('UPDATE update_requests SET status=? WHERE id=?', ('failed' if failed else 'done', self.job['id']))
+        (STATE / 'completion-pending.json').unlink(missing_ok=True)
+
+    def refresh_completion(self):
+        pending = STATE / 'completion-pending.json'
+        if not pending.is_file():
+            return
+        saved = json.loads(pending.read_text())
+        pending.unlink()
+        if not valid_recovery(saved.get('previous')):
+            return
+        with self.db() as db:
+            job = db.execute("SELECT * FROM update_requests WHERE id=? AND status='done'", (saved['job']['id'],)).fetchone()
+            active = db.execute("SELECT 1 FROM update_requests WHERE status IN ('queued','running')").fetchone()
+        if active or not job or job['user_id'] not in self.admins or job['chat_id'] != job['user_id']:
+            return
+        if job['action'] not in ('update', 'rollback'):
+            return
+        self.job = dict(job)
+        self.finish('✅ با موفقیت نصب شد' if job['action'] == 'update' else '✅ نسخهٔ قبلی بازیابی شد',
+                    from_version=saved['previous'].get('version') if job['action'] == 'update' else None)
+        self.job = None
 
     def execute(self):
         recovery = STATE / 'recovery.json'
@@ -327,7 +347,7 @@ class Agent:
             self.run('git', 'fetch', '--prune', 'origin', 'main', timeout=120)
             target = command('git', 'rev-parse', 'origin/main')
             if target == current:
-                self.finish('✅ آخرین نسخه را داری', 'ربات به‌روز است؛ تغییر جدیدی در گیت‌هاب وجود ندارد.')
+                self.finish('')
                 return
             command('git', 'merge-base', '--is-ancestor', current, target)
         if not SHA.fullmatch(target):
@@ -360,7 +380,7 @@ class Agent:
         self.set('update_previous_version', previous['version'])
         recovery.unlink(missing_ok=True)
         detail = 'نسخهٔ قبلی پشتیبان گرفته شد:\n<code>' + html.escape(previous['backup']) + '</code>'
-        self.finish('✅ ' + ('نسخهٔ قبلی بازیابی شد' if self.job['action'] == 'rollback' else 'ربات به‌روزرسانی شد'), detail,
+        self.finish('✅ ' + ('نسخهٔ قبلی بازیابی شد' if self.job['action'] == 'rollback' else 'با موفقیت نصب شد'), detail,
                     from_version=previous['version'] if self.job['action'] == 'update' else None)
 
     def tick(self):
@@ -374,6 +394,7 @@ class Agent:
             recovery.unlink()
             self.finish('♻️ نسخهٔ قبلی پس از توقف عملیات بازیابی شد', failed=True)
             return
+        self.refresh_completion()
         self.beat()
         with self.db() as db:
             # A crash before recovery.json exists has not modified code or image.

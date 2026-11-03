@@ -55,7 +55,7 @@ try {
     $bot->handle(cb(42,'update:start',$menu+999));
     check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'stale start button cannot start another menu');
     $bot->handle(cb(42,'update:start',$menu));
-    check(end($api->calls)[0]==='editMessageText'&&str_contains(end($api->calls)[1]['text'],'۰٪'),'start button changes the same message to progress at zero percent');
+    check(end($api->calls)[0]==='editMessageText'&&str_contains(end($api->calls)[1]['text'],'0%'),'start button changes the same message to progress at zero percent');
     $bot->handle(cb(42,'update:start',$menu)); $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:back',$menu));
     $upgrade=$store->query('SELECT * FROM update_requests')->fetchAll();
     check(count($upgrade)===1&&(int)$upgrade[0]['message_id']===$menu&&$upgrade[0]['action']==='update','only an explicit start queues one request using the menu message');

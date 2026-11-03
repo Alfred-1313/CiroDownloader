@@ -145,8 +145,8 @@ class UpdaterTests(unittest.TestCase):
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertTrue(all(params['message_id'] == 99 for params in edits))
         self.assertIn('مدیریت به‌روزرسانی', edits[-1]['text'])
-        self.assertIn('۱۰۰٪', edits[-1]['text'])
-        self.assertIn('ربات به‌روزرسانی شد', edits[-1]['text'])
+        self.assertNotIn('100%', edits[-1]['text'])
+        self.assertIn('<blockquote><b>✅ با موفقیت نصب شد</b></blockquote>', edits[-1]['text'])
         self.assertIn('update:start', json.dumps(edits[-1]['reply_markup']))
         self.assertIn('update:rollback', json.dumps(edits[-1]['reply_markup']))
         self.assertTrue(all(method != 'sendMessage' for method, _ in self.agent.calls))
@@ -154,7 +154,7 @@ class UpdaterTests(unittest.TestCase):
         self.assertGreaterEqual(len(progress), 5)
         # Completion is displayed only after the application health check.
         verified = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'verify')
-        finished = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'editMessageText' and '۱۰۰٪' in call[1]['text'])
+        finished = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'editMessageText' and 'با موفقیت نصب شد' in call[1]['text'])
         self.assertGreater(finished, verified)
 
     def test_interrupted_update_recovers_before_accepting_new_work(self):
@@ -169,6 +169,23 @@ class UpdaterTests(unittest.TestCase):
 
     def test_recovery_rejects_untrusted_command_values(self):
         self.assertFalse(updater.valid_recovery({'sha': '--upload-pack=evil', 'image': 'anything'}))
+
+    def test_old_agent_completion_uses_new_renderer_without_an_extra_message(self):
+        self.queue()
+        self.agent.claim()
+        previous = {'sha': 'a' * 40, 'image': 'ciro-downloader:backup-' + 'a' * 12 + '-123', 'version': '1.0.0'}
+        updater.atomic_json(self.state / 'completion-pending.json', {'previous': previous, 'job': self.agent.job})
+        with self.agent.db() as db:
+            db.execute("UPDATE update_requests SET status='done'")
+        self.agent.job = None
+        self.agent.tick()
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        self.assertEqual(len(edits), 1)
+        self.assertEqual(edits[0]['message_id'], 99)
+        self.assertIn('<blockquote><b>✅ با موفقیت نصب شد</b></blockquote>', edits[0]['text'])
+        self.assertNotIn('100%', edits[0]['text'])
+        self.assertFalse(any(method == 'sendMessage' for method, _ in self.agent.calls))
+        self.assertFalse((self.state / 'completion-pending.json').exists())
 
     def test_changes_exclude_installed_and_repeated_features(self):
         entries = [
@@ -187,7 +204,7 @@ class UpdaterTests(unittest.TestCase):
         self.queue()
         self.agent.claim()
         self.agent.set('update_new_changes', json.dumps({'from': '1.0.0', 'to': '1.1.0', 'changes': ['old feature']}))
-        self.agent.finish('آخرین نسخه را داری')
+        self.agent.finish('')
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertNotIn('old feature', edits[-1]['text'])
         self.assertNotIn('update:changes', json.dumps(edits[-1]['reply_markup']))
@@ -197,7 +214,7 @@ class UpdaterTests(unittest.TestCase):
     def test_actual_upgrade_only_announces_the_new_version_range(self):
         self.queue()
         self.agent.claim()
-        self.agent.finish('ربات به‌روزرسانی شد', from_version='1.0.0')
+        self.agent.finish('✅ با موفقیت نصب شد', from_version='1.0.0')
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertIn('راهنمای بهتر', edits[-1]['text'])
         self.assertIn('update:changes', json.dumps(edits[-1]['reply_markup']))
