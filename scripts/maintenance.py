@@ -226,6 +226,7 @@ class Maintenance:
             if not {'settings', 'jobs'}.issubset(tables):
                 raise MaintenanceError('This database is not from Ciro Downloader.')
             connection.execute("UPDATE settings SET value='0' WHERE key='update_in_progress'")
+            connection.execute("UPDATE jobs SET status='failed' WHERE status IN ('queued','running','choosing','confirming')")
             if 'update_requests' in tables:
                 connection.execute("UPDATE update_requests SET status='failed' WHERE status IN ('queued','running')")
             connection.commit()

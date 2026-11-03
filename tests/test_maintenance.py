@@ -63,7 +63,7 @@ class MaintenanceTests(unittest.TestCase):
         (self.project / 'VERSION').write_text('1.3.0', encoding='utf-8')
         database = self.root / 'fixture.sqlite'
         with sqlite3.connect(database) as connection:
-            connection.executescript('CREATE TABLE settings(key TEXT,value TEXT); CREATE TABLE jobs(id INTEGER); INSERT INTO settings VALUES("theme","original");')
+            connection.executescript('CREATE TABLE settings(key TEXT,value TEXT); CREATE TABLE jobs(id INTEGER,status TEXT); INSERT INTO settings VALUES("theme","original");')
         connection.close()
         self.app = FakeDocker(self.project, self.root / 'backups', data_archive(database.read_bytes()))
 
@@ -191,6 +191,26 @@ class MaintenanceTests(unittest.TestCase):
             self.app.backup()
         self.assertEqual((self.project / '.env').read_bytes(), ENV)
         self.assertEqual(self.app.services, ['bot'])
+
+    def test_restoring_a_backup_does_not_replay_old_downloads_or_updates(self):
+        database = self.root / 'pending.sqlite'
+        connection = sqlite3.connect(database)
+        try:
+            connection.executescript('CREATE TABLE settings(key TEXT,value TEXT); CREATE TABLE jobs(id INTEGER,status TEXT); CREATE TABLE update_requests(id INTEGER,status TEXT); INSERT INTO settings VALUES("update_in_progress","1"); INSERT INTO jobs VALUES(1,"queued"),(2,"done"); INSERT INTO update_requests VALUES(1,"running");')
+            connection.commit()
+        finally:
+            connection.close()
+        self.app.data = data_archive(database.read_bytes())
+        backup = self.app.backup()
+        with tempfile.TemporaryDirectory(dir=self.root) as folder:
+            data = self.app.unpack(backup, folder)
+            restored = sqlite3.connect(data / 'zero.sqlite')
+            try:
+                self.assertEqual(restored.execute('SELECT status FROM jobs ORDER BY id').fetchall(), [('failed',), ('done',)])
+                self.assertEqual(restored.execute('SELECT status FROM update_requests').fetchone()[0], 'failed')
+                self.assertEqual(restored.execute('SELECT value FROM settings WHERE key="update_in_progress"').fetchone()[0], '0')
+            finally:
+                restored.close()
 
 
 if __name__ == '__main__':

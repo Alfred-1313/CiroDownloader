@@ -25,7 +25,7 @@ Settings edits the bot token, comma-separated admin IDs, and optional HTTP(S)/SO
 
 Backups are kept in `/var/backups/ciro-downloader` with private permissions. They contain the SQLite database, cookies and `.env`, including the bot token. Temporary downloads and process locks are excluded. Backup briefly stops bot/worker for a consistent database snapshot, then resumes only services that were already running.
 
-Restore accepts this manager's `.tar.gz` format, validates archive paths, file types, limits and SQLite integrity, and requires `RESTORE`. It saves a recovery backup before replacing this installation's data and configuration. Failed restoration attempts to put that previous state back. The source code is kept at its current version. The Telegram updater's source/image rollback archives use a different format and are managed through `/update`.
+Restore accepts this manager's `.tar.gz` format, validates archive paths, file types, limits and SQLite integrity, and requires `RESTORE`. It saves a recovery backup before replacing this installation's data and configuration. Failed restoration stops partially started services before putting the previous state back. Historical pending downloads and update requests are not replayed; users can submit a fresh link. The source code is kept at its current version. The Telegram updater's source/image rollback archives use a different format and are managed through `/update`.
 
 The data volume must be the managed `ciro-downloader_data` mounted at `/app/storage`; backups or restoration refuse another Compose project or an external storage mount. The current archive limit is 512 MB of application data. Removal requires `DELETE` and retains source code, private logs and backups.
 
