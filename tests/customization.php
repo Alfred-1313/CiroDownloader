@@ -122,10 +122,11 @@ try {
     $chosen=$store->choose((int)$job['id'],9,9,720);
     ensure($chosen!==null&&$store->choose((int)$job['id'],9,9,360)===null,'quality choice is atomic and repeat taps cannot enqueue a second download');
     $store->query("UPDATE jobs SET status='choosing',expires=? WHERE id=?",[time()-1,$job['id']]);
-    ensure($store->choose((int)$job['id'],9,9,360)===null,'expired choices cannot start downloads');
-    $store->query("UPDATE jobs SET expires=? WHERE id=?",[time()+60,$job['id']]);
+    ensure($store->choose((int)$job['id'],9,9,360)!==null,'a past legacy deadline no longer prevents a quality choice');
+    $store->query("UPDATE jobs SET status='choosing',expires=? WHERE id=?",[time()-86400,$job['id']]);
     $reloaded=new Zero\Store($temp);
-    ensure($reloaded->choose((int)$job['id'],9,9,null)!==null,'saved quality menus can be cancelled after a process restart');
+    ensure((int)$reloaded->query('SELECT expires FROM jobs WHERE id=?',[$job['id']])->fetchColumn()===0,'saved menus lose their old deadline after a process restart');
+    ensure($reloaded->choose((int)$job['id'],9,9,null)!==null,'legacy cancel callbacks remain safe after a process restart');
     $store->query("UPDATE jobs SET status='choosing',expires=? WHERE id=?",[time()+60,$job['id']]);
     ensure($store->choose((int)$job['id'],9,9,'audio')===null,'old menus without audio formats cannot be forged into audio downloads');
     $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);

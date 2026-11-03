@@ -78,6 +78,7 @@ try {
     $keyboard=json_decode($records[2]['params']['reply_markup'],true)['inline_keyboard'];
     qualityCheck($keyboard[0][0]['text']==='360p'&&$keyboard[0][1]['text']==='720p','only available quality buttons are shown under the status message');
     qualityCheck(count($keyboard[1])===1&&$keyboard[1][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
+    qualityCheck(count($keyboard)===2&&(int)$job['expires']===0,'quality selection has no deadline and no cancel button');
     $bot->handle(['callback_query'=>['id'=>'local-test','from'=>['id'=>7],'message'=>['message_id'=>501,'chat'=>['id'=>7,'type'=>'private']],'data'=>'quality:'.$job['id'].($audio?':audio':':360')]]);
     $afterChoice=recorded($log); $selected=end($afterChoice);
     qualityCheck($selected['method']==='editMessageCaption'&&json_decode($selected['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($selected['params']['caption'],'<blockquote>'),'choosing media uses a simple status caption and removes every button');

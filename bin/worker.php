@@ -24,9 +24,9 @@ while(true) {
             $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();
             // An interrupted initial Telegram request must not leave an unclaimable job forever.
             $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
-            $expired=$store->query("SELECT * FROM jobs WHERE status IN ('choosing','confirming') AND expires>0 AND expires<?",[time()])->fetchAll();
+            $expired=$store->query("SELECT * FROM jobs WHERE status='confirming' AND expires>0 AND expires<?",[time()])->fetchAll();
             foreach($expired as $old) {
-                $changed=$store->query("UPDATE jobs SET status='failed' WHERE id=? AND status IN ('choosing','confirming') AND expires<?",[$old['id'],time()])->rowCount();
+                $changed=$store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='confirming' AND expires<?",[$old['id'],time()])->rowCount();
                 if($changed) { try { $bot->jobMessage($old,$bot->text('quality_expired')); } catch(Throwable) {} }
             }
             $store->query("DELETE FROM jobs WHERE status IN ('done','failed','cancelled') AND created<?",[time()-86400*7]);

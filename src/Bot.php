@@ -102,7 +102,7 @@ final class Bot
             'state'=>$this->text($this->store->enabled()?'state_on':'state_off'),
             'poller'=>$this->text($now-(int)$this->store->get('poller_heartbeat','0')<60?'online':'unresponsive'),
             'worker'=>$this->text($running>0?'processing':($now-(int)$this->store->get('worker_heartbeat','0')<20?'online':'unresponsive')),
-            'queued'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','choosing','confirming')")->fetchColumn(),
+            'queued'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','confirming')")->fetchColumn(),
             'users'=>(int)$this->store->query('SELECT COUNT(*) FROM users')->fetchColumn(),
             'completed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='done' AND created>=?",[$now-7*86400])->fetchColumn(),
             'failed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='failed' AND created>=?",[$now-7*86400])->fetchColumn(),
@@ -125,8 +125,8 @@ final class Bot
     }
     public function qualityMenu(array $job,array $media): void
     {
-        $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=? WHERE id=?",
-            [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),time()+900,$job['id']]);
+        $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=0 WHERE id=?",
+            [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),$job['id']]);
         $rows=[]; $row=[];
         foreach($media['options'] as $height=>$formats) {
             if($height==='audio') continue;
@@ -135,7 +135,6 @@ final class Bot
         }
         if($row) $rows[]=$row;
         if(!empty($media['options']['audio'])) $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
-        $rows[]=[$this->button('cancel_quality','quality:'.$job['id'].':cancel')];
         $caption=$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]);
         if(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);
@@ -145,7 +144,9 @@ final class Bot
     {
         $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
         $job=$this->store->choose((int)$parts[1],$user,$chat,$quality);
-        $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain('quality_expired'),'show_alert'=>!$job,'cache_time'=>0]);
+        $waiting=!$job&&$this->store->query("SELECT 1 FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='choosing'",[(int)$parts[1],$user,$chat])->fetchColumn();
+        $notice=$waiting?($this->store->busy($user)?'quality_busy':($this->store->full()?'queue_full':'quality_expired')):'quality_expired';
+        $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain($notice),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;
         try {
             $this->jobMessage($job,$this->text($quality===null?'cancelled':($quality==='audio'?'audio_downloading':'downloading')));
