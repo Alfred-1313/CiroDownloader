@@ -61,6 +61,15 @@ try {
     check(count($upgrade)===1&&(int)$upgrade[0]['message_id']===$menu&&$upgrade[0]['action']==='update','only an explicit start queues one request using the menu message');
     check(count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'))===$sends,'menu navigation, start and repeat clicks create no extra bot messages');
     $store->query("UPDATE update_requests SET status='done'");
+    $store->set('update_previous_version','1.0.0');
+    $store->query("DELETE FROM settings WHERE key='update_new_changes'");
+    $bot->handle(cb(42,'update:changes',$menu));
+    check(str_contains(end($api->calls)[1]['text'],'قابلیت تازه‌ای'),'unknown upgrade history never replays installed features from rollback metadata');
+    $store->set('update_new_changes',json_encode(['from'=>'1.1.2','to'=>Zero\Updates::version(),'changes'=>['NEW_FEATURE_ONLY']],JSON_THROW_ON_ERROR));
+    $bot->handle(cb(42,'update:changes',$menu));
+    check(str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'changes view shows the recorded additions from this upgrade');
+    $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:changes',$menu));
+    check(!str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'reopening the menu does not repeat the previous feature announcement');
     $bot->handle(cb(1,'set:off')); check($store->enabled(),'forged admin callback denied');
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');
     $bot->handle(msg(1,$url,10)); check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===0,'offline denies downloads');

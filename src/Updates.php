@@ -45,26 +45,8 @@ final class Updates
 
     private function freshChanges(): array
     {
-        $raw=$this->store->get('update_new_changes','#unset#');
-        // An older host agent may have performed the upgrade installing this release.
-        if($raw==='#unset#') {
-            $from=$this->store->get('update_previous_version'); $notes=[]; $known=[];
-            $entries=json_decode((string)file_get_contents(dirname(__DIR__).'/CHANGELOG.json'),true)?:[];
-            usort($entries,fn($a,$b)=>version_compare($a['version'],$b['version']));
-            if(preg_match('/^\d+\.\d+\.\d+$/',$from)&&version_compare($from,self::version(),'<')) {
-                foreach($entries as $entry) {
-                    if(version_compare($entry['version'],self::version(),'>')) continue;
-                    foreach($entry['changes']??[] as $note) {
-                        $normalized=mb_strtolower(preg_replace('/\s+/u',' ',trim($note))??'');
-                        if(version_compare($entry['version'],$from,'>')&&!isset($known[$normalized])) $notes[]=$note;
-                        $known[$normalized]=true;
-                    }
-                }
-            }
-            $raw=json_encode(['from'=>$from,'to'=>self::version(),'changes'=>$notes],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
-            $this->store->set('update_new_changes',$raw);
-        }
-        $data=json_decode($raw,true);
+        // Rollback metadata is not a reliable record of the version being upgraded.
+        $data=json_decode($this->store->get('update_new_changes'),true);
         return is_array($data)&&($data['to']??'')===self::version()&&is_array($data['changes']??null)?array_values(array_filter($data['changes'],'is_string')):[];
     }
 
