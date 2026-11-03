@@ -48,7 +48,14 @@ try {
     $bot->handle(msg(1,'/update')); $bot->handle(cb(1,'update:start',$menu)); $bot->handle(cb(1,'update:rollback:confirm',$menu));
     check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'public commands and forged callbacks cannot request updates');
     $sends=count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'));
-    $bot->handle(msg(42,'/update')); $bot->handle(msg(42,$bot->label('update'))); $bot->handle(cb(42,'update:run',$menu));
+    $bot->handle(msg(42,'/update')); $commandMenu=(int)$store->get('update_menu.42');
+    check(end($api->calls)[0]==='sendMessage'&&$commandMenu!==$menu,'repeated update commands open a visible menu instead of silently reusing a cached old message');
+    $bot->handle(msg(42,$bot->label('update'))); $keyboardMenu=(int)$store->get('update_menu.42');
+    check(end($api->calls)[0]==='sendMessage'&&$keyboardMenu!==$commandMenu,'reply keyboard update also opens a visible menu');
+    $bot->handle(msg(42,'/update@CiroDownloaderBot')); $menu=(int)$store->get('update_menu.42');
+    check(end($api->calls)[0]==='sendMessage'&&$menu!==$keyboardMenu,'update commands addressed to the bot are recognized');
+    $sends=count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'));
+    $bot->handle(cb(42,'update:run',$menu));
     check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'command, keyboard and old inline button only open the menu');
     $bot->handle(cb(42,'update:changes',$menu)); $bot->handle(cb(42,'update:menu',$menu));
     check(end($api->calls)[0]==='editMessageText'&&(int)end($api->calls)[1]['message_id']===$menu,'changes and back navigation edit the existing menu');
@@ -68,7 +75,7 @@ try {
     $store->set('update_new_changes',json_encode(['from'=>'1.1.2','to'=>Zero\Updates::version(),'changes'=>['NEW_FEATURE_ONLY']],JSON_THROW_ON_ERROR));
     $bot->handle(cb(42,'update:changes',$menu));
     check(str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'changes view shows the recorded additions from this upgrade');
-    $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:changes',$menu));
+    $bot->handle(msg(42,'/update')); $menu=(int)$store->get('update_menu.42'); $bot->handle(cb(42,'update:changes',$menu));
     check(!str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'reopening the menu does not repeat the previous feature announcement');
     $bot->handle(cb(1,'set:off')); check($store->enabled(),'forged admin callback denied');
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');

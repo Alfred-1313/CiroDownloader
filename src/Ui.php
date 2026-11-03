@@ -39,6 +39,16 @@ final class Ui
     }
     public function plain(string $key): string { return html_entity_decode(strip_tags($this->template($key)),ENT_QUOTES|ENT_HTML5,'UTF-8'); }
     public static function escape(string $value): string { return htmlspecialchars($value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
+    public static function fitCaption(string $html): string
+    {
+        $plain=html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        return TextFormat::length($plain)<=1024?$html:self::escape(mb_substr($plain,0,500));
+    }
+    public static function duration(int $seconds): string
+    {
+        $seconds=max(0,$seconds);
+        return $seconds>=3600?sprintf('%d:%02d:%02d',intdiv($seconds,3600),intdiv($seconds%3600,60),$seconds%60):sprintf('%02d:%02d',intdiv($seconds,60),$seconds%60);
+    }
     public function label(string $key,array $values=[]): string
     {
         $item=$this->definition('button',$key);

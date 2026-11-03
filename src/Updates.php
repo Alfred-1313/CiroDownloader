@@ -19,9 +19,9 @@ final class Updates
         return $this->store->query("SELECT * FROM update_requests WHERE status IN ('queued','running') ORDER BY id LIMIT 1")->fetch();
     }
 
-    private function view(int $chat, int $user, string $text, array $rows, int $message = 0): int
+    private function view(int $chat, int $user, string $text, array $rows, int $message = 0, bool $new = false): int
     {
-        $message=$message?:((int)$this->store->get('update_menu.'.$user,'0'));
+        $message=$new?0:($message?:((int)$this->store->get('update_menu.'.$user,'0')));
         $params=['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,
             'reply_markup'=>['inline_keyboard'=>$rows]];
         $hash=hash('sha256',json_encode($params,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
@@ -67,7 +67,7 @@ final class Updates
         }
         if($this->freshChanges()) $rows[]=[$this->ui->button('update_changes','update:changes')];
         $rows[]=[$this->ui->button('back_admin','update:back')];
-        $this->view($chat,$user,$text,$rows,$message);
+        $this->view($chat,$user,$text,$rows,$message,$fresh&&$message===0);
     }
 
     public function changes(int $chat, int $user, int $message): void

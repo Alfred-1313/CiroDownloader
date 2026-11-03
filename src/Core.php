@@ -130,12 +130,12 @@ final class Telegram implements FileApi
         if ($body === false) throw new \RuntimeException('Telegram transport error ' . $errno);
         $result = json_decode($body, true);
         if (!($result['ok'] ?? false)) {
-            if($method==='editMessageText'&&str_contains((string)($result['description']??''),'message is not modified')) return true;
-            if($method==='editMessageText'&&str_contains((string)($result['description']??''),'message to edit not found')) {
+            if(str_starts_with($method,'editMessage')&&str_contains((string)($result['description']??''),'message is not modified')) return true;
+            if(str_starts_with($method,'editMessage')&&str_contains((string)($result['description']??''),'message to edit not found')) {
                 throw new \RuntimeException('Telegram message is unavailable',404);
             }
             // Raw API errors may include credentials/URLs. Log only numeric status.
-            throw new \RuntimeException('Telegram API error ' . ($result['error_code'] ?? 0));
+            throw new \RuntimeException('Telegram API error ' . ($result['error_code'] ?? 0),(int)($result['error_code']??0));
         }
         return $result['result'];
     }
@@ -188,12 +188,13 @@ final class Store
         try {
             $columns=array_column($this->query('PRAGMA table_info(jobs)')->fetchAll(),'name');
             if(!in_array('message_id',$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN message_id INTEGER');
-            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
+            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''"] as $column=>$type) {
                 if(!in_array($column,$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN '.$column.' '.$type);
             }
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
             if($index&&!str_contains($index,'choosing')) $this->db->exec('DROP INDEX one_active');
             $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running','choosing','confirming')");
+            $this->query("UPDATE states SET expires=0 WHERE key='cookie.upload'");
             if($this->get('ui_html_version','0')!=='1') {
                 // Captions in older releases were sent as plaintext, even if they
                 // contained angle brackets. Preserve that appearance when enabling HTML.
