@@ -88,6 +88,10 @@ try {
 
     $info=['formats'=>[
         ['format_id'=>'18','width'=>640,'height'=>360,'vcodec'=>'avc1','acodec'=>'aac'],
+        ['format_id'=>'135','width'=>854,'height'=>480,'vcodec'=>'avc1','acodec'=>'none'],
+        ['format_id'=>'244','width'=>480,'height'=>854,'vcodec'=>'vp9','acodec'=>'none'],
+        ['format_id'=>'136','width'=>1280,'height'=>720,'vcodec'=>'avc1','acodec'=>'none'],
+        ['format_id'=>'160','width'=>256,'height'=>144,'vcodec'=>'avc1','acodec'=>'none'],
         ['format_id'=>'137','width'=>1920,'height'=>1080,'vcodec'=>'avc1','acodec'=>'none'],
         ['format_id'=>'248','width'=>1080,'height'=>1920,'vcodec'=>'vp9','acodec'=>'none'],
         ['format_id'=>'sb0','width'=>160,'height'=>90,'vcodec'=>'images','acodec'=>'none','protocol'=>'mhtml'],
@@ -95,14 +99,27 @@ try {
         ['format_id'=>'bad/selector','width'=>640,'height'=>480,'vcodec'=>'avc1','acodec'=>'none'],
     ]];
     $options=Zero\Download::qualityOptions($info);
-    ensure(array_keys($options)===[360,1080]&&count($options[1080])===2,'qualities are real, deduplicated, portrait-aware and exclude DRM and storyboards');
+    ensure(array_keys($options)===[360,480,720]&&count($options[480])===2,'only real 360p, 480p and 720p qualities are offered, deduplicated and portrait-aware');
+    $partial=$info;
+    $partial['formats']=array_values(array_filter($info['formats'],fn($format)=>min((int)($format['width']??0),(int)($format['height']??0))!==480));
+    ensure(array_keys(Zero\Download::qualityOptions($partial))===[360,720],'missing 480p is omitted while the other available qualities remain');
+    $audioOnly=['formats'=>[
+        ['format_id'=>'137','width'=>1920,'height'=>1080,'vcodec'=>'avc1','acodec'=>'none'],
+        ['format_id'=>'140','vcodec'=>'none','acodec'=>'aac'],
+    ]];
+    ensure(Zero\Download::qualityOptions($audioOnly)===[]&&Zero\Download::audioOptions($audioOnly)===[['id'=>'140']],'no unsupported or invented video quality appears when only audio is available within the policy');
     $bot->handle(input(9,'https://youtu.be/ybNMMK5Q318'));
     $job=$store->query('SELECT * FROM jobs WHERE user_id=9')->fetch();
     $store->query("UPDATE jobs SET status='running' WHERE id=?",[$job['id']]);
     $bot->qualityMenu($job,['title'=>'<title> & audio','options'=>$options]);
-    ensure($store->choose((int)$job['id'],7,7,1080)===null,'another user cannot select a quality for this job');
-    ensure($store->choose((int)$job['id'],9,9,720)===null,'forged unavailable quality cannot be downloaded');
-    $chosen=$store->choose((int)$job['id'],9,9,1080);
+    $qualityRows=end($api->calls)[1]['reply_markup']['inline_keyboard'];
+    ensure($qualityRows[0][0]['text']==='360p'&&$qualityRows[0][1]['text']==='480p'&&$qualityRows[1][0]['text']==='720p','quality buttons show the allowed choices in ascending order');
+    ensure($store->choose((int)$job['id'],7,7,720)===null,'another user cannot select a quality for this job');
+    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode($options+[1080=>[['id'=>'137','audio'=>false]]]),$job['id']]);
+    ensure($store->choose((int)$job['id'],9,9,1080)===null,'1080p choices from an older saved menu are also rejected');
+    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode(Zero\Download::qualityOptions($partial)),$job['id']]);
+    ensure($store->choose((int)$job['id'],9,9,480)===null,'an unavailable allowed quality cannot be downloaded');
+    $chosen=$store->choose((int)$job['id'],9,9,720);
     ensure($chosen!==null&&$store->choose((int)$job['id'],9,9,360)===null,'quality choice is atomic and repeat taps cannot enqueue a second download');
     $store->query("UPDATE jobs SET status='choosing',expires=? WHERE id=?",[time()-1,$job['id']]);
     ensure($store->choose((int)$job['id'],9,9,360)===null,'expired choices cannot start downloads');

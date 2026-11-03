@@ -124,11 +124,10 @@ final class Download
         foreach($formats as $format) {
             $height=min((int)($format['width']??0),(int)($format['height']??0));
             $id=(string)($format['format_id']??'');
-            if($height<72||$height>8640||in_array($format['vcodec']??'none',['none','images'],true)||($format['protocol']??'')==='mhtml'||!empty($format['has_drm'])||!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)) continue;
+            if(!in_array($height,Config::VIDEO_QUALITIES,true)||in_array($format['vcodec']??'none',['none','images'],true)||($format['protocol']??'')==='mhtml'||!empty($format['has_drm'])||!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)) continue;
             if(count($options[$height]??[])<8) $options[$height][]=['id'=>$id,'audio'=>($format['acodec']??'none')!=='none'];
         }
         ksort($options,SORT_NUMERIC);
-        if(!$options) throw new MediaFailure('format','No downloadable video qualities found');
         return $options;
     }
     public static function audioOptions(array $info): array
@@ -156,6 +155,7 @@ final class Download
         $options=self::qualityOptions($info);
         $audio=self::audioOptions($info);
         if($audio) $options['audio']=$audio;
+        if(!$options) throw new MediaFailure('format','No downloadable media formats found');
         return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options,'poster'=>self::posterUrl($info,$canonical)];
     }
     public static function posterUrl(array $info,string $url): string

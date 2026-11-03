@@ -6,6 +6,8 @@ require_once __DIR__.'/Ui.php';
 
 final class Config
 {
+    public const VIDEO_QUALITIES=[360,480,720];
+
     public function __construct(
         public string $token, public array $admins, public string $storage,
         public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
@@ -258,6 +260,7 @@ final class Store
     }
     public function choose(int $id,int $user,int $chat,int|string|null $quality): ?array
     {
+        if($quality!==null&&$quality!=='audio'&&!in_array($quality,Config::VIDEO_QUALITIES,true)) return null;
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='choosing' AND expires>?",[$id,$user,$chat,time()])->fetch();
