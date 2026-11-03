@@ -16,7 +16,7 @@ final class MediaFailure extends \RuntimeException
             'cookies'=>'کوکی ورود یوتیوب معتبر یا قابل خواندن نیست؛ مدیر باید آن را به‌روز کند.',
             'size'=>'حجم این ویدیو از سقف ارسال ربات بیشتر است؛ یک ویدیوی کوتاه‌تر بفرست.',
             'restricted'=>'این ویدیو خصوصی، حذف‌شده یا دارای محدودیت دسترسی است و قابل دانلود نیست.',
-            'duration'=>'پخش زنده یا ویدیوی بیشتر از ۲۰ دقیقه پشتیبانی نمی‌شود.',
+            'duration'=>'پخش زنده یا ویدیوی بدون مدت مشخص پشتیبانی نمی‌شود.',
             'network'=>'اتصال سرور به یوتیوب برقرار نشد؛ کمی بعد دوباره تلاش کن.',
             'format'=>'فرمت قابل دانلود این ویدیو در دسترس نیست؛ جزئیات برای مدیر ثبت شد.',
             default=>'دانلود یا آماده‌سازی ویدیو انجام نشد؛ جزئیات برای مدیر ثبت شد.',
@@ -26,6 +26,7 @@ final class MediaFailure extends \RuntimeException
     public static function process(int $exit, string $detail): self
     {
         $reason=match(true) {
+            preg_match('/cookies are no longer valid|cookies.*expired|cookies.*rotated/i',$detail)===1=>'cookies',
             preg_match('/not a bot|sign in to confirm|HTTP Error (403|429)/i',$detail)===1=>'blocked',
             preg_match('/max.filesize|larger than|too large|size limit/i',$detail)===1=>'size',
             preg_match('/private video|video unavailable|removed|age.restricted|not available in your country/i',$detail)===1=>'restricted',
@@ -98,11 +99,16 @@ final class Download
         $title=$this->run(array_merge([$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
             '--no-cache-dir','--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
-            '--match-filter','!is_live & duration <= 1200','--break-on-reject',
+            '--match-filter','!is_live','--break-on-reject',
             // res uses the shorter edge: 480x854 Shorts are valid 480p videos.
             '-f','bv*+ba/b','-S','res:480,vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
             '-o',$folder.'/video.%(ext)s'],$access,['--',$canonical]),$folder,$this->config->timeout);
+        if(isset($private)&&is_file($private)) {
+            // Keep renewed server cookies, but never replace a more recent admin import.
+            try { saveYouTubeCookies($this->config,(string)file_get_contents($private),hash('sha256',$content)); }
+            catch(\Throwable) { error_log('YouTube cookie refresh skipped: invalid jar or unavailable storage'); }
+        }
         $files=array_values(array_filter(glob($folder.'/video.*')?:[],
             fn($file)=>in_array(pathinfo($file,PATHINFO_EXTENSION),['mp4','mkv','webm','mov'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete video');
@@ -115,7 +121,7 @@ final class Download
         }
         $duration=(float)($info['format']['duration']??0);
         if(!$video||!$audio) throw new MediaFailure('format','Downloaded video or audio stream is missing');
-        if($duration<=0||$duration>1200) throw new MediaFailure('duration','Video exceeds duration limit or has no duration');
+        if($duration<=0) throw new MediaFailure('duration','Video has no duration');
 
         // Telegram clients need H.264/AAC MP4; accept other source codecs and convert them.
         $ready=$folder.'/ready.mp4';

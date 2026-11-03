@@ -20,16 +20,17 @@ try {
     file_put_contents($config->cookiePath(),$cookieExport);
     $config->youtubeProxy='socks5://test-user:test-password@127.0.0.1:1080';
     foreach([
-        ['landscape','640x360','libx264','aac','mp4'],
-        ['shorts','480x854','libx264','aac','mp4'],
-        ['fallback','600x1066','libvpx-vp9','libopus','webm'],
-    ] as [$name,$size,$videoCodec,$audioCodec,$ext]) {
+        ['landscape','640x360','libx264','aac','mp4',1],
+        ['shorts','480x854','libx264','aac','mp4',1],
+        ['fallback','600x1066','libvpx-vp9','libopus','webm',1],
+        ['long','32x32','libx264','aac','mp4',1202],
+    ] as [$name,$size,$videoCodec,$audioCodec,$ext,$seconds]) {
         $work=$temp.'/'.$name;
         mkdir($work,0700);
         $source=$temp.'/'.$name.'.'.$ext;
         $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y',
-            '-f','lavfi','-i',"color=c=blue:s=$size:r=10:d=1",
-            '-f','lavfi','-i','sine=frequency=440:sample_rate=48000',
+            '-f','lavfi','-i',"color=c=blue:s=$size:r=1:d=$seconds",
+            '-f','lavfi','-i','anullsrc=r=8000:cl=mono',
             '-shortest','-c:v',$videoCodec,'-threads','2','-c:a',$audioCodec,$source],$work,30);
 
         // Replace only YouTube transport; exercise real probing, conversion and remuxing.
@@ -44,6 +45,7 @@ try {
         $config->ytDlp=$stub;
         $media=$runner->fetch('https://www.youtube.com/watch?v=ybNMMK5Q318',$work);
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
+        verify($arguments[array_search('--match-filter',$arguments,true)+1]==='!is_live',"$name has no maximum video duration filter");
         verify($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt',"$name uses a private cookie copy");
         verify(file_get_contents($config->cookiePath())===$cookieExport,"$name preserves shared cookies during download");
         verify($arguments[array_search('--proxy',$arguments,true)+1]===$config->youtubeProxy,"$name passes the configured YouTube proxy");
@@ -53,6 +55,7 @@ try {
         verify(min($media['width'],$media['height'])<=480,"$name respects 480p on the shorter edge");
         if($name==='shorts') verify($media['width']===480&&$media['height']===854,'portrait Shorts are not rejected or reduced to 240p');
         if($name==='fallback') verify($media['width']===480,'higher resolution WebM fallback is converted and scaled');
+        if($name==='long') verify($media['duration']>1200,'a real video longer than 20 minutes completes preparation');
     }
 
     $router=$temp.'/router.php';

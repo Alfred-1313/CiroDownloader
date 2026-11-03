@@ -69,13 +69,19 @@ function validateYouTubeCookies(string $content): void
     if(!$youtube) throw new \RuntimeException('No youtube.com cookies found in this export');
 }
 
-function saveYouTubeCookies(Config $config, string $content): void
+// An expected hash makes downloader refreshes lose to a newer administrator import.
+function saveYouTubeCookies(Config $config, string $content, ?string $expectedHash = null): bool
 {
     validateYouTubeCookies($content);
     if(!is_dir($config->storage)&&!mkdir($config->storage,0700,true)) throw new \RuntimeException('Cannot create storage');
     $destination=$config->cookiePath();
+    $lock=fopen($destination.'.lock','c');
+    if(!$lock) throw new \RuntimeException('Cannot lock cookie file');
+    chmod($destination.'.lock',0600);
     $temporary=dirname($destination).'/.cookies-import-'.bin2hex(random_bytes(6));
     try {
+        if(!flock($lock,LOCK_EX)) throw new \RuntimeException('Cannot lock cookie file');
+        if($expectedHash!==null&&(!is_file($destination)||!hash_equals($expectedHash,hash_file('sha256',$destination)))) return false;
         $handle=fopen($temporary,'x');
         if($handle===false) throw new \RuntimeException('Cannot create cookie import file');
         try {
@@ -85,8 +91,10 @@ function saveYouTubeCookies(Config $config, string $content): void
         } finally { fclose($handle); }
         if(!rename($temporary,$destination)) throw new \RuntimeException('Cannot replace cookie file');
         clearstatcache(true,$destination);
+        return true;
     } finally {
         if(is_file($temporary)) unlink($temporary);
+        flock($lock,LOCK_UN); fclose($lock);
     }
 }
 
@@ -165,6 +173,10 @@ final class Store
                 user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, url TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running');
+            CREATE TABLE IF NOT EXISTS update_requests (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL DEFAULT 0,
+                action TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS one_update ON update_requests((1)) WHERE status IN ('queued','running');
             CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, last_request INTEGER NOT NULL DEFAULT 0);");
     }
     public function query(string $sql, array $args = []): \PDOStatement
@@ -185,7 +197,8 @@ final class Store
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
-            if ($this->query('SELECT 1 FROM jobs WHERE update_id=?', [$update])->fetchColumn()) $result = 'duplicate';
+            if ($this->get('update_in_progress','0')==='1') $result = 'updating';
+            elseif ($this->query('SELECT 1 FROM jobs WHERE update_id=?', [$update])->fetchColumn()) $result = 'duplicate';
             elseif ($this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running')", [$user])->fetchColumn()) $result = 'busy';
             elseif ((int)$this->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')")->fetchColumn() >= 20) $result = 'full';
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15) $result = 'cooldown';
@@ -201,7 +214,7 @@ final class Store
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
-            $job = $this->query("SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
+            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
             if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }

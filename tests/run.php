@@ -6,7 +6,7 @@ require dirname(__DIR__).'/src/Download.php';
 
 final class FakeApi implements Zero\Api {
     public array $calls=[];
-    public function call(string $method,array $params=[]): mixed { $this->calls[]=[$method,$params]; return true; }
+    public function call(string $method,array $params=[]): mixed { $this->calls[]=[$method,$params]; return $method==='sendMessage'?['message_id'=>count($this->calls)]:true; }
 }
 function check(bool $ok,string $message): void { if(!$ok) throw new RuntimeException($message); echo "PASS $message\n"; }
 function msg(int $user,string $text,int $update=1): array { return ['update_id'=>$update,'message'=>['from'=>['id'=>$user],'chat'=>['id'=>$user,'type'=>'private'],'text'=>$text]]; }
@@ -33,8 +33,21 @@ try {
     foreach(['http://127.0.0.1/','https://youtube.com.evil.test/watch?v=dQw4w9WgXcQ','https://youtube.com@evil.test/','https://youtube.com/watch?v[]=bad','https://youtube.com:99/watch?v=dQw4w9WgXcQ','https://youtube.com/playlist?list=abc'] as $bad) check(Zero\youtubeUrl($bad)===null,'reject invalid URL');
     $bot->handle(msg(1,'/start'));
     check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('admin')),'public menu hides admin');
+    check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('health')),'public menu hides health');
+    check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('download')),'public menu has no redundant download button');
     $bot->handle(msg(42,'/start'));
     check(str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('admin')),'admin menu visible');
+    check(isset(end($api->calls)[1]['reply_markup']['keyboard']),'admin controls use reply keyboard');
+    check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('download')),'admin menu has no redundant download button');
+    $bot->handle(msg(42,'/update'));
+    check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'unavailable updater does not queue an unfulfillable request');
+    $store->set('updater_heartbeat',(string)time());
+    $bot->handle(msg(1,'/update')); $bot->handle(cb(1,'update:run')); $bot->handle(cb(1,'update:rollback:confirm'));
+    check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'public commands and forged callbacks cannot request updates');
+    $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:run'));
+    $upgrade=$store->query('SELECT * FROM update_requests')->fetchAll();
+    check(count($upgrade)===1&&(int)$upgrade[0]['message_id']>0&&$upgrade[0]['action']==='update','admin update queues one request linked to its progress message');
+    $store->query("UPDATE update_requests SET status='done'");
     $bot->handle(cb(1,'set:off')); check($store->enabled(),'forged admin callback denied');
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');
     $bot->handle(msg(1,$url,10)); check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===0,'offline denies downloads');
@@ -55,6 +68,14 @@ try {
     $job=$store->claim(); check($job!==null&&$store->claim()===null,'claim only queued job');
     $reopen=new Zero\Store($temp); check($reopen->get('text.video_caption')==='Title: {title}','settings survive reload');
     $store->query("UPDATE jobs SET status='done'");
+    $store->set('update_in_progress','1');
+    check($store->enqueue(999,999,999,$url)==='updating'&&$store->claim()===null,'updater pauses new jobs atomically');
+    $store->set('update_in_progress','0');
+    $renewed=str_replace('FAKE_TEST_VALUE','RENEWED_TEST_VALUE',$cookies);
+    Zero\saveYouTubeCookies($cfg,$cookies);
+    check(Zero\saveYouTubeCookies($cfg,$renewed,hash('sha256',$cookies)),'persist a valid renewed server cookie jar');
+    check(!Zero\saveYouTubeCookies($cfg,$cookies,hash('sha256',$cookies))&&file_get_contents($cfg->cookiePath())===$renewed,'a stale download cannot overwrite a newer administrator cookie import');
+    check(Zero\MediaFailure::process(1,'The provided YouTube account cookies are no longer valid. Sign in to confirm you are not a bot.')->reason==='cookies','classify invalid session before generic bot restriction');
     check($store->enqueue(22,1,1,$url)==='cooldown','rate limit after finished job');
     for($i=100;$i<120;$i++) $store->enqueue($i,$i,$i,$url);
     check($store->enqueue(200,200,200,$url)==='full','bounded queue');

@@ -5,7 +5,7 @@ umask 077
 
 REPOSITORY_URL='https://github.com/Alfred-1313/CiroDownloader.git'
 INSTALL_DIR='/opt/ciro-downloader'
-INSTALLER_VERSION='2.1.0'
+INSTALLER_VERSION='2.2.0'
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 [[ $EUID -eq 0 ]] || { echo 'Run this installer with sudo or as root.' >&2; exit 1; }
@@ -127,6 +127,7 @@ install_bot() {
   docker compose build --pull
   validate_bot
   docker compose up -d --no-build
+  enable_telegram_updates
   success 'Ciro Downloader is running.'
   printf 'Open your bot in Telegram and send %s/start%s. Admin panel: %s/admin%s\n' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
 }
@@ -172,7 +173,16 @@ update_bot() {
   require_docker || return
   docker compose build --pull
   docker compose up -d --no-build
+  enable_telegram_updates
   success 'Update complete.'
+}
+
+enable_telegram_updates() {
+  if [[ "$PROJECT_DIR" == /opt/ciro-downloader ]] && command -v systemctl >/dev/null 2>&1; then
+    bash scripts/install-updater.sh
+  else
+    notice 'Telegram updates need systemd and /opt/ciro-downloader. Terminal service controls remain available.'
+  fi
 }
 
 run_diagnostics() {
@@ -223,6 +233,11 @@ delete_bot() {
   fi
 
   if docker_ready; then
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl disable --now ciro-downloader-updater.timer >/dev/null 2>&1 || true
+      systemctl stop ciro-downloader-updater.service >/dev/null 2>&1 || true
+      if mountpoint -q /run/ciro-downloader-data; then umount /run/ciro-downloader-data; fi
+    fi
     docker compose down --volumes --remove-orphans || true
     docker image rm ciro-downloader:local >/dev/null 2>&1 || true
   else
@@ -250,6 +265,7 @@ menu() {
     printf '%s8%s  Run delivery diagnostics\n' "$C_BLUE" "$C_RESET"
     printf '%s9%s  Delete installation%s\n' "$C_RED" "$C_RESET" "$C_RESET"
     printf '%s10%s Import YouTube cookies\n' "$C_BLUE" "$C_RESET"
+    printf '%s11%s Enable Telegram updates\n' "$C_BLUE" "$C_RESET"
     printf '%s0%s  Exit\n' "$C_MUTED" "$C_RESET"
     line
     read -rp 'Choose an option: ' choice || exit 0
@@ -265,6 +281,7 @@ menu() {
       8) run_diagnostics; pause ;;
       9) delete_bot; pause ;;
       10) import_youtube_cookies; pause ;;
+      11) enable_telegram_updates; pause ;;
       0) exit 0 ;;
       *) warning 'Choose a number from the menu.'; pause ;;
     esac

@@ -11,9 +11,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY src/ src/
 COPY bin/ bin/
+COPY VERSION CHANGELOG.json ./
 # Git checkouts created by the installer may inherit umask 077. Normalize the
 # code permissions in the image before dropping privileges to the runtime user.
-RUN chmod -R u=rwX,go=rX /app/src /app/bin \
+RUN chmod -R u=rwX,go=rX /app/src /app/bin /app/VERSION /app/CHANGELOG.json \
     && mkdir /app/storage && chown zero:zero /app/storage
 USER zero
 CMD ["php", "bin/bot.php"]

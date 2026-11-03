@@ -1,12 +1,13 @@
 <?php
 declare(strict_types=1);
 namespace Zero;
+require_once __DIR__.'/Updates.php';
 
 final class Bot
 {
     public const TEXTS = [
         'welcome' => ['خوش‌آمدگویی', "<b>به سیرو دانلودر خوش آمدی</b>\n\nلینک ویدیو یا شورت یوتیوب را بفرست تا فایل MP4 همراه صدا، با کیفیت حداکثر ۴۸۰ دریافت کنی."],
-        'help' => ['راهنما', "لینک ویدیو یا Shorts یوتیوب را بفرست.\nهر بار یک درخواست؛ حداکثر ۲۰ دقیقه.\nپخش زنده و پلی‌لیست پشتیبانی نمی‌شوند.\nبعد از آماده‌سازی، فایل ویدیو همین‌جا ارسال می‌شود."],
+        'help' => ['راهنما', "لینک ویدیو یا شورت یوتیوب را بفرست؛ فایل MP4 با صدا همین‌جا می‌آید.\nهر بار یک لینک؛ بدون سقف زمانی، تا سقف حجم ارسال ربات.\nپخش زنده و پلی‌لیست پشتیبانی نمی‌شوند."],
         'offline' => ['توقف ربات', 'ربات موقتاً متوقف است؛ لطفاً بعداً دوباره تلاش کن.'],
         'prompt' => ['درخواست لینک', 'لینک ویدیو یا شورت یوتیوب را بفرست.'],
         'queued' => ['ثبت در صف', 'درخواستت در صف قرار گرفت؛ به محض شروع دانلود خبر می‌دهم.'],
@@ -25,6 +26,7 @@ final class Bot
         'buttons' => ['تنظیم دکمه‌ها', 'ویرایش دکمه‌ها'],
         'health' => ['دکمه وضعیت', 'وضعیت ربات'],
         'cookies' => ['دکمه واردکردن کوکی', 'واردکردن کوکی یوتیوب'],
+        'update' => ['دکمه به‌روزرسانی', 'به‌روزرسانی ربات'],
         'back' => ['دکمه بازگشت', 'بازگشت'],
     ];
     public function __construct(public Config $config, public Store $store, public Api $api) {}
@@ -50,12 +52,13 @@ final class Bot
     {
         if ($this->admin($user)) {
             $this->sendKeyboard($chat, $this->text('welcome'), [
-                [$this->replyButton('download'), $this->replyButton('help')],
+                [$this->replyButton('help')],
                 [$this->replyButton('admin'), $this->replyButton('health')],
+                [$this->replyButton('update')],
             ]);
             return;
         }
-        $rows = [[$this->button('download','download'),$this->button('help','help')]];
+        $rows = [[$this->button('help','help')]];
         $this->send($chat, $this->text('welcome'), $rows);
     }
     public function panel(int $chat): void
@@ -66,6 +69,7 @@ final class Bot
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
             [$this->button('health','health')],
             [$this->button('cookies','cookies')],
+            [$this->button('update','update:run')],
             [$this->button('back','home')],
         ]);
     }
@@ -114,6 +118,7 @@ final class Bot
             "کوکی مثل کلید نشست ورود به یوتیوب است؛ بستهٔ دانلود یا حجم مصرفی نیست و با هر دانلود یکی از آن کم نمی‌شود.\n\n".
             "تاریخ اعتبار هر کوکی و اعتبار نشست را یوتیوب تعیین می‌کند. خروج از حساب، تغییر رمز، لغو نشست یا تصمیم امنیتی گوگل ممکن است آن را بی‌اعتبار کند. بازکردن دوبارهٔ همان نشست مرورگر هم می‌تواند باعث چرخش کوکی شود.\n\n".
             "تعداد زیاد درخواست ممکن است محدودیت موقت ایجاد کند؛ این به معنی تمام‌شدن کوکی نیست.\n\n".
+            "مرورگر لازم نیست باز بماند. بعد از خروجی‌گرفتن از پنجرهٔ ناشناس، آن پنجره را ببند و همان نشست را دوباره باز نکن. ربات کوکی را روی سرور نگه می‌دارد و تغییرات معتبر دریافتی را ذخیره می‌کند؛ اما نمی‌تواند نشست باطل‌شده را زنده کند.\n\n".
             "فایل معتبر از نظر فرمت الزاماً ورود معتبر ندارد. بعد از جایگزینی یک لینک ویدیو بفرست؛ اگر خطای ورود ادامه داشت، فایل تازه یا اتصال سرور را بررسی کن.\n\n".
             'فایل کوکی اطلاعات ورود دارد؛ فقط در گفت‌وگوی خصوصی همین ربات و با حساب ادمین واردش کن.',[
                 [$this->button('cookies','cookies')],[$this->button('back','admin')],
@@ -227,6 +232,9 @@ final class Bot
             elseif ($action==='health') $this->health($chat);
             elseif ($action==='cookies') $this->beginCookieImport($chat,$user);
             elseif ($action==='cookies:info') $this->cookieInfo($chat);
+            elseif ($action==='update:run') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update');
+            elseif ($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat);
+            elseif ($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback');
             elseif (in_array($action,['set:on','set:off'],true)) {
                 $this->store->set('enabled',$action==='set:on'?'1':'0'); $this->panel($chat);
             } else {
@@ -248,12 +256,13 @@ final class Bot
         $text=trim((string)($message['text']??''));
         if ($text==='') return;
         if ($text==='/id') { $this->send($chat,"شناسه تلگرام شما: <code>$user</code>"); return; }
-        if (in_array($text,['/cancel','/start','/admin','/health','/cookies',$this->label('cookies'),$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
+        if (in_array($text,['/cancel','/start','/admin','/health','/cookies','/update',$this->label('update'),$this->label('cookies'),$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         }
         if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
         if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
         if (($text==='/cookies'||$text===$this->label('cookies'))&&$this->admin($user)) { $this->beginCookieImport($chat,$user); return; }
+        if (($text==='/update'||$text===$this->label('update'))&&$this->admin($user)) { (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update'); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if ($text===$this->label('help')||$text==='/help') { $this->send($chat,$this->text('help')); return; }
@@ -277,6 +286,7 @@ final class Bot
         $response=match($result) {
             'busy'=>'درخواست قبلی شما هنوز در حال پردازش است.', 'full'=>'صف پر است؛ کمی بعد تلاش کن.',
             'cooldown'=>'بین درخواست‌ها ۱۵ ثانیه فاصله بگذار.', 'duplicate'=>null,
+            'updating'=>'ربات در حال به‌روزرسانی است؛ چند دقیقه بعد لینک را دوباره بفرست.',
             default=>$this->text('queued'),
         };
         if ($response!==null) $this->send($chat,$response);
