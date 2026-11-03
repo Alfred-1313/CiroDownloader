@@ -202,6 +202,17 @@ final class Store
                 if($caption!==false) $this->set('text.video_caption',Ui::escape((string)$caption));
                 $this->set('ui_html_version','1');
             }
+            if($this->get('ui_delivery_v2','0')!=='1') {
+                // Only retire known historical defaults. Deliberate custom text survives.
+                foreach(Ui::definitions()['texts'] as $key=>$definition) {
+                    $legacy=$definition['legacy_values']??[];
+                    if(!$legacy) continue;
+                    $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.'.$key])->fetchColumn();
+                    $known=array_merge($legacy,array_map([Ui::class,'escape'],$legacy));
+                    if($saved!==false&&in_array($saved,$known,true)) $this->query('DELETE FROM settings WHERE key=?',['text.'.$key]);
+                }
+                $this->set('ui_delivery_v2','1');
+            }
             $this->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }

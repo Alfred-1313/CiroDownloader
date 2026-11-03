@@ -26,7 +26,7 @@ final class MediaFailure extends \RuntimeException
     public static function process(int $exit, string $detail): self
     {
         $reason=match(true) {
-            preg_match('/cookies are no longer valid|cookies.*expired|cookies.*rotated/i',$detail)===1=>'cookies',
+            preg_match('/cookies are no longer valid|cookies.*expired|cookies.*rotated|cookie file.*(?:unreadable|does not exist)|invalid Netscape cookie|no youtube.com cookies|cannot create private cookie/i',$detail)===1=>'cookies',
             preg_match('/not a bot|sign in to confirm|HTTP Error (403|429)/i',$detail)===1=>'blocked',
             preg_match('/max.filesize|larger than|too large|size limit/i',$detail)===1=>'size',
             preg_match('/private video|video unavailable|removed|age.restricted|not available in your country/i',$detail)===1=>'restricted',

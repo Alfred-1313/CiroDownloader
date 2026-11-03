@@ -65,7 +65,18 @@ final class Ui
             $aliases=array_merge($this->definition('button',$key)['aliases']??[],is_array($saved)?$saved:[]);
             if(in_array($text,$aliases,true)) return $key;
         }
+        $normalized=self::replyKey($text);
+        if($normalized!=='') foreach(self::REPLY_KEYS as $key) {
+            $saved=json_decode($this->store->get('button.aliases.'.$key,'[]'),true);
+            $aliases=array_merge([$this->label($key)],$this->definition('button',$key)['aliases']??[],is_array($saved)?$saved:[]);
+            foreach($aliases as $alias) if(is_string($alias)&&$normalized===self::replyKey($alias)) return $key;
+        }
         return null;
+    }
+    private static function replyKey(string $text): string
+    {
+        $text=mb_strtolower(strtr($text,['ي'=>'ی','ك'=>'ک']));
+        return preg_replace('/[^\p{L}\p{N}]+/u','',$text)??'';
     }
     public function button(string $key,?string $data=null,array $values=[]): array
     {

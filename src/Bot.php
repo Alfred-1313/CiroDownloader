@@ -103,10 +103,25 @@ final class Bot
             'poller'=>$this->text($now-(int)$this->store->get('poller_heartbeat','0')<60?'online':'unresponsive'),
             'worker'=>$this->text($running>0?'processing':($now-(int)$this->store->get('worker_heartbeat','0')<20?'online':'unresponsive')),
             'queued'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','choosing','confirming')")->fetchColumn(),
+            'users'=>(int)$this->store->query('SELECT COUNT(*) FROM users')->fetchColumn(),
+            'completed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='done' AND created>=?",[$now-7*86400])->fetchColumn(),
+            'failed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='failed' AND created>=?",[$now-7*86400])->fetchColumn(),
             'running'=>$running,'cookies'=>$this->text(is_readable($this->config->cookiePath())?'cookies_loaded':'not_configured'),
             'proxy'=>$this->text($this->config->youtubeProxy!==''?'configured':'not_configured'),
-            'error'=>$this->store->get('last_job_error',$this->ui->plain('not_recorded')),
+            'error'=>$this->lastErrorMessage(),
         ],['state','poller','worker','cookies','proxy']));
+    }
+    private function lastErrorMessage(): string
+    {
+        $detail=$this->store->get('last_job_error');
+        if($detail==='') return $this->ui->plain('not_recorded');
+        $reason=$this->store->get('last_job_error_reason');
+        if($reason==='') {
+            require_once __DIR__.'/Download.php';
+            $reason=MediaFailure::process(1,$detail)->reason;
+        }
+        $key='error_'.$reason;
+        return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed');
     }
     public function qualityMenu(array $job,array $media): void
     {

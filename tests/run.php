@@ -63,10 +63,10 @@ try {
     check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'stale start button cannot start another menu');
     $bot->handle(cb(42,'update:start',$menu));
     check(end($api->calls)[0]==='editMessageText'&&str_contains(end($api->calls)[1]['text'],'0%'),'start button changes the same message to progress at zero percent');
-    $bot->handle(cb(42,'update:start',$menu)); $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:back',$menu));
+    $bot->handle(cb(42,'update:start',$menu)); $bot->handle(msg(42,'/update')); $menu=(int)$store->get('update_menu.42'); $bot->handle(cb(42,'update:back',$menu));
     $upgrade=$store->query('SELECT * FROM update_requests')->fetchAll();
     check(count($upgrade)===1&&(int)$upgrade[0]['message_id']===$menu&&$upgrade[0]['action']==='update','only an explicit start queues one request using the menu message');
-    check(count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'))===$sends,'menu navigation, start and repeat clicks create no extra bot messages');
+    check(count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'))===$sends+1,'only the explicit reopen creates a replacement progress message; navigation and repeat clicks do not');
     $store->query("UPDATE update_requests SET status='done'");
     $store->set('update_previous_version','1.0.0');
     $store->query("DELETE FROM settings WHERE key='update_new_changes'");

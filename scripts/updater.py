@@ -191,7 +191,16 @@ class Agent:
             raise RuntimeError('Telegram notification failed')
         return result['result']
 
+    def sync_message(self):
+        if not self.job or not self.job.get('id'):
+            return
+        with self.db() as db:
+            current = db.execute('SELECT chat_id,message_id FROM update_requests WHERE id=?', (self.job['id'],)).fetchone()
+        if current and current['message_id'] > 0 and current['chat_id'] == self.job['chat_id']:
+            self.job['message_id'] = current['message_id']
+
     def notify(self, text, buttons=None):
+        self.sync_message()
         params = {'chat_id': self.job['chat_id'], 'message_id': self.job['message_id'],
                   'text': text, 'parse_mode': 'HTML', 'disable_web_page_preview': 'true',
                   'reply_markup': {'inline_keyboard': buttons or []}}
@@ -210,6 +219,8 @@ class Agent:
     def progress(self, text, percent=5):
         self.beat()
         self.percent = max(getattr(self, 'percent', 0), min(99, percent))
+        self.set('update_percent', self.percent)
+        self.set('update_stage', text)
         number = str(self.percent)
         self.notify(self.ui('update_progress', bar=self.bar(self.percent), stage=self.ui(text), _raw=('stage',)),
                     [[self.button('update_progress', 'update:progress', percent=number)]])
@@ -309,6 +320,7 @@ class Agent:
         self.verify()
 
     def finish(self, title, detail='', failed=False, from_version=None):
+        self.sync_message()
         self.set('update_in_progress', 0)
         version, _ = release_notes()
         additions = changes_since(from_version, version) if from_version and not failed else []
@@ -327,11 +339,17 @@ class Agent:
             notice += self.ui('update_changes', changes=notes, _raw=('changes',)) + '\n\n'
         text = self.ui('update_menu', version=version, checked=stamp, notice=notice, _raw=('notice',))
         self.set('last_update_at', stamp)
-        self.set('update_menu.' + str(self.job['user_id']), self.job['message_id'])
-        self.set('update_menu_hash.' + str(self.job['user_id']), '')
-        self.notify(text, buttons)
         with self.db() as db:
             db.execute('UPDATE update_requests SET status=? WHERE id=?', ('failed' if failed else 'done', self.job['id']))
+            current = db.execute('SELECT message_id FROM update_requests WHERE id=?', (self.job['id'],)).fetchone()
+            self.job['message_id'] = current['message_id']
+            key = 'update_menu.' + str(self.job['user_id'])
+            menu = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
+            # A fresh menu opened after completion must remain the current menu.
+            if menu is None or str(menu['value']) in ('0', str(self.job['message_id'])):
+                db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(self.job['message_id'])))
+                db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('update_menu_hash.' + str(self.job['user_id']), ''))
+        self.notify(text, buttons)
         (STATE / 'completion-pending.json').unlink(missing_ok=True)
 
     def refresh_completion(self):
@@ -354,6 +372,13 @@ class Agent:
                     from_version=saved['previous'].get('version') if job['action'] == 'update' else None)
         self.job = None
 
+    def runtime_version(self, service):
+        try:
+            version = command('docker', 'compose', 'exec', '-T', service, 'cat', '/app/VERSION', timeout=15)
+            return version if re.fullmatch(r'\d+\.\d+\.\d+', version) else ''
+        except (RuntimeError, subprocess.TimeoutExpired):
+            return ''
+
     def execute(self):
         recovery = STATE / 'recovery.json'
         if command('git', 'remote', 'get-url', 'origin').removesuffix('.git') != ORIGIN.removesuffix('.git'):
@@ -361,7 +386,10 @@ class Agent:
         if command('git', 'status', '--porcelain'):
             raise RuntimeError('Local source changes prevent an update')
         current = command('git', 'rev-parse', 'HEAD')
-        previous = {'sha': current, 'version': release_notes()[0],
+        source_version = release_notes()[0]
+        bot_version = self.runtime_version('bot')
+        worker_version = self.runtime_version('worker')
+        previous = {'sha': current, 'version': bot_version or source_version,
                     'image': 'ciro-downloader:backup-' + current[:12] + '-' + str(int(time.time()))}
         if self.job['action'] == 'rollback':
             saved = json.loads((STATE / 'previous.json').read_text())
@@ -374,7 +402,7 @@ class Agent:
             self.progress('update_check', 10)
             self.run('git', 'fetch', '--prune', 'origin', 'main', timeout=120)
             target = command('git', 'rev-parse', 'origin/main')
-            if target == current:
+            if target == current and bot_version == source_version and worker_version == source_version:
                 self.finish('')
                 return
             command('git', 'merge-base', '--is-ancestor', current, target)

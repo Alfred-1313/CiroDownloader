@@ -81,6 +81,7 @@ while(true) {
             $detail=Zero\diagnosticMessage($e->getMessage());
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
+            $store->set('last_job_error_reason',$e instanceof Zero\MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $key=$e instanceof Zero\MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;

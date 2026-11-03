@@ -9,6 +9,7 @@ $temp=sys_get_temp_dir().'/ciro-quality-'.bin2hex(random_bytes(6)); mkdir($temp,
 $server=null; $worker=null;
 $audio=in_array('--audio',$argv,true);
 $shorts=in_array('--shorts',$argv,true);
+$legacy=in_array('--legacy-caption',$argv,true);
 try {
     $storage=$temp.'/data'; mkdir($storage,0700);
     $runner=new Zero\Download(new Zero\Config('123:fake-token',[42],$storage));
@@ -45,9 +46,17 @@ try {
     $server=proc_open([PHP_BINARY,'-S',$address,$router],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-error.log','w']],$pipes);
     for($i=0;$i<40;$i++) { $connection=@stream_socket_client('tcp://'.$address,$errno,$errstr,0.05); if($connection) {fclose($connection);break;} usleep(50000); }
     $config=new Zero\Config('123:fake-token',[42],$storage,'http://'.$address,49000000,$stub);
+    if($legacy) {
+        $database=new PDO('sqlite:'.$storage.'/zero.sqlite');
+        $database->exec('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
+        foreach(['ui_html_version'=>'1','text.video_caption'=>"<b>🎬 ویدیوی شما آماده است</b>\n\n<blockquote>{title}</blockquote>\nکیفیت: <b>{quality}</b>\n{url}"] as $key=>$value) $database->prepare('INSERT INTO settings VALUES(?,?)')->execute([$key,$value]);
+        $database=null;
+    }
     $store=new Zero\Store($storage); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
-    $store->set('text.video_caption','<b>{title}</b> — {quality} <blockquote>{duration}</blockquote> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
-    $store->set('text.audio_caption','<blockquote><b>{title}</b> {duration}</blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+    if(!$legacy) {
+        $store->set('text.video_caption','<b>{title}</b> — {quality} <blockquote>{duration}</blockquote> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+        $store->set('text.audio_caption','<blockquote><b>{title}</b> {duration}</blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+    }
     $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>7,'type'=>'private'],'text'=>$shorts?'https://www.youtube.com/shorts/ybNMMK5Q318':'https://youtu.be/ybNMMK5Q318']]);
     $environment=array_merge(getenv(),['BOT_TOKEN'=>$config->token,'ADMIN_IDS'=>'42','STORAGE_DIR'=>$storage,'BOT_API_URL'=>$config->api,'MAX_FILE_BYTES'=>'49000000','YT_DLP_BIN'=>$stub,'YOUTUBE_COOKIES_FILE'=>'','YOUTUBE_PROXY'=>'']);
     $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/worker.log','w'],2=>['file',$temp.'/worker-error.log','w']],$pipes,dirname(__DIR__),$environment);
@@ -61,7 +70,7 @@ try {
     qualityCheck($ready,'worker inspects the link and waits for quality selection');
     $poster=json_decode($records[2]['params']['media']??'{}',true);
     qualityCheck($records[2]['method']==='editMessageMedia'&&$poster['type']==='photo'&&$poster['media']===$info['thumbnail'],'the same status message becomes the actual video poster');
-    qualityCheck(str_contains($poster['caption'],'&lt;title&gt; &amp; audio')&&$poster['parse_mode']==='HTML','poster captions preserve formatting and safely escape titles');
+    qualityCheck(str_contains($poster['caption'],'&lt;title&gt; &amp; audio')&&$poster['parse_mode']==='HTML'&&!str_contains($poster['caption'],'<blockquote>'),'the poster caption escapes the title and stays simple before delivery');
     $invocations=recorded($trace);
     qualityCheck(count($invocations)===1&&in_array('--dump-single-json',$invocations[0],true),'no video is downloaded before the user chooses a quality');
     $keyboard=json_decode($records[2]['params']['reply_markup'],true)['inline_keyboard'];
@@ -69,7 +78,7 @@ try {
     qualityCheck(count($keyboard[1])===1&&$keyboard[1][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
     $bot->handle(['callback_query'=>['id'=>'local-test','from'=>['id'=>7],'message'=>['message_id'=>501,'chat'=>['id'=>7,'type'=>'private']],'data'=>'quality:'.$job['id'].($audio?':audio':':360')]]);
     $afterChoice=recorded($log); $selected=end($afterChoice);
-    qualityCheck($selected['method']==='editMessageCaption'&&json_decode($selected['params']['reply_markup'],true)['inline_keyboard']===[],'choosing media immediately edits the poster caption and removes every button');
+    qualityCheck($selected['method']==='editMessageCaption'&&json_decode($selected['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($selected['params']['caption'],'<blockquote>'),'choosing media uses a simple status caption and removes every button');
     $deadline=microtime(true)+20; $done=false;
     do {
         $records=recorded($log);
@@ -91,7 +100,9 @@ try {
         qualityCheck(abs((float)$probe['format']['duration']-2.5)<0.2,'the entire audio track is delivered without trimming');
     }
     $caption=$uploads[0]['params']['caption'];
-    qualityCheck($uploads[0]['params']['parse_mode']==='HTML'&&str_contains($caption,'&lt;title&gt; &amp; audio')&&str_contains($caption,'tg-emoji'),'custom captions retain premium emoji and safely escape video metadata');
+    qualityCheck($uploads[0]['params']['parse_mode']==='HTML'&&str_contains($caption,'&lt;title&gt; &amp; audio')&&str_contains($caption,'<b>')&&str_contains($caption,'<blockquote>'),'formatting and metadata appear on the delivered media caption');
+    if(!$legacy) qualityCheck(str_contains($caption,'tg-emoji'),'custom captions retain premium emoji');
+    else qualityCheck(str_contains($caption,'360p')&&!str_contains($caption,'https://')&&!str_contains($caption,'ویدیوی شما آماده است'),'an upgraded legacy caption shows quality and duration without the old heading or a duplicate raw URL');
     qualityCheck(str_contains($caption,Zero\Ui::duration((int)$uploads[0]['params']['duration'])),'the final caption contains the formatted duration');
     $sourceButton=json_decode($uploads[0]['params']['reply_markup'],true)['inline_keyboard'][0][0];
     qualityCheck($sourceButton['style']==='primary'&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered file has a blue URL button linking to the original YouTube video');

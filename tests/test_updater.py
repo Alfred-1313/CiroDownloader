@@ -144,6 +144,7 @@ class UpdaterTests(unittest.TestCase):
         self.assertTrue(updater.valid_recovery(saved))
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertTrue(all(params['message_id'] == 99 for params in edits))
+
         self.assertIn('مدیریت به‌روزرسانی', edits[-1]['text'])
         self.assertNotIn('100%', edits[-1]['text'])
         self.assertIn('<blockquote><b>✅ با موفقیت نصب شد</b></blockquote>', edits[-1]['text'])
@@ -156,6 +157,73 @@ class UpdaterTests(unittest.TestCase):
         verified = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'verify')
         finished = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'editMessageText' and 'با موفقیت نصب شد' in call[1]['text'])
         self.assertGreater(finished, verified)
+
+    def test_progress_and_completion_follow_the_reopened_menu(self):
+        self.queue()
+        self.assertTrue(self.agent.claim())
+        with self.agent.db() as db:
+            db.execute('UPDATE update_requests SET message_id=123')
+            db.execute('INSERT INTO settings(key,value) VALUES(?,?)', ('update_menu.42', '123'))
+        self.agent.progress('update_build', 35)
+        self.assertEqual(self.agent.calls[-1][1]['message_id'], 123)
+        self.agent.finish('✅ با موفقیت نصب شد')
+        self.assertEqual(self.agent.calls[-1][1]['message_id'], 123)
+        with self.agent.db() as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_percent'").fetchone()[0], '35')
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_menu.42'").fetchone()[0], '123')
+
+    def test_current_source_rebuilds_outdated_or_missing_services(self):
+        for versions in [('1.0.0', '1.0.0'), ('1.1.0', ''), ('1.1.0', '1.0.0')]:
+            with self.subTest(versions=versions):
+                with self.agent.db() as db:
+                    db.execute('DELETE FROM update_requests')
+                self.agent.calls.clear()
+                self.queue()
+
+                def current_source(*args, **kwargs):
+                    if args[:2] == ('git', 'rev-parse'):
+                        return 'a' * 40
+                    if args[:4] == ('docker', 'compose', 'exec', '-T'):
+                        version = versions[0 if args[4] == 'bot' else 1]
+                        if not version:
+                            raise RuntimeError('Service is not running')
+                        return version
+                    return self.commands(*args, **kwargs)
+
+                with patch.object(updater, 'command', current_source):
+                    self.agent.tick()
+                builds = [args for method, args in self.agent.calls if method == 'run' and args[:3] == ('docker', 'compose', 'build')]
+                self.assertEqual(len(builds), 1)
+                saved = json.loads((self.state / 'previous.json').read_text())
+                self.assertEqual(saved['version'], versions[0])
+                with self.agent.db() as db:
+                    self.assertEqual(db.execute('SELECT status FROM update_requests').fetchone()[0], 'done')
+
+    def test_current_source_and_running_services_skip_rebuild(self):
+        self.queue()
+
+        def current_runtime(*args, **kwargs):
+            if args[:2] == ('git', 'rev-parse'):
+                return 'a' * 40
+            if args[:4] == ('docker', 'compose', 'exec', '-T'):
+                return '1.1.0'
+            return self.commands(*args, **kwargs)
+
+        with patch.object(updater, 'command', current_runtime):
+            self.agent.tick()
+        self.assertFalse(any(method == 'run' and args[:3] == ('docker', 'compose', 'build') for method, args in self.agent.calls))
+        self.assertFalse((self.state / 'previous.json').exists())
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        self.assertNotIn(self.agent.ui('update_success'), edits[-1]['text'])
+
+    def test_completion_does_not_replace_a_newer_idle_menu(self):
+        self.queue()
+        self.assertTrue(self.agent.claim())
+        with self.agent.db() as db:
+            db.execute('INSERT INTO settings(key,value) VALUES(?,?)', ('update_menu.42', '200'))
+        self.agent.finish('✅ با موفقیت نصب شد')
+        with self.agent.db() as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_menu.42'").fetchone()[0], '200')
 
     def test_interrupted_update_recovers_before_accepting_new_work(self):
         self.queue()
