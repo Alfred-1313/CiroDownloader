@@ -3,6 +3,7 @@
 GitHub Actions runs these checks on each push:
 
 - `php tests/run.php`: URL validation, admin authorization, queue limits, Persian help alerts, cookie export validation and redacted process/proxy errors.
+- `php tests/cookies.php`: administrator-only Telegram imports, replacement, cancellation, session expiry, invalid exports and preservation of the current cookie file on failure.
 - `php tests/media.php`: real FFmpeg processing of landscape MP4, 480x854 portrait Shorts and higher-resolution WebM; isolated cookie copies, YouTube proxy forwarding and real multipart HTTP file upload against a local test endpoint.
 - PHP and Bash syntax, Compose configuration and production Docker build.
 

@@ -24,6 +24,7 @@ final class Bot
         'texts' => ['تنظیم پیام‌ها', 'ویرایش پیام‌ها'],
         'buttons' => ['تنظیم دکمه‌ها', 'ویرایش دکمه‌ها'],
         'health' => ['دکمه وضعیت', 'وضعیت ربات'],
+        'cookies' => ['دکمه واردکردن کوکی', 'واردکردن کوکی یوتیوب'],
         'back' => ['دکمه بازگشت', 'بازگشت'],
     ];
     public function __construct(public Config $config, public Store $store, public Api $api) {}
@@ -64,6 +65,7 @@ final class Bot
             [$this->button($on?'off':'on', $on?'set:off':'set:on')],
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
             [$this->button('health','health')],
+            [$this->button('cookies','cookies')],
             [$this->button('back','home')],
         ]);
     }
@@ -90,6 +92,92 @@ final class Bot
             "کوکی یوتیوب: $cookieStatus\nپراکسی یوتیوب: $proxyStatus\n\nآخرین خطا:\n<code>$lastError</code>");
     }
     public function catalog(string $kind): array { return $kind === 'text' ? self::TEXTS : ($kind === 'button' ? self::BUTTONS : []); }
+
+    public function beginCookieImport(int $chat, int $user): void
+    {
+        $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'cookie.upload',time()+600]);
+        clearstatcache(true,$this->config->cookiePath());
+        $status=is_readable($this->config->cookiePath())?'کوکی فعلی موجود است؛ فایل جدید جایگزین آن می‌شود.':'هنوز کوکی وارد نشده است.';
+        $this->send($chat,"<b>واردکردن کوکی یوتیوب</b>\n\n$status\n\n".
+            "فایل <code>youtube-cookies.txt</code> را همین‌جا به‌صورت <b>فایل / Document</b> بفرست.\n".
+            "فرمت: Netscape؛ حداکثر حجم: ۱ مگابایت.\n".
+            "مهلت ارسال: ۱۰ دقیقه. برای لغو /cancel را بزن.\n\n".
+            'فایل بعد از دریافت بررسی می‌شود؛ فایل نامعتبر جای کوکی قبلی نمی‌نشیند. پس از واردکردن، برای بررسی اعتبار ورود یک لینک ویدیو بفرست.',[
+                [['text'=>'کوکی چیست و چه زمانی باطل می‌شود؟','callback_data'=>'cookies:info']],
+                [$this->button('back','admin')],
+            ]);
+    }
+
+    public function cookieInfo(int $chat): void
+    {
+        $this->send($chat,"<b>کوکی چطور کار می‌کند؟</b>\n\n".
+            "کوکی مثل کلید نشست ورود به یوتیوب است؛ بستهٔ دانلود یا حجم مصرفی نیست و با هر دانلود یکی از آن کم نمی‌شود.\n\n".
+            "تاریخ اعتبار هر کوکی و اعتبار نشست را یوتیوب تعیین می‌کند. خروج از حساب، تغییر رمز، لغو نشست یا تصمیم امنیتی گوگل ممکن است آن را بی‌اعتبار کند. بازکردن دوبارهٔ همان نشست مرورگر هم می‌تواند باعث چرخش کوکی شود.\n\n".
+            "تعداد زیاد درخواست ممکن است محدودیت موقت ایجاد کند؛ این به معنی تمام‌شدن کوکی نیست.\n\n".
+            "فایل معتبر از نظر فرمت الزاماً ورود معتبر ندارد. بعد از جایگزینی یک لینک ویدیو بفرست؛ اگر خطای ورود ادامه داشت، فایل تازه یا اتصال سرور را بررسی کن.\n\n".
+            'فایل کوکی اطلاعات ورود دارد؛ فقط در گفت‌وگوی خصوصی همین ربات و با حساب ادمین واردش کن.',[
+                [$this->button('cookies','cookies')],[$this->button('back','admin')],
+            ]);
+    }
+
+    private function cookieDocument(int $chat, int $user, array $message): void
+    {
+        if(!$this->admin($user)) { $this->send($chat,'دریافت کوکی فقط برای مدیر مجاز است.'); return; }
+        $state=$this->store->query('SELECT key,expires FROM states WHERE user_id=?',[$user])->fetch();
+        if(!$state||$state['key']!=='cookie.upload') {
+            $this->send($chat,'برای واردکردن کوکی، ابتدا دکمهٔ «واردکردن کوکی یوتیوب» را در پنل مدیریت بزن.');
+            return;
+        }
+        $phase='metadata';
+        $saved=false;
+        try {
+            if((int)$state['expires']<=time()) {
+                $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+                $this->send($chat,'مهلت ارسال تمام شده؛ دوباره دکمهٔ واردکردن کوکی را بزن.');
+                return;
+            }
+            $document=$message['document'];
+            if(strtolower(pathinfo((string)($document['file_name']??''),PATHINFO_EXTENSION))!=='txt'
+                ||(int)($document['file_size']??0)>1048576||empty($document['file_id'])) {
+                $this->send($chat,'یک فایل txt با فرمت Netscape و حجم حداکثر ۱ مگابایت بفرست. کوکی قبلی حفظ شد.');
+                return;
+            }
+            $phase='download';
+            $file=$this->api->call('getFile',['file_id'=>$document['file_id']]);
+            if(!is_array($file)||empty($file['file_path'])||(int)($file['file_size']??0)>1048576||!($this->api instanceof FileApi)) {
+                throw new \RuntimeException('Telegram cookie file unavailable or too large');
+            }
+            $content=$this->api->downloadFile((string)$file['file_path'],1048576);
+            $phase='validation';
+            validateYouTubeCookies($content);
+            $phase='save';
+            saveYouTubeCookies($this->config,$content);
+            $saved=true;
+            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $this->send($chat,"<b>کوکی جدید با موفقیت جایگزین شد.</b>\n\n".
+                'از دانلود بعدی استفاده می‌شود؛ نیازی به راه‌اندازی مجدد نیست. برای بررسی ورود، یک لینک یوتیوب بفرست.',[
+                    [$this->button('back','admin')],
+                ]);
+        } catch(\Throwable $e) {
+            // File contents and upstream cookie parser errors never enter logs or replies.
+            error_log('Cookie import failed at '.$phase.': '.get_class($e));
+            if($saved) {
+                $this->send($chat,'کوکی جدید ذخیره شد، اما تکمیل پیام تأیید با خطا مواجه شد. /cancel را بزن و سپس یک لینک ویدیو برای تست بفرست.');
+                return;
+            }
+            $reason=match($phase) {
+                'validation'=>'فایل، خروجی معتبر Netscape از یوتیوب نیست.',
+                'save'=>'ذخیره‌سازی کوکی روی سرور انجام نشد.',
+                default=>'دریافت فایل از تلگرام انجام نشد یا حجم آن بیش از حد مجاز است.',
+            };
+            $this->send($chat,$reason.' کوکی قبلی حفظ شد؛ فایل صحیح را دوباره بفرست یا /cancel را بزن.');
+        } finally {
+            if(isset($message['message_id'])) {
+                try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message['message_id']]); }
+                catch(\Throwable) { $this->send($chat,'حذف خودکار پیام فایل انجام نشد؛ لطفاً فایل کوکی را از گفت‌وگو پاک کن.'); }
+            }
+        }
+    }
     public function listItems(int $chat, string $kind): void
     {
         $rows=[];
@@ -137,6 +225,8 @@ final class Bot
             elseif ($action==='download') $this->send($chat,$this->text('prompt'));
             elseif ($action==='admin') $this->panel($chat);
             elseif ($action==='health') $this->health($chat);
+            elseif ($action==='cookies') $this->beginCookieImport($chat,$user);
+            elseif ($action==='cookies:info') $this->cookieInfo($chat);
             elseif (in_array($action,['set:on','set:off'],true)) {
                 $this->store->set('enabled',$action==='set:on'?'1':'0'); $this->panel($chat);
             } else {
@@ -154,20 +244,23 @@ final class Bot
             }
             return;
         }
+        if(isset($message['document'])) { $this->cookieDocument($chat,$user,$message); return; }
         $text=trim((string)($message['text']??''));
         if ($text==='') return;
         if ($text==='/id') { $this->send($chat,"شناسه تلگرام شما: <code>$user</code>"); return; }
-        if (in_array($text,['/cancel','/start','/admin','/health',$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
+        if (in_array($text,['/cancel','/start','/admin','/health','/cookies',$this->label('cookies'),$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download')],true)) {
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         }
         if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
         if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
+        if (($text==='/cookies'||$text===$this->label('cookies'))&&$this->admin($user)) { $this->beginCookieImport($chat,$user); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if ($text===$this->label('help')||$text==='/help') { $this->send($chat,$this->text('help')); return; }
         if ($text===$this->label('download')) { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND expires>?',[$user,time()])->fetchColumn();
         if ($state && $this->admin($user)) {
+            if($state==='cookie.upload') { $this->send($chat,'منتظر فایل txt هستم؛ آن را به‌صورت Document بفرست یا /cancel را بزن.'); return; }
             [$kind,$key]=explode('.',$state,2);
             if (!isset($this->catalog($kind)[$key])) return;
             $limit=$kind==='button'?48:($key==='video_caption'?700:1200);

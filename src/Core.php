@@ -69,7 +69,29 @@ function validateYouTubeCookies(string $content): void
     if(!$youtube) throw new \RuntimeException('No youtube.com cookies found in this export');
 }
 
+function saveYouTubeCookies(Config $config, string $content): void
+{
+    validateYouTubeCookies($content);
+    if(!is_dir($config->storage)&&!mkdir($config->storage,0700,true)) throw new \RuntimeException('Cannot create storage');
+    $destination=$config->cookiePath();
+    $temporary=dirname($destination).'/.cookies-import-'.bin2hex(random_bytes(6));
+    try {
+        $handle=fopen($temporary,'x');
+        if($handle===false) throw new \RuntimeException('Cannot create cookie import file');
+        try {
+            if(!chmod($temporary,0600)||fwrite($handle,$content)!==strlen($content)||!fflush($handle)) {
+                throw new \RuntimeException('Cannot save cookie export');
+            }
+        } finally { fclose($handle); }
+        if(!rename($temporary,$destination)) throw new \RuntimeException('Cannot replace cookie file');
+        clearstatcache(true,$destination);
+    } finally {
+        if(is_file($temporary)) unlink($temporary);
+    }
+}
+
 interface Api { public function call(string $method, array $params = []): mixed; }
+interface FileApi extends Api { public function downloadFile(string $filePath, int $maxBytes): string; }
 
 // Keep useful diagnostics without retaining bot tokens, signed media URLs or ANSI escapes.
 function diagnosticMessage(string $message): string
@@ -80,7 +102,7 @@ function diagnosticMessage(string $message): string
     return mb_substr(trim(preg_replace('/\s+/u',' ', $message)??''),0,1200);
 }
 
-final class Telegram implements Api
+final class Telegram implements FileApi
 {
     public function __construct(private Config $config) {}
     public function call(string $method, array $params = []): mixed
@@ -103,6 +125,28 @@ final class Telegram implements Api
             throw new \RuntimeException('Telegram API error ' . ($result['error_code'] ?? 0));
         }
         return $result['result'];
+    }
+
+    public function downloadFile(string $filePath, int $maxBytes): string
+    {
+        if($maxBytes<1||!preg_match('~^[A-Za-z0-9_./-]+$~D',$filePath)
+            ||str_starts_with($filePath,'/')||in_array('..',explode('/',$filePath),true)) {
+            throw new \RuntimeException('Invalid Telegram file path');
+        }
+        $content=''; $tooLarge=false;
+        $ch=curl_init($this->config->api.'/file/bot'.$this->config->token.'/'.$filePath);
+        curl_setopt_array($ch,[CURLOPT_CONNECTTIMEOUT=>15,CURLOPT_TIMEOUT=>45,CURLOPT_FOLLOWLOCATION=>false,
+            CURLOPT_WRITEFUNCTION=>static function($curl,string $chunk) use (&$content,&$tooLarge,$maxBytes): int {
+                if(strlen($content)+strlen($chunk)>$maxBytes) { $tooLarge=true; return 0; }
+                $content.=$chunk;
+                return strlen($chunk);
+            }]);
+        $ok=curl_exec($ch);
+        $status=(int)curl_getinfo($ch,CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if($tooLarge) throw new \RuntimeException('Telegram file exceeds import size limit');
+        if($ok===false||$status!==200) throw new \RuntimeException('Telegram file download failed');
+        return $content;
     }
 }
 

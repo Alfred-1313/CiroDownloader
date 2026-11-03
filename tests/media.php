@@ -57,6 +57,7 @@ try {
 
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php '.
+        'if(str_starts_with($_SERVER["REQUEST_URI"],"/file/")) { echo '.var_export($cookieExport,true).'; return; }'.
         '$v=$_FILES["video"]??null;'.
         '$valid=$v&&$v["error"]===UPLOAD_ERR_OK&&($v["type"]??"")==="video/mp4";'.
         'if($valid) file_put_contents('.var_export($temp.'/upload.json',true).',json_encode(["hash"=>hash_file("sha256",$v["tmp_name"]),"chat"=>$_POST["chat_id"]??null]));'.
@@ -84,6 +85,14 @@ try {
     verify(($result['message_id']??0)===123&&($received['hash']??'')===hash_file('sha256',$media['path']),
         'sendVideo uploads the actual MP4 bytes as multipart video');
     verify(($received['chat']??'')==='42','video delivered to requested chat');
+    $transport=new Zero\Telegram($config);
+    verify($transport->downloadFile('documents/export.txt',1048576)===$cookieExport,'Telegram file transport reads complete cookie bytes');
+    $oversized=false;
+    try { $transport->downloadFile('documents/export.txt',10); } catch(RuntimeException) { $oversized=true; }
+    verify($oversized,'streamed Telegram download enforces byte limit');
+    $invalidPath=false;
+    try { $transport->downloadFile('../secret.txt',1048576); } catch(RuntimeException) { $invalidPath=true; }
+    verify($invalidPath,'Telegram file transport rejects path traversal');
 } finally {
     if(is_resource($server)) { proc_terminate($server); proc_close($server); }
     Zero\Download::clean($temp);
