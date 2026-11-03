@@ -150,7 +150,14 @@ final class Bot
     }
     private function cookieNotice(int $chat,int $user,string $text): void
     {
-        $this->send($chat,$text,[[$this->button('back','admin')]],(int)$this->store->get('cookie_menu.'.$user,'0'));
+        $message=(int)$this->store->get('cookie_menu.'.$user,'0');
+        $rows=[[$this->button('back','admin')]];
+        try { $message=$this->send($chat,$text,$rows,$message); }
+        catch(\RuntimeException $e) {
+            if($e->getCode()!==404||$message<1) throw $e;
+            $message=$this->send($chat,$text,$rows);
+        }
+        $this->store->set('cookie_menu.'.$user,(string)$message);
     }
     private function cookieDocument(int $chat,int $user,array $message): void
     {

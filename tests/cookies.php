@@ -10,12 +10,15 @@ final class CookieApi implements Zero\FileApi {
     public int $downloads=0;
     public bool $failDownload=false;
     public bool $failDelete=false;
+    public bool $missingPanel=false;
+    public int $nextMessage=1000;
     public ?int $reportedSize=null;
     public function call(string $method,array $params=[]): mixed {
         $this->calls[]=[$method,$params];
         if($method==='getFile') return ['file_path'=>'documents/export.txt','file_size'=>$this->reportedSize??strlen($this->content)];
         if($method==='deleteMessage'&&$this->failDelete) throw new RuntimeException('Simulated deletion failure');
-        if($method==='sendMessage') return ['message_id'=>900];
+        if($method==='editMessageText'&&$this->missingPanel) { $this->missingPanel=false; throw new RuntimeException('Missing panel',404); }
+        if($method==='sendMessage') return ['message_id'=>++$this->nextMessage];
         return true;
     }
     public function downloadFile(string $filePath,int $maxBytes): string {
@@ -118,6 +121,14 @@ try {
     $count=$api->downloads;
     $bot->handle(document(42));
     expect($api->downloads===$count&&file_get_contents($config->cookiePath())===$new,'getFile metadata size cannot bypass the import limit');
+    $api->reportedSize=null; $api->content=$old;
+    $bot->handle(callback(42,'cookies')); $api->missingPanel=true; $before=count($api->calls);
+    $bot->handle(document(42,'deleted-panel.txt'));
+    $replacement=(int)$store->get('cookie_menu.42');
+    expect($replacement>1000&&file_get_contents($config->cookiePath())===$old,'a deleted persistent import panel is recreated and the cookie is still verified and saved');
+    expect(count(array_filter(array_slice($api->calls,$before),fn($call)=>$call[0]==='sendMessage'))===1,'only one replacement panel is created after a missing-message error');
+    $edits=array_values(array_filter(array_slice($api->calls,$before),fn($call)=>$call[0]==='editMessageText'));
+    expect(end($edits)[1]['message_id']===$replacement,'subsequent cookie notices edit the saved replacement message');
     expect(glob($temp.'/.cookies-import-*')===[],'atomic import leaves no temporary cookie exports');
     expect(glob($temp.'/.cookie-check-*')===[],'failed and successful verification leave no candidate cookie files');
 } finally { Zero\Download::clean($temp); }
