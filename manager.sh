@@ -1,291 +1,405 @@
 #!/usr/bin/env bash
-# Interactive installer and service manager. Launched by install.sh.
+# Ciro Downloader manager. The Ciro/VPN project is never a target of this script.
 set -Eeuo pipefail
 umask 077
 
 REPOSITORY_URL='https://github.com/Alfred-1313/CiroDownloader.git'
-INSTALL_DIR='/opt/ciro-downloader'
-INSTALLER_VERSION='2.2.0'
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+INSTALLER_VERSION='3.0.0'
+PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+LOG_DIR='/var/log/ciro-downloader'
+BACKUP_DIR='/var/backups/ciro-downloader'
+LOCK_FILE='/run/ciro-downloader-updater.lock'
+SECRET_TMP='' RUN_PID='' LAST_STEP_LOG=''
+STEP_TOTAL=1 STEP_DONE=0
+source "$PROJECT_DIR/scripts/manager-ui.sh"
 
-[[ $EUID -eq 0 ]] || { echo 'Run this installer with sudo or as root.' >&2; exit 1; }
+cleanup() {
+  [[ -z $SECRET_TMP ]] || rm -f -- "$SECRET_TMP"
+  [[ ${UI_TTY:-0} == 0 ]] || printf '\033[?25h'
+}
+interrupted() { [[ -z $RUN_PID ]] || kill "$RUN_PID" 2>/dev/null || true; ui_error 'Operation interrupted. Check Status before retrying.'; exit 130; }
 
-bootstrap_remote_install() {
-  echo 'Preparing Ciro Downloader…'
-  if ! command -v git >/dev/null 2>&1; then
-    apt-get update
-    apt-get install -y git ca-certificates
+run_step() {
+  local label=$1; shift
+  [[ -d $LOG_DIR ]] || mkdir -m 700 -- "$LOG_DIR" || return
+  LAST_STEP_LOG="$(mktemp "$LOG_DIR/step-XXXXXXXX.log")" || return
+  local started=$SECONDS result=0 frame=0 frames=('-' '\\' '|' '/')
+  ui_step_start "$label"
+  "$@" <&0 >"$LAST_STEP_LOG" 2>&1 & RUN_PID=$!
+  if [[ $UI_TTY == 1 ]]; then
+    printf '\033[?25l'
+    while kill -0 "$RUN_PID" 2>/dev/null; do
+      printf '\r\033[K  %s%s%s %s[%s/%s]%s %s  %s[%s] %s%%%s %ss' \
+        "$UI_KEY" "${frames[$frame]}" "$UI_RESET" "$UI_DIM" "$((STEP_DONE+1))" "$STEP_TOTAL" "$UI_RESET" "$label" \
+        "$UI_ACCENT" "$(ui_bar "$((STEP_DONE*100/STEP_TOTAL))")" "$((STEP_DONE*100/STEP_TOTAL))" "$UI_RESET" "$((SECONDS-started))"
+      frame=$(((frame+1)%4)); sleep 0.2
+    done
+    printf '\r\033[K\033[?25h'
   fi
-
-  if [[ -d "$INSTALL_DIR/.git" ]]; then
-    git -C "$INSTALL_DIR" pull --ff-only
-  elif [[ ! -e "$INSTALL_DIR" ]]; then
-    git clone "$REPOSITORY_URL" "$INSTALL_DIR"
-  else
-    echo "Cannot install: $INSTALL_DIR already exists and is not a Git checkout." >&2
-    exit 1
+  if wait "$RUN_PID"; then result=0; else result=$?; fi
+  RUN_PID=''
+  ui_step_end "$label" "$result" "$((SECONDS-started))"
+  if ((result!=0)); then
+    ui_error 'This step failed. Completed steps may already have run.'
+    tail -n 8 -- "$LAST_STEP_LOG" >&2
+    ui_note "Private log: $LAST_STEP_LOG"
   fi
-
-  exec bash "$INSTALL_DIR/install.sh"
+  return "$result"
 }
 
-# A curl + process-substitution install has no project files beside the script.
-# Fetch the repository first, then run the same installer from its real folder.
-[[ -f "$SCRIPT_DIR/compose.yaml" ]] || bootstrap_remote_install
-
-PROJECT_DIR="$SCRIPT_DIR"
-cd "$PROJECT_DIR"
-
-if [[ -t 1 ]] && command -v tput >/dev/null 2>&1 && [[ "${TERM:-dumb}" != 'dumb' ]]; then
-  C_RESET="$(tput sgr0)"; C_BOLD="$(tput bold)"
-  C_BLUE="$(tput setaf 4)"; C_GREEN="$(tput setaf 2)"
-  C_YELLOW="$(tput setaf 3)"; C_RED="$(tput setaf 1)"; C_MUTED="$(tput setaf 7)"
-else
-  C_RESET=''; C_BOLD=''; C_BLUE=''; C_GREEN=''; C_YELLOW=''; C_RED=''; C_MUTED=''
-fi
-
-on_error() {
-  local line="$1"
-  printf '\n%sError:%s the operation stopped at line %s. Nothing else was changed.\n' "$C_RED" "$C_RESET" "$line" >&2
+with_lock() {
+  exec 9>"$LOCK_FILE" || { ui_error 'Cannot open the maintenance lock.'; return 1; }
+  if ! flock -n 9; then exec 9>&-; ui_warn 'An update or another manager operation is running. Try again shortly.'; return 1; fi
+  export CIRO_MANAGER_LOCK_FD=9
+  local result=0
+  if "$@"; then result=0; else result=$?; fi
+  unset CIRO_MANAGER_LOCK_FD
+  flock -u 9; exec 9>&-
+  return "$result"
 }
-trap 'on_error "$LINENO"' ERR
-
-line() { printf '%s%s%s\n' "$C_MUTED" '------------------------------------------------------------' "$C_RESET"; }
-title() { printf '\n%s%s%s\n' "$C_BOLD$C_BLUE" "$1" "$C_RESET"; }
-success() { printf '%sDone:%s %s\n' "$C_GREEN" "$C_RESET" "$1"; }
-notice() { printf '%sNote:%s %s\n' "$C_YELLOW" "$C_RESET" "$1"; }
-warning() { printf '%sWarning:%s %s\n' "$C_RED" "$C_RESET" "$1"; }
-pause() { read -rp 'Press Enter to return to the menu…' _; }
 
 docker_ready() {
-  command -v docker >/dev/null 2>&1 \
-    && docker compose version >/dev/null 2>&1 \
-    && docker info >/dev/null 2>&1
+  command -v docker >/dev/null 2>&1 && timeout 5 docker compose version >/dev/null 2>&1 && timeout 5 docker info >/dev/null 2>&1
 }
-
+assert_project() {
+  [[ -f compose.yaml ]] && grep -Eq '^name: *ciro-downloader *$' compose.yaml || { ui_error 'This is not the Ciro Downloader installation.'; return 1; }
+  if [[ -d .git ]]; then
+    local origin
+    origin=$(git remote get-url origin) || return
+    [[ ${origin%.git} == ${REPOSITORY_URL%.git} ]] || { ui_error 'This checkout belongs to another repository.'; return 1; }
+  fi
+}
+require_python() {
+  command -v python3 >/dev/null 2>&1 && return 0
+  command -v apt-get >/dev/null 2>&1 || { ui_error 'Python 3 is required. Install it and retry.'; return 1; }
+  ui_plan 2
+  run_step 'Refresh package index' apt-get update || return
+  run_step 'Install Python 3' apt-get install -y python3 || return
+}
 require_docker() {
   if ! command -v docker >/dev/null 2>&1; then
-    title 'Installing Docker'
-    command -v curl >/dev/null 2>&1 || { apt-get update; apt-get install -y curl ca-certificates; }
+    [[ ${1:-} == install ]] || { ui_error 'Docker is missing. Choose Install first.'; return 1; }
+    command -v apt-get >/dev/null 2>&1 || { ui_error 'Install Docker Engine and its Compose plugin first.'; return 1; }
+    ui_plan 2
+    if ! command -v curl >/dev/null 2>&1; then
+      ui_plan 4
+      run_step 'Refresh package index' apt-get update || return
+      run_step 'Install download tools' apt-get install -y curl ca-certificates || return
+    fi
     local installer
-    installer="$(mktemp)"
-    curl --fail --show-error --silent --location https://get.docker.com -o "$installer"
-    sh "$installer"
+    installer="$(mktemp)" || return
+    if ! run_step 'Download Docker installer' curl -fsSL https://get.docker.com -o "$installer"; then rm -f -- "$installer"; return 1; fi
+    if ! run_step 'Install Docker Engine' sh "$installer"; then rm -f -- "$installer"; return 1; fi
     rm -f -- "$installer"
   fi
-  docker compose version >/dev/null 2>&1 || { warning 'Docker Compose is unavailable. Install the Compose plugin and try again.'; return 1; }
-  docker info >/dev/null 2>&1 || { warning 'Docker is not running or cannot be accessed.'; return 1; }
+  docker_ready || { ui_error 'Docker Engine or the Compose plugin is unavailable. Check the daemon and retry.'; return 1; }
 }
 
-service_state() {
-  if ! docker_ready; then
-    printf '%sDocker unavailable%s' "$C_YELLOW" "$C_RESET"
-    return
-  fi
-
-  local running
-  running="$(docker ps --filter 'label=com.docker.compose.project=ciro-downloader' --format '{{.Names}}' 2>/dev/null || true)"
-  if [[ -n "$running" ]]; then
-    printf '%sRunning%s' "$C_GREEN" "$C_RESET"
-  elif docker image inspect ciro-downloader:local >/dev/null 2>&1; then
-    printf '%sStopped%s' "$C_YELLOW" "$C_RESET"
-  else
-    printf '%sNot installed%s' "$C_MUTED" "$C_RESET"
-  fi
+configure_initial() {
+  [[ ! -f .env ]] || return 0
+  ui_section 'Connect your bot'
+  ui_note 'The token is hidden. Existing bot settings are kept on later runs.'
+  local token ids
+  ui_prompt 'Telegram bot token: '; read -rs token || return 1; printf '\n'
+  [[ $token =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || { ui_error 'Invalid bot token.'; return 1; }
+  ui_prompt 'Administrator IDs, separated by commas: '; read -r ids || return 1
+  [[ $ids =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] || { ui_error 'Use numeric Telegram IDs separated by commas.'; return 1; }
+  SECRET_TMP="$(mktemp "$PROJECT_DIR/.env.setup-XXXXXXXX")" || return
+  printf 'BOT_TOKEN=%s\nADMIN_IDS=%s\nBOT_API_URL=https://api.telegram.org\nMAX_FILE_BYTES=49000000\nSTORAGE_DIR=/app/storage\nYT_DLP_BIN=/opt/yt/bin/yt-dlp\n' "$token" "$ids" >"$SECRET_TMP" || return
+  chmod 600 "$SECRET_TMP"; mv -- "$SECRET_TMP" "$PROJECT_DIR/.env" || return
+  SECRET_TMP=''; unset token ids
+  ui_ok 'Bot configuration saved.'
 }
-
-configure() {
-  if [[ -f .env ]]; then
-    notice 'Existing .env found. Current token and settings are preserved.'
-    return
-  fi
-
-  title 'Bot configuration'
-  local bot_token admin_ids
-  read -rsp 'Telegram bot token: ' bot_token; echo
-  [[ "$bot_token" =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || { warning 'Invalid bot token.'; return 1; }
-  read -rp 'Administrator Telegram IDs (comma-separated): ' admin_ids
-  [[ "$admin_ids" =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] || { warning 'Invalid administrator ID list.'; return 1; }
-
-  {
-    printf 'BOT_TOKEN=%s\nADMIN_IDS=%s\n' "$bot_token" "$admin_ids"
-    printf 'BOT_API_URL=https://api.telegram.org\nMAX_FILE_BYTES=49000000\nSTORAGE_DIR=/app/storage\nYT_DLP_BIN=/opt/yt/bin/yt-dlp\n'
-  } > .env
-  chmod 600 .env
-  unset bot_token admin_ids
-  success 'Configuration saved.'
-}
-
+require_configuration() { [[ -f .env ]] || { ui_warn 'Install the bot first to create its configuration.'; return 1; }; }
 validate_bot() {
-  docker compose run --rm --no-deps bot php -r 'require "src/Core.php"; $api=new Zero\Telegram(Zero\Config::load()); $me=$api->call("getMe"); $hook=$api->call("getWebhookInfo"); if(!empty($hook["url"])) {fwrite(STDERR,"A webhook is configured. Use a dedicated bot token or remove its webhook first.\n");exit(1);} echo "Connected as @".$me["username"].PHP_EOL;'
+  docker compose run --rm --no-deps -T bot php -r 'require "src/Core.php"; $api=new Zero\Telegram(Zero\Config::load()); $me=$api->call("getMe"); $hook=$api->call("getWebhookInfo"); if(!empty($hook["url"])) {fwrite(STDERR,"A webhook is configured. Use a dedicated bot token or remove the webhook first.\n");exit(1);} echo "Connected as @".$me["username"].PHP_EOL;'
+}
+install_shortcut() {
+  local target='/usr/local/bin/CiroDownloader' wrapper
+  if [[ -e $target || -L $target ]]; then
+    if ! grep -q '^# Ciro Downloader manager shortcut$' "$target" 2>/dev/null; then
+      ui_warn 'The CiroDownloader command already belongs to another installation; it was kept.'; return 0
+    fi
+  fi
+  wrapper="$(mktemp)" || return
+  printf '#!/usr/bin/env bash\n# Ciro Downloader manager shortcut\nexec bash %q "$@"\n' "$PROJECT_DIR/manager.sh" >"$wrapper" || return
+  install -m 755 "$wrapper" "$target"; local result=$?; rm -f -- "$wrapper"; return "$result"
+}
+enable_telegram_updates() {
+  if [[ $PROJECT_DIR == /opt/ciro-downloader ]] && command -v systemctl >/dev/null 2>&1; then
+    bash scripts/install-updater.sh || return
+  else ui_note 'Telegram updates require systemd and /opt/ciro-downloader.'; fi
 }
 
 install_bot() {
-  require_docker || return
-  configure || return
-  title 'Building Ciro Downloader'
-  docker compose build --pull
-  validate_bot
-  docker compose up -d --no-build
-  enable_telegram_updates
-  success 'Ciro Downloader is running.'
-  printf 'Open your bot in Telegram and send %s/start%s. Admin panel: %s/admin%s\n' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+  ui_screen; ui_section 'Install Ciro Downloader'
+  require_docker install || return
+  configure_initial || return
+  ui_plan 5
+  run_step 'Build the application' docker compose build --pull || return
+  run_step 'Verify the Telegram connection' validate_bot || return
+  run_step 'Start bot and worker' docker compose up -d --no-build || return
+  run_step 'Set up Telegram updates' enable_telegram_updates || return
+  run_step 'Install CiroDownloader command' install_shortcut || return
+  ui_ok 'Ciro Downloader is ready.'; ui_note 'Open your bot and send /start. Next time, run: CiroDownloader'
 }
-
-start_services() {
-  require_docker || return
-  configure || return
-  docker compose up -d
-  success 'Services started.'
-}
-
-stop_services() {
-  require_docker || return
-  docker compose stop
-  success 'Services stopped. Data and settings were kept.'
-}
-
-restart_services() {
-  require_docker || return
-  docker compose restart
-  success 'Services restarted.'
-}
-
-show_logs() {
-  require_docker || return
-  docker compose logs --tail=100
-}
-
-show_status() {
-  title 'Service status'
-  if ! docker_ready; then
-    notice 'Docker is unavailable.'
-    return
-  fi
-  docker compose ps
-}
-
 update_bot() {
-  [[ -d .git ]] || { warning 'This installation is not a Git checkout.'; return; }
-  [[ -z "$(git status --porcelain)" ]] || { warning 'Local changes exist. Commit or discard them before updating.'; return; }
-  title 'Updating Ciro Downloader'
-  git pull --ff-only
-  require_docker || return
-  docker compose build --pull
-  docker compose up -d --no-build
-  enable_telegram_updates
-  success 'Update complete.'
+  ui_screen; ui_section 'Update'
+  require_configuration || return
+  [[ -d .git && -z $(git status --porcelain) ]] || { ui_warn 'The checkout contains local changes or has no Git history. Nothing was fetched.'; return 1; }
+  local origin
+  origin=$(git remote get-url origin) || return
+  [[ ${origin%.git} == ${REPOSITORY_URL%.git} ]] || { ui_error 'This checkout points to a different repository.'; return 1; }
+  require_docker || return; require_python || return
+  ui_plan 7
+  run_step 'Back up data and configuration' python3 scripts/maintenance.py backup || return
+  ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
+  run_step 'Fetch the latest release' git fetch origin main || return
+  run_step 'Apply the release' git merge --ff-only origin/main || return
+  run_step 'Build the new application' docker compose build --pull || return
+  run_step 'Verify the Telegram connection' validate_bot || return
+  run_step 'Start the new version' docker compose up -d --no-build || return
+  run_step 'Refresh Telegram updates' enable_telegram_updates || return
+  install_shortcut || return
+  ui_ok 'Update complete. Your data and settings were kept.'
 }
-
-enable_telegram_updates() {
-  if [[ "$PROJECT_DIR" == /opt/ciro-downloader ]] && command -v systemctl >/dev/null 2>&1; then
-    bash scripts/install-updater.sh
-  else
-    notice 'Telegram updates need systemd and /opt/ciro-downloader. Terminal service controls remain available.'
+start_services() {
+  ui_section 'Start services'; require_configuration || return; require_docker || return; ui_plan 1
+  run_step 'Start bot and worker' docker compose up -d || return
+  ui_ok 'Services started.'
+}
+stop_services() {
+  ui_section 'Stop services'; require_docker || return; ui_plan 1
+  run_step 'Stop bot and worker' docker compose stop || return
+  ui_ok 'Services stopped. Data and settings were kept.'
+}
+restart_services() {
+  ui_section 'Restart services'; require_configuration || return; require_docker || return; ui_plan 1
+  run_step 'Restart bot and worker' docker compose restart || return
+  ui_ok 'Services restarted.'
+}
+show_logs() {
+  ui_section 'Service logs'; docker_ready || { ui_warn 'Docker is unavailable.'; return 1; }
+  local service=${1:-all}
+  if [[ $service == all ]]; then docker compose logs --tail=100
+  else docker compose logs --tail=100 "$service"; fi
+}
+show_status() {
+  ui_screen; ui_section 'Status'; render_status
+  if docker_ready; then printf '\n'; docker compose ps --all; fi
+  if command -v systemctl >/dev/null 2>&1; then
+    ui_section 'Telegram updater'; systemctl status ciro-downloader-updater.timer --no-pager --lines=3 || true
   fi
+  ui_note "Project: $PROJECT_DIR"; ui_note "Backups: $BACKUP_DIR"; ui_note "Private logs: $LOG_DIR"
 }
-
-run_diagnostics() {
-  require_docker || return
-  configure || return
-  title 'End-to-end diagnostics'
-  printf 'A short test video will be uploaded to the first ADMIN_IDS account.\n'
-  read -rp 'Optional public YouTube URL (press Enter for an upload-only test): ' test_url
-  docker compose build
-  if [[ -n "$test_url" ]]; then
-    docker compose run --rm --no-deps -e "TEST_VIDEO_URL=$test_url" worker php bin/diagnose.php
-  else
-    docker compose run --rm --no-deps worker php bin/diagnose.php
-  fi
-  success 'Diagnostics passed. Check Telegram for the test video.'
+backup_bot() {
+  ui_screen; ui_section 'Backup'
+  ui_note 'Briefly pauses this bot, then resumes the services that were running.'
+  require_configuration || return; require_docker || return; require_python || return
+  ui_plan 1
+  run_step 'Save database, cookies and configuration' python3 scripts/maintenance.py backup || return
+  ui_ok 'Backup complete.'; ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
 }
-
+restore_bot() {
+  ui_screen; ui_section 'Restore'
+  require_configuration || return; require_docker || return; require_python || return
+  ui_plan 1
+  python3 scripts/maintenance.py list || return
+  local archive=${1:-} confirmation
+  if [[ -z $archive ]]; then ui_prompt 'Absolute backup path (Enter to go back): '; read -r archive || return 0; fi
+  [[ -n $archive ]] || return 0
+  [[ $archive == /* && -r $archive && -f $archive ]] || { ui_error 'Choose an absolute path to a readable backup.'; return 1; }
+  ui_warn "This replaces this bot's data, cookies, token and administrator settings."
+  ui_note 'The archive is validated first. A recovery backup is kept before replacement.'
+  ui_prompt 'Type RESTORE to continue: '; read -r confirmation || return 0
+  [[ $confirmation == RESTORE ]] || { ui_note 'Nothing was changed.'; return 0; }
+  run_step 'Validate and restore the backup' python3 scripts/maintenance.py restore "$archive" || return
+  ui_ok 'Restore complete.'; ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
+}
+edit_setting() {
+  local field=$1 value
+  require_configuration || return; require_docker || return; require_python || return
+  ui_section 'Edit setting'
+  case "$field" in
+    BOT_TOKEN) ui_note 'Input is hidden. A running bot is checked before the new token is applied.'; ui_prompt 'New bot token (Enter to go back): '; read -rs value || return 0; printf '\n' ;;
+    ADMIN_IDS) ui_prompt 'Administrator IDs, separated by commas (Enter to go back): '; read -r value || return 0 ;;
+    YOUTUBE_PROXY) ui_note 'Input is hidden. Use http(s)://host:port or socks5(h)://host:port.'; ui_note 'Type clear to disable the proxy.'; ui_prompt 'Proxy (Enter to go back): '; read -rs value || return 0; printf '\n' ;;
+  esac
+  [[ -n $value ]] || return 0
+  [[ $field != YOUTUBE_PROXY || $value != clear ]] || value=''
+  SECRET_TMP="$(mktemp)" || return
+  printf '%s' "$value" >"$SECRET_TMP"; unset value
+  ui_plan 1
+  local result=0
+  if run_step 'Save settings and refresh active services' python3 scripts/maintenance.py configure "$field" --input-file "$SECRET_TMP"; then ui_ok 'Setting saved. Previously running services were refreshed.'
+  else result=$?; fi
+  rm -f -- "$SECRET_TMP"; SECRET_TMP=''; return "$result"
+}
 import_youtube_cookies() {
-  require_docker || return
-  configure || return
-  title 'YouTube sign-in cookies'
-  printf 'Export your own YouTube cookies in Netscape cookies.txt format.\n'
-  printf 'Copy that file to this server, then enter its absolute path below.\n'
-  printf 'Cookies are stored privately in the data volume and used for new downloads.\n'
+  ui_screen; ui_section 'Import YouTube cookies'
+  require_configuration || return; require_docker || return
+  ui_plan 1
+  ui_note 'Use any .txt filename exported in Netscape format.'
+  ui_note 'For access verification before replacement, import from the Telegram admin panel.'
   local cookie_file
-  read -rp 'Cookies file path (Enter to cancel): ' cookie_file
-  [[ -n "$cookie_file" ]] || return 0
-  [[ "$cookie_file" = /* && -f "$cookie_file" && -r "$cookie_file" ]] || {
-    warning 'Enter an absolute path to a readable cookie export.'
-    return 0
-  }
-  docker compose build
-  if docker compose run --rm --no-deps -T worker php bin/import-cookies.php < "$cookie_file"; then
-    success 'Cookies imported. Choose 8 and enter a YouTube URL to test delivery.'
-  else
-    warning 'Import failed. The previous cookie file was preserved.'
-  fi
+  ui_prompt 'Absolute file path (Enter to go back): '; read -r cookie_file || return 0
+  [[ -n $cookie_file ]] || return 0
+  [[ $cookie_file == /* && -r $cookie_file && -f $cookie_file && ${cookie_file,,} == *.txt ]] || { ui_error 'Choose a readable .txt export using its absolute path.'; return 1; }
+  run_step 'Import the private cookie file' docker compose run --rm --no-deps -T worker php bin/import-cookies.php <"$cookie_file" || return
+  ui_ok 'Cookies imported. Use Diagnostics with a YouTube link to test delivery.'
 }
-
+run_diagnostics() {
+  ui_screen; ui_section 'Delivery diagnostics'
+  require_configuration || return; require_docker || return
+  ui_plan 1
+  ui_note 'A test video is sent to the first configured administrator.'
+  local test_url
+  ui_prompt 'Public YouTube URL (Enter for an upload-only test): '; read -r test_url || return 0
+  if [[ -n $test_url ]]; then run_step 'Test YouTube download and Telegram upload' docker compose run --rm --no-deps -T -e "TEST_VIDEO_URL=$test_url" worker php bin/diagnose.php || return
+  else run_step 'Test video preparation and Telegram upload' docker compose run --rm --no-deps -T worker php bin/diagnose.php || return; fi
+  ui_ok 'Diagnostics passed. Check Telegram for the test video.'
+}
+doctor() {
+  ui_screen; ui_section 'Server checks'; render_status
+  ui_status 'Configuration' "$([[ -f .env ]] && printf Configured || printf Missing)"
+  ui_status 'Python 3' "$(command -v python3 >/dev/null && printf Ready || printf Missing)"
+  ui_status 'Disk space' "$(df -h "$PROJECT_DIR" | awk 'NR==2 {print $4 " available"}')"
+  ui_status 'Git checkout' "$([[ -d .git ]] && printf Ready || printf Missing)"
+  if [[ -f /var/lib/ciro-downloader-updater/recovery.json ]]; then ui_warn 'An interrupted Telegram update is waiting for recovery.'; fi
+  ui_note 'These checks do not send a Telegram message. Choose Delivery test for a real upload.'
+}
 delete_bot() {
-  title 'Delete Ciro Downloader'
-  warning 'This removes the project containers, image, persistent SQLite data and local .env token file.'
-  notice "The source code in $PROJECT_DIR will remain on the server."
-  read -rp 'Type DELETE to continue: ' confirmation
-  if [[ "$confirmation" != 'DELETE' ]]; then
-    notice 'Deletion cancelled.'
-    return
+  ui_screen; ui_section 'Remove installation'; ui_plan 2
+  ui_warn "Removes this bot's containers, image, data volume and local token file."
+  ui_note 'Source code, private logs and recovery backups stay on the server.'
+  local confirmation
+  ui_prompt 'Type DELETE to continue (Enter to go back): '; read -r confirmation || return 0
+  [[ $confirmation == DELETE ]] || { ui_note 'Nothing was changed.'; return 0; }
+  docker_ready || { ui_error 'Docker is unavailable. Configuration and data were kept.'; return 1; }
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl disable --now ciro-downloader-updater.timer >/dev/null 2>&1 || true
+    systemctl stop ciro-downloader-updater.service >/dev/null 2>&1 || true
+    if mountpoint -q /run/ciro-downloader-data; then umount /run/ciro-downloader-data || return; fi
   fi
-
-  if docker_ready; then
-    if command -v systemctl >/dev/null 2>&1; then
-      systemctl disable --now ciro-downloader-updater.timer >/dev/null 2>&1 || true
-      systemctl stop ciro-downloader-updater.service >/dev/null 2>&1 || true
-      if mountpoint -q /run/ciro-downloader-data; then umount /run/ciro-downloader-data; fi
-    fi
-    docker compose down --volumes --remove-orphans || true
-    docker image rm ciro-downloader:local >/dev/null 2>&1 || true
-  else
-    notice 'Docker is unavailable, so containers and volumes could not be removed.'
-  fi
-  rm -f -- "$PROJECT_DIR/.env"
-  success 'Ciro Downloader was removed. Source code was kept.'
+  run_step "Remove this project's containers and data" docker compose down --volumes --remove-orphans || return
+  docker image rm ciro-downloader:local >/dev/null 2>&1 || true
+  run_step 'Remove the local token file' rm -f -- "$PROJECT_DIR/.env" || return
+  rm -f -- /var/lib/ciro-downloader-updater/recovery.json /var/lib/ciro-downloader-updater/completion-pending.json /var/lib/ciro-downloader-updater/previous.json
+  ui_ok 'Ciro Downloader removed. Source code and backups were kept.'
 }
 
-menu() {
+render_status() {
+  local bot='Not installed' worker='Not installed' running='' known=''
+  if docker_ready; then
+    running=$(timeout 5 docker compose ps --status running --services 2>/dev/null) || running=''
+    known=$(timeout 5 docker compose ps --all --services 2>/dev/null) || known=''
+    [[ $known != *bot* ]] || bot=Stopped; [[ $known != *worker* ]] || worker=Stopped
+    [[ $running != *bot* ]] || bot=Running; [[ $running != *worker* ]] || worker=Running
+  else bot=Unavailable; worker=Unavailable; fi
+  local version='Not installed' updater=Disabled
+  [[ ! -f VERSION ]] || version=$(tr -d '\r\n' <VERSION)
+  if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ciro-downloader-updater.timer 2>/dev/null; then updater=Active; fi
+  ui_kv 'Version' "$version  (manager $INSTALLER_VERSION)"
+  ui_status 'Bot' "$bot"; ui_status 'Worker' "$worker"; ui_status 'Auto-updates' "$updater"
+}
+render_menu() {
+  ui_screen; render_status; ui_section 'Menu'
+  ui_row 1 Install 'set up or rebuild the bot'
+  ui_row 2 Update 'newest code, keeps your data'
+  ui_row 3 Remove 'delete this bot and its data' "$UI_BAD"
+  ui_rule
+  ui_row 4 Services 'start, stop, restart and logs'
+  ui_row 5 Status 'bot, worker and updater health'
+  ui_row 6 Backup 'database, cookies and settings'
+  ui_row 7 Restore 'recover a private backup'
+  ui_row 8 Settings 'bot token, admins and proxy'
+  ui_row 9 Cookies 'import a YouTube cookie file'
+  ui_row 10 Diagnostics 'server checks and delivery test'
+  ui_row 11 Telegram 'enable administrator updates'
+  ui_row 12 Help 'commands and shortcuts'
+  ui_row 0 Exit
+  ui_rule
+}
+services_menu() {
+  local choice
   while true; do
-    printf '\033[2J\033[H'
-    printf '%sCIRO DOWNLOADER%s  %sv%s%s\n' "$C_BOLD$C_BLUE" "$C_RESET" "$C_MUTED" "$INSTALLER_VERSION" "$C_RESET"
-    line
-    printf 'Project: %s\n' "$PROJECT_DIR"
-    printf 'Status:  '; service_state; printf '\n'
-    line
-    printf '%s1%s  Install or rebuild\n' "$C_BLUE" "$C_RESET"
-    printf '%s2%s  Start services\n' "$C_BLUE" "$C_RESET"
-    printf '%s3%s  Stop services\n' "$C_BLUE" "$C_RESET"
-    printf '%s4%s  Restart services\n' "$C_BLUE" "$C_RESET"
-    printf '%s5%s  View logs\n' "$C_BLUE" "$C_RESET"
-    printf '%s6%s  View status\n' "$C_BLUE" "$C_RESET"
-    printf '%s7%s  Update from GitHub\n' "$C_BLUE" "$C_RESET"
-    printf '%s8%s  Run delivery diagnostics\n' "$C_BLUE" "$C_RESET"
-    printf '%s9%s  Delete installation%s\n' "$C_RED" "$C_RESET" "$C_RESET"
-    printf '%s10%s Import YouTube cookies\n' "$C_BLUE" "$C_RESET"
-    printf '%s11%s Enable Telegram updates\n' "$C_BLUE" "$C_RESET"
-    printf '%s0%s  Exit\n' "$C_MUTED" "$C_RESET"
-    line
-    read -rp 'Choose an option: ' choice || exit 0
-
-    case "$choice" in
-      1) install_bot; pause ;;
-      2) start_services; pause ;;
-      3) stop_services; pause ;;
-      4) restart_services; pause ;;
-      5) show_logs; pause ;;
-      6) show_status; pause ;;
-      7) update_bot; pause ;;
-      8) run_diagnostics; pause ;;
-      9) delete_bot; pause ;;
-      10) import_youtube_cookies; pause ;;
-      11) enable_telegram_updates; pause ;;
-      0) exit 0 ;;
-      *) warning 'Choose a number from the menu.'; pause ;;
-    esac
+    ui_screen; ui_section 'Services'
+    ui_row 1 Start 'start bot and worker'; ui_row 2 Stop 'keep all data and settings'; ui_row 3 Restart
+    ui_row 4 'All logs'; ui_row 5 'Bot logs'; ui_row 6 'Worker logs'; ui_row 7 Status; ui_row 0 Back; ui_rule
+    ui_prompt 'Choose [0-7]: '; read -r choice || return 0
+    case "$choice" in 1) with_lock start_services || true ;; 2) with_lock stop_services || true ;; 3) with_lock restart_services || true ;; 4) show_logs || true ;; 5) show_logs bot || true ;; 6) show_logs worker || true ;; 7) show_status ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
+    ui_pause
   done
 }
-
-menu
+settings_menu() {
+  local choice
+  while true; do
+    ui_screen; ui_section 'Settings'
+    if [[ -f .env ]] && command -v python3 >/dev/null 2>&1; then python3 scripts/maintenance.py summary || true; fi
+    ui_row 1 'Bot token' 'hidden input, checked before apply'
+    ui_row 2 Administrators 'Telegram IDs separated by commas'
+    ui_row 3 'YouTube proxy' 'set, change or disable'
+    ui_row 0 Back; ui_rule
+    ui_prompt 'Choose [0-3]: '; read -r choice || return 0
+    case "$choice" in 1) with_lock edit_setting BOT_TOKEN || true ;; 2) with_lock edit_setting ADMIN_IDS || true ;; 3) with_lock edit_setting YOUTUBE_PROXY || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
+    ui_pause
+  done
+}
+diagnostics_menu() {
+  local choice
+  while true; do
+    ui_screen; ui_section 'Diagnostics'; ui_row 1 'Server checks' 'no Telegram messages'; ui_row 2 'Delivery test' 'sends a test video to your admin'; ui_row 0 Back; ui_rule
+    ui_prompt 'Choose [0-2]: '; read -r choice || return 0
+    case "$choice" in 1) doctor ;; 2) with_lock run_diagnostics || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
+    ui_pause
+  done
+}
+show_help() {
+  ui_screen; ui_section 'Commands'
+  ui_kv 'Menu' 'CiroDownloader'; ui_kv 'Install' 'CiroDownloader install'; ui_kv 'Update' 'CiroDownloader update'
+  ui_kv 'Services' 'CiroDownloader start | stop | restart'; ui_kv 'Status' 'CiroDownloader status'; ui_kv 'Logs' 'CiroDownloader logs'
+  ui_kv 'Backup' 'CiroDownloader backup'; ui_kv 'Restore' 'CiroDownloader restore /absolute/backup.tar.gz'
+  ui_kv 'Settings' 'CiroDownloader settings'; ui_kv 'Cookies' 'CiroDownloader cookies'; ui_kv 'Diagnostics' 'CiroDownloader doctor | diagnose'
+  ui_kv 'Telegram' 'CiroDownloader telegram'; ui_kv 'Remove' 'CiroDownloader remove'
+  ui_note 'Add --plain for plain terminal output. Back returns one menu level.'
+  ui_note "Project: $PROJECT_DIR"; ui_note "Backups: $BACKUP_DIR"; ui_rule
+}
+menu() {
+  local choice
+  while true; do
+    render_menu; ui_prompt 'Choose [0-12]: '; read -r choice || return 0
+    case "$choice" in
+      1) with_lock install_bot || true ;;
+      2) if with_lock update_bot; then ui_pause; exec bash "$PROJECT_DIR/manager.sh"; fi ;;
+      3) with_lock delete_bot || true ;;
+      4) services_menu; continue ;; 5) show_status ;;
+      6) with_lock backup_bot || true ;; 7) with_lock restore_bot || true ;; 8) settings_menu; continue ;;
+      9) with_lock import_youtube_cookies || true ;; 10) diagnostics_menu; continue ;;
+      11) ui_plan 1; with_lock run_step 'Enable Telegram updates' enable_telegram_updates || true ;;
+      12) show_help ;; 0) ui_ok 'Bye.'; return 0 ;; *) ui_warn 'Choose a number shown above.' ;;
+    esac
+    ui_pause
+  done
+}
+main() {
+  local action=${1:-menu}
+  if [[ $action == --plain ]]; then export NO_COLOR=1 CIRO_ASCII=1; shift; action=${1:-menu}; fi
+  ui_init
+  cd -- "$PROJECT_DIR"
+  case "$action" in --help|-h|help) show_help; return ;; --version|version) printf 'Ciro Downloader %s (manager %s)\n' "$(tr -d '\r\n' <VERSION)" "$INSTALLER_VERSION"; return ;; --preview|preview) render_menu; return ;; esac
+  [[ $EUID -eq 0 ]] || { ui_error 'Run as root: sudo bash manager.sh'; return 1; }
+  assert_project || return
+  command -v flock >/dev/null 2>&1 || { ui_error 'The flock command is required (coreutils/util-linux).'; return 1; }
+  export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
+  trap cleanup EXIT; trap interrupted INT TERM
+  if [[ $action == menu ]]; then install_shortcut || return; fi
+  case "$action" in
+    menu) menu ;; install) with_lock install_bot ;; update) with_lock update_bot ;; remove) with_lock delete_bot ;;
+    start) with_lock start_services ;; stop) with_lock stop_services ;; restart) with_lock restart_services ;;
+    logs) show_logs ;; status) show_status ;; backup) with_lock backup_bot ;; restore) with_lock restore_bot "${2:-}" ;;
+    settings|config) settings_menu ;; cookies) with_lock import_youtube_cookies ;; diagnose) with_lock run_diagnostics ;; doctor) doctor ;;
+    telegram) ui_plan 1; with_lock run_step 'Enable Telegram updates' enable_telegram_updates ;;
+    *) ui_error 'Unknown command. Run CiroDownloader help.'; return 2 ;;
+  esac
+}
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi

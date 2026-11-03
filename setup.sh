@@ -30,4 +30,4 @@ else
   exit 1
 fi
 
-exec bash "$INSTALL_DIR/manager.sh"
+exec bash "$INSTALL_DIR/manager.sh" "$@"
