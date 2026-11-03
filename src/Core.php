@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace Zero;
+require_once __DIR__.'/Ui.php';
 
 final class Config
 {
@@ -175,8 +176,8 @@ final class Store
             CREATE TABLE IF NOT EXISTS states (user_id INTEGER PRIMARY KEY, key TEXT NOT NULL, expires INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, update_id INTEGER UNIQUE NOT NULL,
                 user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, url TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL, message_id INTEGER);
-            CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running');
+                status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL, message_id INTEGER,
+                phase TEXT NOT NULL DEFAULT 'download', quality INTEGER, options TEXT NOT NULL DEFAULT '{}', title TEXT NOT NULL DEFAULT '', expires INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS update_requests (id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL DEFAULT 0,
                 action TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
@@ -187,6 +188,19 @@ final class Store
         try {
             $columns=array_column($this->query('PRAGMA table_info(jobs)')->fetchAll(),'name');
             if(!in_array('message_id',$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN message_id INTEGER');
+            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
+                if(!in_array($column,$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN '.$column.' '.$type);
+            }
+            $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
+            if($index&&!str_contains($index,'choosing')) $this->db->exec('DROP INDEX one_active');
+            $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running','choosing','confirming')");
+            if($this->get('ui_html_version','0')!=='1') {
+                // Captions in older releases were sent as plaintext, even if they
+                // contained angle brackets. Preserve that appearance when enabling HTML.
+                $caption=$this->query("SELECT value FROM settings WHERE key='text.video_caption'")->fetchColumn();
+                if($caption!==false) $this->set('text.video_caption',Ui::escape((string)$caption));
+                $this->set('ui_html_version','1');
+            }
             $this->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
@@ -210,11 +224,11 @@ final class Store
         try {
             if ($this->get('update_in_progress','0')==='1') $result = 'updating';
             elseif ($this->query('SELECT 1 FROM jobs WHERE update_id=?', [$update])->fetchColumn()) $result = 'duplicate';
-            elseif ($this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running')", [$user])->fetchColumn()) $result = 'busy';
-            elseif ((int)$this->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')")->fetchColumn() >= 20) $result = 'full';
+            elseif ($this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running','choosing','confirming')", [$user])->fetchColumn()) $result = 'busy';
+            elseif ((int)$this->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running','choosing','confirming')")->fetchColumn() >= 20) $result = 'full';
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15) $result = 'cooldown';
             else {
-                $this->query('INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id) VALUES(?,?,?,?,?,0)', [$update,$user,$chat,$url,time()]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(?,?,?,?,?,0,'inspect')", [$update,$user,$chat,$url,time()]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -229,6 +243,18 @@ final class Store
             if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
+    public function choose(int $id,int $user,int $chat,?int $quality): ?array
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='choosing' AND expires>?",[$id,$user,$chat,time()])->fetch();
+            $options=$job?json_decode($job['options'],true):[];
+            if(!$job||($quality!==null&&!isset($options[(string)$quality]))) $job=null;
+            if($job) $this->query('UPDATE jobs SET status=?,quality=?,phase=?,expires=? WHERE id=?',[$quality===null?'cancelled':'confirming',$quality,'download',time()+120,$id]);
+            $this->db->exec('COMMIT');
+            return $job?:null;
+        } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
 }
 

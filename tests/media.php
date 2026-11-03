@@ -20,11 +20,13 @@ try {
     file_put_contents($config->cookiePath(),$cookieExport);
     $config->youtubeProxy='socks5://test-user:test-password@127.0.0.1:1080';
     foreach([
-        ['landscape','640x360','libx264','aac','mp4',1],
-        ['shorts','480x854','libx264','aac','mp4',1],
-        ['fallback','600x1066','libvpx-vp9','libopus','webm',1],
-        ['long','32x32','libx264','aac','mp4',1202],
-    ] as [$name,$size,$videoCodec,$audioCodec,$ext,$seconds]) {
+        ['landscape','640x360','libx264','aac','mp4',1,null],
+        ['shorts','480x854','libx264','aac','mp4',1,null],
+        ['fallback','600x1066','libvpx-vp9','libopus','webm',1,null],
+        ['long','32x32','libx264','aac','mp4',1202,null],
+        ['selected1080','1920x1080','libx264','aac','mp4',1,1080],
+        ['selected720','1280x720','libvpx-vp9','libopus','webm',1,720],
+    ] as [$name,$size,$videoCodec,$audioCodec,$ext,$seconds,$quality]) {
         $work=$temp.'/'.$name;
         mkdir($work,0700);
         $source=$temp.'/'.$name.'.'.$ext;
@@ -43,7 +45,7 @@ try {
             'echo json_encode("Test <title> & audio").PHP_EOL;');
         chmod($stub,0700);
         $config->ytDlp=$stub;
-        $media=$runner->fetch('https://www.youtube.com/watch?v=ybNMMK5Q318',$work);
+        $media=$runner->fetch('https://www.youtube.com/watch?v=ybNMMK5Q318',$work,$quality,$quality!==null?[['id'=>'chosen','audio'=>true]]:[]);
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
         verify($arguments[array_search('--match-filter',$arguments,true)+1]==='!is_live',"$name has no maximum video duration filter");
         verify($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt',"$name uses a private cookie copy");
@@ -52,7 +54,11 @@ try {
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$media['path']],$work,10),true);
         $streams=array_column($probe['streams'],'codec_name','codec_type');
         verify(($streams['video']??'')==='h264'&&($streams['audio']??'')==='aac',"$name produces H.264 video and AAC audio");
-        verify(min($media['width'],$media['height'])<=480,"$name respects 480p on the shorter edge");
+        verify(min($media['width'],$media['height'])<=($quality??480),"$name respects the requested resolution");
+        if($quality!==null) {
+            verify(min($media['width'],$media['height'])===$quality,"$name is delivered without a silent downgrade to 480p");
+            verify($arguments[array_search('-f',$arguments,true)+1]==='chosen',"$name uses only the selected format identifiers");
+        }
         if($name==='shorts') verify($media['width']===480&&$media['height']===854,'portrait Shorts are not rejected or reduced to 240p');
         if($name==='fallback') verify($media['width']===480,'higher resolution WebM fallback is converted and scaled');
         if($name==='long') verify($media['duration']>1200,'a real video longer than 20 minutes completes preparation');

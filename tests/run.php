@@ -78,13 +78,13 @@ try {
     $bot->handle(cb(42,'set:on')); check($store->enabled(),'admin turns bot on');
     $bot->handle(cb(42,'edit:button:download')); $bot->handle(msg(42,'Get video'));
     check($bot->label('download')==='Get video','edit button label');
-    $bot->handle(cb(42,'reset:button:download')); check($bot->label('download')===Zero\Bot::BUTTONS['download'][1],'reset label');
+    $bot->handle(cb(42,'reset:button:download')); check($bot->label('download')===$bot->catalog('button')['download'][1],'reset label');
     $bot->handle(cb(42,'edit:text:video_caption')); $bot->handle(msg(42,'Title: {title}'));
     check($bot->text('video_caption')==='Title: {title}','custom caption persists');
     $bot->handle(cb(42,'edit:text:welcome')); $bot->handle(msg(42,'/cancel')); $bot->handle(msg(42,'Ignored text'));
-    check($bot->text('welcome')===Zero\Bot::TEXTS['welcome'][1],'cancel editing');
+    check($bot->text('welcome')===$bot->catalog('text')['welcome'][1],'cancel editing');
     $bot->handle(cb(42,'edit:button:help')); $bot->handle(msg(42,str_repeat('x',49)));
-    check($bot->label('help')===Zero\Bot::BUTTONS['help'][1],'reject excessive label length');
+    check($bot->label('help')===$bot->catalog('button')['help'][1],'reject excessive label length');
     $bot->handle(msg(1,$url,20)); $bot->handle(msg(1,$url,20)); $bot->handle(msg(1,$url,21));
     check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===1,'deduplicate updates and active jobs');
     $job=$store->claim(); check($job!==null&&$store->claim()===null,'claim only queued job');

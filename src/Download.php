@@ -75,11 +75,9 @@ final class Download
         }
         return file_get_contents($stdout)?:'';
     }
-    public function fetch(string $url, string $folder): array
+    private function access(string $folder): array
     {
-        $canonical=youtubeUrl($url);
-        if (!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        $access=[];
+        $access=[]; $snapshot=null;
         $cookies=$this->config->cookiePath();
         clearstatcache(true,$cookies);
         if(is_file($cookies)) {
@@ -92,23 +90,80 @@ final class Download
             if(file_put_contents($private,$content)===false) throw new MediaFailure('cookies','Cannot create private cookie copy');
             chmod($private,0600);
             $access=['--cookies',$private];
+            $snapshot=['path'=>$private,'hash'=>hash('sha256',$content)];
         } elseif($this->config->youtubeCookies!=='') {
             throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
         }
         if($this->config->youtubeProxy!=='') $access=array_merge($access,['--proxy',$this->config->youtubeProxy]);
-        $title=$this->run(array_merge([$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
-            '--no-cache-dir','--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
-            '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
-            '--match-filter','!is_live','--break-on-reject',
-            // res uses the shorter edge: 480x854 Shorts are valid 480p videos.
-            '-f','bv*+ba/b','-S','res:480,vcodec:h264,acodec:aac',
-            '--merge-output-format','mkv','--print','after_move:%(title)j',
-            '-o',$folder.'/video.%(ext)s'],$access,['--',$canonical]),$folder,$this->config->timeout);
-        if(isset($private)&&is_file($private)) {
-            // Keep renewed server cookies, but never replace a more recent admin import.
-            try { saveYouTubeCookies($this->config,(string)file_get_contents($private),hash('sha256',$content)); }
+        return ['args'=>$access,'snapshot'=>$snapshot];
+    }
+    private function refresh(array $access): void
+    {
+        $snapshot=$access['snapshot'];
+        if($snapshot&&is_file($snapshot['path'])) {
+            try { saveYouTubeCookies($this->config,(string)file_get_contents($snapshot['path']),$snapshot['hash']); }
             catch(\Throwable) { error_log('YouTube cookie refresh skipped: invalid jar or unavailable storage'); }
         }
+    }
+    private function base(): array
+    {
+        return [$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
+            '--no-cache-dir','--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
+        ];
+    }
+    public static function qualityOptions(array $info): array
+    {
+        if(!empty($info['is_live'])||($info['live_status']??'')==='is_live') throw new MediaFailure('duration','Live streams are not supported');
+        $formats=$info['formats']??[]; $audio=false;
+        foreach($formats as $format) if(($format['acodec']??'none')!=='none'&&empty($format['has_drm'])) $audio=true;
+        if(!$audio) throw new MediaFailure('format','No audio stream is available');
+        usort($formats,fn($a,$b)=>[
+            str_starts_with($b['vcodec']??'','avc1')?1:0,(float)($b['tbr']??0)
+        ]<=>[str_starts_with($a['vcodec']??'','avc1')?1:0,(float)($a['tbr']??0)]);
+        $options=[];
+        foreach($formats as $format) {
+            $height=min((int)($format['width']??0),(int)($format['height']??0));
+            $id=(string)($format['format_id']??'');
+            if($height<72||$height>8640||in_array($format['vcodec']??'none',['none','images'],true)||($format['protocol']??'')==='mhtml'||!empty($format['has_drm'])||!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)) continue;
+            if(count($options[$height]??[])<8) $options[$height][]=['id'=>$id,'audio'=>($format['acodec']??'none')!=='none'];
+        }
+        ksort($options,SORT_NUMERIC);
+        if(!$options) throw new MediaFailure('format','No downloadable video qualities found');
+        return $options;
+    }
+    public function inspect(string $url,string $folder): array
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        $access=$this->access($folder);
+        $json=$this->run(array_merge($this->base(),['--dump-single-json','--skip-download'],$access['args'],['--',$canonical]),$folder,min(120,$this->config->timeout));
+        $this->refresh($access);
+        try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
+        catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
+        if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
+        return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>self::qualityOptions($info)];
+    }
+    public function fetch(string $url, string $folder, ?int $quality=null, array $formats=[]): array
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        $target=$quality??480;
+        if($target<72||$target>8640) throw new MediaFailure('format','Invalid selected resolution');
+        $selector=[];
+        foreach($formats as $format) {
+            if(!is_array($format)||!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',(string)($format['id']??''))) throw new MediaFailure('format','Invalid format identifier');
+            $selector[]=$format['id'].(!empty($format['audio'])?'':'+ba');
+        }
+        if($quality!==null&&!$selector) throw new MediaFailure('format','The selected quality has no saved formats');
+        $access=$this->access($folder);
+        $title=$this->run(array_merge($this->base(),[
+            '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
+            '--match-filter','!is_live','--break-on-reject',
+            // Explicit IDs prevent silently substituting a different quality.
+            '-f',$selector?implode('/',$selector):'bv*+ba/b','-S','res:'.$target.',vcodec:h264,acodec:aac',
+            '--merge-output-format','mkv','--print','after_move:%(title)j',
+            '-o',$folder.'/video.%(ext)s'],$access['args'],['--',$canonical]),$folder,$this->config->timeout);
+        $this->refresh($access);
         $files=array_values(array_filter(glob($folder.'/video.*')?:[],
             fn($file)=>in_array(pathinfo($file,PATHINFO_EXTENSION),['mp4','mkv','webm','mov'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete video');
@@ -122,16 +177,17 @@ final class Download
         $duration=(float)($info['format']['duration']??0);
         if(!$video||!$audio) throw new MediaFailure('format','Downloaded video or audio stream is missing');
         if($duration<=0) throw new MediaFailure('duration','Video has no duration');
+        if($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality) throw new MediaFailure('format','Downloaded resolution does not match the selected quality');
 
         // Telegram clients need H.264/AAC MP4; accept other source codecs and convert them.
         $ready=$folder.'/ready.mp4';
         $compatible=($video['codec_name']??'')==='h264'&&($audio['codec_name']??'')==='aac'
-            &&min((int)$video['width'],(int)$video['height'])<=480;
+            &&min((int)$video['width'],(int)$video['height'])<=$target;
         $args=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$file,'-map','0:v:0','-map','0:a:0'];
         if($compatible) {
             $args=array_merge($args,['-c','copy']);
         } else {
-            $args=array_merge($args,['-vf',"scale='if(gte(iw,ih),-2,min(480,iw))':'if(gte(iw,ih),min(480,ih),-2)'",
+            $args=array_merge($args,['-vf',"scale='if(gte(iw,ih),-2,min($target,iw))':'if(gte(iw,ih),min($target,ih),-2)'",
                 '-c:v','libx264','-preset','veryfast','-crf','25','-threads','2','-pix_fmt','yuv420p','-c:a','aac','-b:a','96k']);
         }
         $this->run(array_merge($args,['-movflags','+faststart',$ready]),$folder,$this->config->timeout);
@@ -140,7 +196,7 @@ final class Download
         if(filesize($ready)>$this->config->maxBytes) throw new MediaFailure('size','Prepared MP4 exceeds file size limit');
         $info=$this->probe($ready,$folder); $video=null;
         foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
-        if(!$video||min((int)$video['width'],(int)$video['height'])>480) throw new MediaFailure('format','Prepared resolution exceeds 480p');
+        if(!$video||min((int)$video['width'],(int)$video['height'])>$target||($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality)) throw new MediaFailure('format','Prepared resolution does not match the selected quality');
         return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube',
             'height'=>(int)$video['height'],'width'=>(int)$video['width'],
             'quality'=>min((int)$video['height'],(int)$video['width']).'p','duration'=>(int)ceil($duration)];

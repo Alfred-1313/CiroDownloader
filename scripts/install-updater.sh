@@ -8,6 +8,7 @@ command -v python3 >/dev/null || { apt-get update; apt-get install -y python3; }
 command -v systemctl >/dev/null || { echo 'systemd is required for Telegram updates.' >&2; exit 1; }
 install -d -m 700 /usr/local/lib/ciro-downloader /var/lib/ciro-downloader-updater /var/backups/ciro-downloader
 install -m 700 "$PROJECT_DIR/scripts/updater.py" /usr/local/lib/ciro-downloader/updater.py
+install -m 600 "$PROJECT_DIR/resources/ui.json" /usr/local/lib/ciro-downloader/ui.json
 # The running agent may still hold the previous version's message renderer.
 # Let its next invocation refresh that same completion message with the new code.
 if [[ -f /var/lib/ciro-downloader-updater/recovery.json ]]; then
