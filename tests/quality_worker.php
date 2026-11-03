@@ -21,6 +21,8 @@ try {
     $info=['title'=>'<title> & audio','thumbnail'=>'https://i.ytimg.com/vi/ybNMMK5Q318/'.($shorts?'oar2':'maxresdefault').'.jpg','formats'=>[
         ['format_id'=>'18','width'=>640,'height'=>360,'vcodec'=>'avc1','acodec'=>'aac','abr'=>96],
         ['format_id'=>'22','width'=>1280,'height'=>720,'vcodec'=>'avc1','acodec'=>'aac','abr'=>128],
+        ['format_id'=>'160','width'=>256,'height'=>144,'vcodec'=>'avc1','acodec'=>'none'],
+        ['format_id'=>'137','width'=>1920,'height'=>1080,'vcodec'=>'avc1','acodec'=>'none'],
         ['format_id'=>'140','vcodec'=>'none','acodec'=>'aac','abr'=>128],
     ]];
     $stub=$temp.'/yt-test';
