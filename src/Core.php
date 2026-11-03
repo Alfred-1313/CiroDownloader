@@ -194,6 +194,13 @@ final class Store
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
             if($index&&!str_contains($index,'choosing')) $this->db->exec('DROP INDEX one_active');
             $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running','choosing','confirming')");
+            if($this->get('ui_html_version','0')!=='1') {
+                // Captions in older releases were sent as plaintext, even if they
+                // contained angle brackets. Preserve that appearance when enabling HTML.
+                $caption=$this->query("SELECT value FROM settings WHERE key='text.video_caption'")->fetchColumn();
+                if($caption!==false) $this->set('text.video_caption',Ui::escape((string)$caption));
+                $this->set('ui_html_version','1');
+            }
             $this->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }

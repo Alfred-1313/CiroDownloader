@@ -17,6 +17,18 @@ function click(int $id,string $data): array { return ['callback_query'=>['id'=>'
 $temp=sys_get_temp_dir().'/ciro-custom-'.bin2hex(random_bytes(6));
 mkdir($temp,0700);
 try {
+    $legacyDir=$temp.'/legacy'; mkdir($legacyDir,0700);
+    $legacyDb=new PDO('sqlite:'.$legacyDir.'/zero.sqlite');
+    $legacyDb->exec('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
+    $legacyDb->prepare('INSERT INTO settings VALUES(?,?)')->execute(['text.video_caption','<channel> {title} & audio']);
+    $legacyDb=null;
+    $legacyStore=new Zero\Store($legacyDir);
+    $converted=$legacyStore->get('text.video_caption');
+    ensure($converted==='&lt;channel&gt; {title} &amp; audio','legacy plaintext captions are escaped without losing their placeholders');
+    $legacyAgain=new Zero\Store($legacyDir);
+    ensure($legacyAgain->get('text.video_caption')===$converted,'caption migration runs exactly once across restarts');
+    Zero\TextFormat::validate((new Zero\Ui($legacyStore))->text('video_caption',['title'=>'Example']),1024);
+
     $store=new Zero\Store($temp); $api=new SettingsApi(); $config=new Zero\Config('123:fake-token',[42],$temp); $bot=new Zero\Bot($config,$store,$api);
     $bot->handle(input(7,'/start'));
     $keyboard=end($api->calls)[1]['reply_markup'];
