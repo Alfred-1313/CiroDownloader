@@ -175,13 +175,20 @@ final class Store
             CREATE TABLE IF NOT EXISTS states (user_id INTEGER PRIMARY KEY, key TEXT NOT NULL, expires INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, update_id INTEGER UNIQUE NOT NULL,
                 user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, url TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
+                status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL, message_id INTEGER);
             CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running');
             CREATE TABLE IF NOT EXISTS update_requests (id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL DEFAULT 0,
                 action TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS one_update ON update_requests((1)) WHERE status IN ('queued','running');
             CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, last_request INTEGER NOT NULL DEFAULT 0);");
+        // NULL is a legacy job; 0 waits for its initial notice; >0 is ready to edit.
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            $columns=array_column($this->query('PRAGMA table_info(jobs)')->fetchAll(),'name');
+            if(!in_array('message_id',$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN message_id INTEGER');
+            $this->db->exec('COMMIT');
+        } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
     public function query(string $sql, array $args = []): \PDOStatement
     {
@@ -207,7 +214,7 @@ final class Store
             elseif ((int)$this->query("SELECT COUNT(*) FROM jobs WHERE status IN ('queued','running')")->fetchColumn() >= 20) $result = 'full';
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15) $result = 'cooldown';
             else {
-                $this->query('INSERT INTO jobs(update_id,user_id,chat_id,url,created) VALUES(?,?,?,?,?)', [$update,$user,$chat,$url,time()]);
+                $this->query('INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id) VALUES(?,?,?,?,?,0)', [$update,$user,$chat,$url,time()]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -218,7 +225,7 @@ final class Store
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
-            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' ORDER BY id LIMIT 1")->fetch();
+            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0) ORDER BY id LIMIT 1")->fetch();
             if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }

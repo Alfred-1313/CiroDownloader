@@ -26,6 +26,7 @@ jobs:
         run: |
           php tests/run.php
           php tests/cookies.php
+          php tests/jobs.php
 
       - name: Install FFmpeg for media regression tests
         run: sudo apt-get update && sudo apt-get install -y ffmpeg

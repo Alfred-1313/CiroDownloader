@@ -43,11 +43,37 @@ final class Updates
         return $message;
     }
 
-    public function menu(int $chat, int $user, int $message = 0, string $notice = ''): void
+    private function freshChanges(): array
+    {
+        $raw=$this->store->get('update_new_changes','#unset#');
+        // An older host agent may have performed the upgrade installing this release.
+        if($raw==='#unset#') {
+            $from=$this->store->get('update_previous_version'); $notes=[]; $known=[];
+            $entries=json_decode((string)file_get_contents(dirname(__DIR__).'/CHANGELOG.json'),true)?:[];
+            usort($entries,fn($a,$b)=>version_compare($a['version'],$b['version']));
+            if(preg_match('/^\d+\.\d+\.\d+$/',$from)&&version_compare($from,self::version(),'<')) {
+                foreach($entries as $entry) {
+                    if(version_compare($entry['version'],self::version(),'>')) continue;
+                    foreach($entry['changes']??[] as $note) {
+                        $normalized=mb_strtolower(preg_replace('/\s+/u',' ',trim($note))??'');
+                        if(version_compare($entry['version'],$from,'>')&&!isset($known[$normalized])) $notes[]=$note;
+                        $known[$normalized]=true;
+                    }
+                }
+            }
+            $raw=json_encode(['from'=>$from,'to'=>self::version(),'changes'=>$notes],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+            $this->store->set('update_new_changes',$raw);
+        }
+        $data=json_decode($raw,true);
+        return is_array($data)&&($data['to']??'')===self::version()&&is_array($data['changes']??null)?array_values(array_filter($data['changes'],'is_string')):[];
+    }
+
+    public function menu(int $chat, int $user, int $message = 0, string $notice = '', bool $fresh = false): void
     {
         if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
         $active=$this->active();
         if($active&&(int)$active['user_id']===$user) return; // Preserve the live progress screen.
+        if($fresh) $this->store->set('update_new_changes','');
         $version=htmlspecialchars(self::version(),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
         $checked=htmlspecialchars($this->store->get('last_update_at','هنوز بررسی نشده'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
         $text="<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n";
@@ -60,7 +86,7 @@ final class Updates
             $rows[]=[['text'=>'🚀 شروع به‌روزرسانی','callback_data'=>'update:start','style'=>'success']];
             if($this->store->get('update_previous_version')!=='') $rows[]=[['text'=>'↩️ بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback','style'=>'danger']];
         }
-        $rows[]=[['text'=>'📋 تغییرات این نسخه','callback_data'=>'update:changes','style'=>'primary']];
+        if($this->freshChanges()) $rows[]=[['text'=>'✨ تغییرات تازهٔ این ارتقا','callback_data'=>'update:changes','style'=>'primary']];
         $rows[]=[['text'=>'بازگشت به پنل مدیریت','callback_data'=>'update:back']];
         $this->view($chat,$user,$text,$rows,$message);
     }
@@ -69,10 +95,9 @@ final class Updates
     {
         if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
         if($this->active()) return;
-        $entries=json_decode((string)file_get_contents(dirname(__DIR__).'/CHANGELOG.json'),true);
-        $notes=[];
-        foreach($entries?:[] as $entry) if(($entry['version']??'')===self::version()) $notes=array_slice($entry['changes']??[],0,8);
-        $text="<blockquote><b>✨ تغییرات این نسخه</b>\n".implode("\n",array_map(fn($note)=>'• '.htmlspecialchars((string)$note,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'),$notes)).'</blockquote>';
+        $notes=array_slice($this->freshChanges(),0,12);
+        $text=$notes?"<blockquote><b>✨ تغییرات تازهٔ این ارتقا</b>\n".implode("\n",array_map(fn($note)=>'• '.htmlspecialchars(mb_substr($note,0,240),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'),$notes)).'</blockquote>':
+            '<blockquote><b>✅ قابلیت تازه‌ای در این بررسی اضافه نشده است.</b></blockquote>';
         $this->view($chat,$user,$text,[[['text'=>'بازگشت به منوی به‌روزرسانی','callback_data'=>'update:menu','style'=>'primary']]],$message);
     }
 
@@ -104,6 +129,7 @@ final class Updates
             $this->store->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
         if($active) return;
+        $this->store->set('update_new_changes','');
         try {
             $message=$this->view($chat,$user,"<blockquote><b>🔄 در حال به‌روزرسانی</b></blockquote>\n\n<code>▱▱▱▱▱▱▱▱▱▱ ۰٪</code>\n\n⏳ درخواست ثبت شد؛ در انتظار شروع بررسی سرور…\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.",
                 [[['text'=>'⏳ در انتظار شروع · ۰٪','callback_data'=>'update:progress','style'=>'primary']]],$message);

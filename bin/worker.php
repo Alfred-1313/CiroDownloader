@@ -14,23 +14,27 @@ $interrupted=$store->query("SELECT * FROM jobs WHERE status='running'")->fetchAl
 $store->query("UPDATE jobs SET status='failed' WHERE status='running'");
 foreach(glob($downloads.'/job-*')?:[] as $dir) Zero\Download::clean($dir);
 foreach($interrupted as $job) {
-    try { $bot->send((int)$job['chat_id'],$bot->text('restarted')); } catch(Throwable) {}
+    try { $bot->jobMessage($job,$bot->text('restarted')); } catch(Throwable) {}
 }
 echo "Ciro Downloader worker started\n";
 $lastHeartbeat=0;
 while(true) {
     try {
-        if(time()-$lastHeartbeat>=10) { $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time(); }
+        if(time()-$lastHeartbeat>=10) {
+            $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();
+            // An interrupted initial Telegram request must not leave an unclaimable job forever.
+            $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
+        }
         if(!$store->enabled()||!($job=$store->claim())) { sleep(1); continue; }
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
         $stage='download';
         try {
             if(disk_free_space($downloads)<$config->maxBytes*4) throw new RuntimeException('Insufficient disk space');
-            $bot->send((int)$job['chat_id'],$bot->text('downloading'));
+            $bot->jobMessage($job,$bot->text('downloading'));
             $media=$downloader->fetch($job['url'],$folder);
             $stage='upload';
-            $bot->send((int)$job['chat_id'],$bot->text('uploading'));
+            $bot->jobMessage($job,$bot->text('uploading'));
             $caption=strtr($bot->text('video_caption'),[
                 '{title}'=>mb_substr($media['title'],0,100),
                 '{quality}'=>$media['quality'],
@@ -42,6 +46,8 @@ while(true) {
                 'caption'=>$caption,'supports_streaming'=>true,
                 'width'=>$media['width'],'height'=>$media['height'],'duration'=>$media['duration']]);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+            try { $bot->jobMessage($job,$bot->text('delivered')); }
+            catch(Throwable) { error_log('Video delivered; final status edit unavailable'); }
         } catch(Throwable $e) {
             $detail=Zero\diagnosticMessage($e->getMessage());
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
@@ -49,7 +55,7 @@ while(true) {
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $notice=$e instanceof Zero\MediaFailure?$e->userMessage():
                 ($stage==='upload'?'ویدیو آماده شد، اما ارسال آن به تلگرام انجام نشد. لطفاً دوباره تلاش کن.':$bot->text('failed'));
-            try { $bot->send((int)$job['chat_id'],$notice); } catch(Throwable) {}
+            try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally { Zero\Download::clean($folder); }
         $store->query("DELETE FROM jobs WHERE status IN ('done','failed') AND created<?",[time()-86400*7]);
     } catch(Throwable $e) { error_log('Worker error: '.get_class($e)); sleep(5); }

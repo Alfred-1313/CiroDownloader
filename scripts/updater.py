@@ -66,6 +66,32 @@ def release_notes(project=None):
     return version, changes
 
 
+def changes_since(installed, target, project=None):
+    """Only announce additions the installed version did not already contain."""
+    def key(version):
+        return tuple(map(int, version.split('.'))) if re.fullmatch(r'\d+\.\d+\.\d+', version) else None
+    first, last = key(installed), key(target)
+    if first is None or last is None or first >= last:
+        return []
+    try:
+        entries = json.loads(((project or PROJECT) / 'CHANGELOG.json').read_text())
+    except (OSError, ValueError):
+        return []
+    known, additions = set(), []
+    for entry in sorted(entries, key=lambda entry: key(entry.get('version', '')) or (0, 0, 0)):
+        version = key(entry.get('version', ''))
+        if version is None or version > last:
+            continue
+        for change in entry.get('changes', []):
+            if not isinstance(change, str):
+                continue
+            normalized = ' '.join(change.split()).casefold()
+            if version > first and normalized not in known:
+                additions.append(change)
+            known.add(normalized)
+    return additions
+
+
 def valid_recovery(value):
     return (isinstance(value, dict) and bool(SHA.fullmatch(value.get('sha', '')))
             and bool(re.fullmatch(r'ciro-downloader:backup-[0-9a-f]{12}-\d+', value.get('image', ''))))
@@ -250,22 +276,27 @@ class Agent:
         self.run('docker', 'compose', 'up', '-d', '--no-build', '--force-recreate', timeout=180)
         self.verify()
 
-    def finish(self, title, detail='', failed=False):
+    def finish(self, title, detail='', failed=False, from_version=None):
         self.set('update_in_progress', 0)
         version, _ = release_notes()
+        additions = changes_since(from_version, version) if from_version and not failed else []
+        self.set('update_new_changes', json.dumps({'from': from_version, 'to': version, 'changes': additions}, ensure_ascii=False) if additions else '')
         previous = STATE / 'previous.json'
         buttons = [[{'text': '🚀 شروع به‌روزرسانی', 'callback_data': 'update:start', 'style': 'success'}]]
         if previous.is_file():
             buttons.append([{'text': '↩️ بازگشت به نسخهٔ قبلی', 'callback_data': 'update:rollback', 'style': 'danger'}])
-        buttons.append([{'text': '📋 تغییرات این نسخه', 'callback_data': 'update:changes', 'style': 'primary'}])
+        if additions:
+            buttons.append([{'text': '✨ تغییرات تازهٔ این ارتقا', 'callback_data': 'update:changes', 'style': 'primary'}])
         buttons.append([{'text': 'بازگشت به پنل مدیریت', 'callback_data': 'update:back'}])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
+        notes = '\n'.join('• ' + html.escape(item[:240]) for item in additions[:12])
         text = ('<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
                 + '<blockquote><b>' + html.escape(title) + '</b>'
                 + ('\n' + detail if failed and detail else '') + '</blockquote>\n\n'
                 + ('<code>' + self.bar(100) + '</code>\n\n' if not failed else '')
                 + 'نسخهٔ فعلی: <b>' + html.escape(version) + '</b>\n'
                 + 'آخرین بررسی: <b>' + stamp + '</b> (تهران)\n\n'
+                + ('<blockquote expandable><b>✨ قابلیت‌های تازه</b>\n' + notes + '</blockquote>\n\n' if additions else '')
                 + 'با زدن دکمهٔ زیر، آخرین نسخه بررسی و در صورت وجود نصب می‌شود.\n'
                 + 'بازکردن این منو به‌تنهایی به‌روزرسانی را شروع نمی‌کند.')
         self.set('last_update_at', stamp)
@@ -329,7 +360,8 @@ class Agent:
         self.set('update_previous_version', previous['version'])
         recovery.unlink(missing_ok=True)
         detail = 'نسخهٔ قبلی پشتیبان گرفته شد:\n<code>' + html.escape(previous['backup']) + '</code>'
-        self.finish('✅ ' + ('نسخهٔ قبلی بازیابی شد' if self.job['action'] == 'rollback' else 'ربات به‌روزرسانی شد'), detail)
+        self.finish('✅ ' + ('نسخهٔ قبلی بازیابی شد' if self.job['action'] == 'rollback' else 'ربات به‌روزرسانی شد'), detail,
+                    from_version=previous['version'] if self.job['action'] == 'update' else None)
 
     def tick(self):
         # Recover a host reboot or killed updater before accepting another request.

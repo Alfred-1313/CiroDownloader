@@ -13,6 +13,7 @@ final class Bot
         'queued' => ['ثبت در صف', 'درخواستت در صف قرار گرفت؛ به محض شروع دانلود خبر می‌دهم.'],
         'downloading' => ['شروع دانلود', 'در حال دانلود و آماده‌سازی ویدیو…'],
         'uploading' => ['شروع ارسال', 'دانلود تمام شد؛ در حال آپلود فایل ویدیو…'],
+        'delivered' => ['ارسال موفق', '✅ ویدیو با موفقیت ارسال شد.'],
         'video_caption' => ['کپشن ویدیو', "ویدیوی شما آماده است\n\n{title}\nکیفیت: {quality}\n{url}"],
         'failed' => ['خطای پردازش', 'پردازش ویدیو انجام نشد. لطفاً دوباره تلاش کن؛ جزئیات خطا برای مدیر ثبت شد.'],
         'invalid' => ['لینک نامعتبر', 'لینک معتبر یک ویدیوی یوتیوب یا Shorts را بفرست.'],
@@ -57,6 +58,19 @@ final class Bot
             'reply_markup'=>['keyboard'=>$rows, 'resize_keyboard'=>true, 'is_persistent'=>true],
         ]);
     }
+    public function jobMessage(array $job, string $text): void
+    {
+        $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+        $params=['chat_id'=>(int)$job['chat_id'],'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true];
+        if($message>0) {
+            try { $this->api->call('editMessageText',$params+['message_id'=>$message]); return; }
+            catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; }
+        }
+        // Only create a replacement when no known message exists or it was deleted.
+        $result=$this->api->call('sendMessage',$params);
+        if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing download status message ID');
+        $this->store->query('UPDATE jobs SET message_id=? WHERE id=?',[(int)$result['message_id'],$job['id']]);
+    }
     public function home(int $chat, int $user): void
     {
         if ($this->admin($user)) {
@@ -78,7 +92,7 @@ final class Bot
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
             [$this->button('health','health')],
             [$this->button('cookies','cookies')],
-            [$this->button('update','update:menu')],
+            [$this->button('update','update:open')],
             [$this->button('back','home')],
         ],$message);
     }
@@ -241,7 +255,7 @@ final class Bot
             elseif ($action==='health') $this->health($chat);
             elseif ($action==='cookies') $this->beginCookieImport($chat,$user);
             elseif ($action==='cookies:info') $this->cookieInfo($chat);
-            elseif (in_array($action,['update:menu','update:run'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,(int)($message['message_id']??0));
+            elseif (in_array($action,['update:menu','update:run','update:open'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,(int)($message['message_id']??0),'',$action!=='update:menu');
             elseif ($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',(int)($message['message_id']??0));
             elseif ($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,(int)($message['message_id']??0));
             elseif ($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback',(int)($message['message_id']??0));
@@ -278,7 +292,7 @@ final class Bot
         if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
         if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
         if (($text==='/cookies'||$text===$this->label('cookies'))&&$this->admin($user)) { $this->beginCookieImport($chat,$user); return; }
-        if (($text==='/update'||$text===$this->label('update'))&&$this->admin($user)) { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user); return; }
+        if (($text==='/update'||$text===$this->label('update'))&&$this->admin($user)) { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if ($text===$this->label('help')||$text==='/help') { $this->send($chat,$this->text('help')); return; }
@@ -299,6 +313,15 @@ final class Bot
         $url=youtubeUrl($text);
         if (!$url) { $this->send($chat,$this->text('invalid')); return; }
         $result=$this->store->enqueue((int)$update['update_id'],$user,$chat,$url);
+        if($result==='queued') {
+            $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[(int)$update['update_id']])->fetch();
+            try { $this->jobMessage($job,$this->text('queued')); }
+            catch(\Throwable $e) {
+                $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+                throw $e;
+            }
+            return;
+        }
         $response=match($result) {
             'busy'=>'درخواست قبلی شما هنوز در حال پردازش است.', 'full'=>'صف پر است؛ کمی بعد تلاش کن.',
             'cooldown'=>'بین درخواست‌ها ۱۵ ثانیه فاصله بگذار.', 'duplicate'=>null,

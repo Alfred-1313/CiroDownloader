@@ -26,9 +26,13 @@ class TestAgent(updater.Agent):
 
     @contextlib.contextmanager
     def db(self):
-        with sqlite3.connect(self.data / 'zero.sqlite') as db:
+        db = sqlite3.connect(self.data / 'zero.sqlite')
+        try:
             db.row_factory = sqlite3.Row
-            yield db
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def api(self, method, params):
         self.calls.append((method, params))
@@ -165,6 +169,38 @@ class UpdaterTests(unittest.TestCase):
 
     def test_recovery_rejects_untrusted_command_values(self):
         self.assertFalse(updater.valid_recovery({'sha': '--upload-pack=evil', 'image': 'anything'}))
+
+    def test_changes_exclude_installed_and_repeated_features(self):
+        entries = [
+            {'version': '1.0.0', 'changes': ['existing feature']},
+            {'version': '1.1.0', 'changes': ['another installed feature']},
+            {'version': '1.2.0', 'changes': ['existing feature', 'new feature']},
+            {'version': '1.10.0', 'changes': ['new feature', 'newer feature']},
+            {'version': '2.0.0', 'changes': ['future feature']},
+        ]
+        (self.project / 'CHANGELOG.json').write_text(json.dumps(entries))
+        self.assertEqual(updater.changes_since('1.1.0', '1.10.0'), ['new feature', 'newer feature'])
+        self.assertEqual(updater.changes_since('1.10.0', '1.10.0'), [])
+        self.assertEqual(updater.changes_since('1.10.0', '1.1.0'), [])
+
+    def test_latest_version_does_not_repeat_old_feature_announcements(self):
+        self.queue()
+        self.agent.claim()
+        self.agent.set('update_new_changes', json.dumps({'from': '1.0.0', 'to': '1.1.0', 'changes': ['old feature']}))
+        self.agent.finish('آخرین نسخه را داری')
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        self.assertNotIn('old feature', edits[-1]['text'])
+        self.assertNotIn('update:changes', json.dumps(edits[-1]['reply_markup']))
+        with self.agent.db() as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_new_changes'").fetchone()[0], '')
+
+    def test_actual_upgrade_only_announces_the_new_version_range(self):
+        self.queue()
+        self.agent.claim()
+        self.agent.finish('ربات به‌روزرسانی شد', from_version='1.0.0')
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        self.assertIn('راهنمای بهتر', edits[-1]['text'])
+        self.assertIn('update:changes', json.dumps(edits[-1]['reply_markup']))
 
 
 if __name__ == '__main__':
