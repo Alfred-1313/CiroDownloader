@@ -13,26 +13,87 @@ final class Updates
         return is_readable($file)?trim((string)file_get_contents($file)):'نامشخص';
     }
 
-    public function confirmRollback(int $chat): void
+    private function active(): array|false
     {
-        if($this->store->get('update_previous_version')==='') {
-            $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>'هنوز نسخهٔ قبلی برای بازگشت ثبت نشده است.']);
-            return;
-        }
-        $version=htmlspecialchars($this->store->get('update_previous_version'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
-        $this->api->call('sendMessage',['chat_id'=>$chat,'parse_mode'=>'HTML',
-            'text'=>"<blockquote><b>↩️ بازگشت به نسخهٔ قبلی</b></blockquote>\n\nنسخهٔ مقصد: <b>$version</b>\n\nکد و تصویر اجرایی به نسخهٔ قبلی برمی‌گردند.\n\n<blockquote><b>اطلاعات شما حفظ می‌شود</b>\nکاربران، تنظیمات و کوکی فعلی تغییر نمی‌کنند.</blockquote>\n\nبازگشت را تأیید می‌کنی؟",
-            'reply_markup'=>['inline_keyboard'=>[
-                [['text'=>'تأیید بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback:confirm','style'=>'danger']],
-                [['text'=>'انصراف','callback_data'=>'admin']],
-            ]]]);
+        return $this->store->query("SELECT * FROM update_requests WHERE status IN ('queued','running') ORDER BY id LIMIT 1")->fetch();
     }
 
-    public function request(int $chat, int $user, string $action): void
+    private function view(int $chat, int $user, string $text, array $rows, int $message = 0): int
+    {
+        $message=$message?:((int)$this->store->get('update_menu.'.$user,'0'));
+        $params=['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,
+            'reply_markup'=>['inline_keyboard'=>$rows]];
+        $hash=hash('sha256',json_encode($params,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
+        if($message>0&&$message===(int)$this->store->get('update_menu.'.$user,'0')&&$hash===$this->store->get('update_menu_hash.'.$user)) return $message;
+        if($message>0) {
+            $params['message_id']=$message;
+            try { $this->api->call('editMessageText',$params); }
+            catch(\RuntimeException $e) {
+                if($e->getCode()!==404) throw $e;
+                $message=0; unset($params['message_id']); // The user deleted the old menu.
+            }
+        }
+        if($message===0) {
+            $result=$this->api->call('sendMessage',$params);
+            if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing update menu message ID');
+            $message=(int)$result['message_id'];
+        }
+        $this->store->set('update_menu.'.$user,(string)$message);
+        $this->store->set('update_menu_hash.'.$user,$hash);
+        return $message;
+    }
+
+    public function menu(int $chat, int $user, int $message = 0, string $notice = ''): void
+    {
+        if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
+        $active=$this->active();
+        if($active&&(int)$active['user_id']===$user) return; // Preserve the live progress screen.
+        $version=htmlspecialchars(self::version(),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+        $checked=htmlspecialchars($this->store->get('last_update_at','هنوز بررسی نشده'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+        $text="<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n";
+        if($notice!=='') $text.='<blockquote><b>'.htmlspecialchars($notice,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8')."</b></blockquote>\n\n";
+        $text.="نسخهٔ فعلی: <b>$version</b>\nآخرین بررسی: <b>$checked</b>\n\n".
+            "با زدن دکمهٔ زیر، آخرین نسخه بررسی و در صورت وجود نصب می‌شود.\nبازکردن این منو به‌تنهایی به‌روزرسانی را شروع نمی‌کند.";
+        $rows=[];
+        if($active) $text.="\n\n<b>⏳ یک مدیر دیگر در حال به‌روزرسانی است.</b>";
+        else {
+            $rows[]=[['text'=>'🚀 شروع به‌روزرسانی','callback_data'=>'update:start','style'=>'success']];
+            if($this->store->get('update_previous_version')!=='') $rows[]=[['text'=>'↩️ بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback','style'=>'danger']];
+        }
+        $rows[]=[['text'=>'📋 تغییرات این نسخه','callback_data'=>'update:changes','style'=>'primary']];
+        $rows[]=[['text'=>'بازگشت به پنل مدیریت','callback_data'=>'update:back']];
+        $this->view($chat,$user,$text,$rows,$message);
+    }
+
+    public function changes(int $chat, int $user, int $message): void
+    {
+        if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
+        if($this->active()) return;
+        $entries=json_decode((string)file_get_contents(dirname(__DIR__).'/CHANGELOG.json'),true);
+        $notes=[];
+        foreach($entries?:[] as $entry) if(($entry['version']??'')===self::version()) $notes=array_slice($entry['changes']??[],0,8);
+        $text="<blockquote><b>✨ تغییرات این نسخه</b>\n".implode("\n",array_map(fn($note)=>'• '.htmlspecialchars((string)$note,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'),$notes)).'</blockquote>';
+        $this->view($chat,$user,$text,[[['text'=>'بازگشت به منوی به‌روزرسانی','callback_data'=>'update:menu','style'=>'primary']]],$message);
+    }
+
+    public function confirmRollback(int $chat, int $user, int $message): void
+    {
+        if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
+        if($this->active()) return;
+        if($this->store->get('update_previous_version')==='') { $this->menu($chat,$user,$message,'نسخهٔ قبلی برای بازگشت موجود نیست.'); return; }
+        $version=htmlspecialchars($this->store->get('update_previous_version'),ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+        $this->view($chat,$user,"<blockquote><b>↩️ بازگشت به نسخهٔ قبلی</b></blockquote>\n\nنسخهٔ مقصد: <b>$version</b>\n\nکد و تصویر اجرایی به نسخهٔ قبلی برمی‌گردند.\n\n<blockquote><b>اطلاعات شما حفظ می‌شود</b>\nکاربران، تنظیمات و کوکی فعلی تغییر نمی‌کنند.</blockquote>\n\nبازگشت را تأیید می‌کنی؟",[
+            [['text'=>'تأیید بازگشت به نسخهٔ قبلی','callback_data'=>'update:rollback:confirm','style'=>'danger']],
+            [['text'=>'انصراف','callback_data'=>'update:menu']],
+        ],$message);
+    }
+
+    public function request(int $chat, int $user, string $action, int $message): void
     {
         if(!in_array($user,$this->config->admins,true)||$chat!==$user||!in_array($action,['update','rollback'],true)) return;
+        if($message<1||$message!==(int)$this->store->get('update_menu.'.$user,'0')||$this->active()) return;
         if(time()-(int)$this->store->get('updater_heartbeat','0')>60) {
-            $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>"سرویس به‌روزرسانی سرور در دسترس نیست.\nدر منوی نصب، گزینهٔ ۱۱ (Enable Telegram updates) را اجرا کن و دوباره /update را بزن."]);
+            $this->menu($chat,$user,$message,'⚠️ سرویس به‌روزرسانی سرور در دسترس نیست؛ گزینهٔ ۱۱ منوی نصب را اجرا کن.');
             return;
         }
         $this->store->db->exec('BEGIN IMMEDIATE');
@@ -42,15 +103,11 @@ final class Updates
             $id=(int)$this->store->db->lastInsertId();
             $this->store->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
-        if($active) {
-            $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>'یک عملیات به‌روزرسانی در حال اجراست؛ نتیجه در همان پیام اعلام می‌شود.']);
-            return;
-        }
+        if($active) return;
         try {
-            $result=$this->api->call('sendMessage',['chat_id'=>$chat,'parse_mode'=>'HTML',
-                'text'=>"<blockquote><b>🔄 به‌روزرسانی سیرو دانلودر</b></blockquote>\n\nنسخهٔ فعلی: <b>".htmlspecialchars(self::version())."</b>\n\n<blockquote><b>⏳ درخواست ثبت شد</b>\nدر انتظار بررسی آخرین نسخه در سرور…</blockquote>\n\nپیشرفت و نتیجه در همین پیام نمایش داده می‌شود."]);
-            if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing update message ID');
-            $this->store->query('UPDATE update_requests SET message_id=? WHERE id=?',[(int)$result['message_id'],$id]);
+            $message=$this->view($chat,$user,"<blockquote><b>🔄 در حال به‌روزرسانی</b></blockquote>\n\n<code>▱▱▱▱▱▱▱▱▱▱ ۰٪</code>\n\n⏳ درخواست ثبت شد؛ در انتظار شروع بررسی سرور…\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.",
+                [[['text'=>'⏳ در انتظار شروع · ۰٪','callback_data'=>'update:progress','style'=>'primary']]],$message);
+            $this->store->query('UPDATE update_requests SET message_id=? WHERE id=?',[$message,$id]);
         } catch(\Throwable $e) {
             $this->store->query("UPDATE update_requests SET status='failed' WHERE id=?",[$id]);
             throw $e;

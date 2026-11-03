@@ -140,8 +140,18 @@ class UpdaterTests(unittest.TestCase):
         self.assertTrue(updater.valid_recovery(saved))
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertTrue(all(params['message_id'] == 99 for params in edits))
-        self.assertIn('تغییرات این نسخه', edits[-1]['text'])
+        self.assertIn('مدیریت به‌روزرسانی', edits[-1]['text'])
+        self.assertIn('۱۰۰٪', edits[-1]['text'])
+        self.assertIn('ربات به‌روزرسانی شد', edits[-1]['text'])
+        self.assertIn('update:start', json.dumps(edits[-1]['reply_markup']))
         self.assertIn('update:rollback', json.dumps(edits[-1]['reply_markup']))
+        self.assertTrue(all(method != 'sendMessage' for method, _ in self.agent.calls))
+        progress = [params for params in edits if 'update:progress' in json.dumps(params['reply_markup'])]
+        self.assertGreaterEqual(len(progress), 5)
+        # Completion is displayed only after the application health check.
+        verified = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'verify')
+        finished = next(index for index, call in enumerate(self.agent.calls) if call[0] == 'editMessageText' and '۱۰۰٪' in call[1]['text'])
+        self.assertGreater(finished, verified)
 
     def test_interrupted_update_recovers_before_accepting_new_work(self):
         self.queue()

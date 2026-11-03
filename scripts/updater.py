@@ -140,11 +140,21 @@ class Agent:
             # A deleted progress message or temporary API outage must not abort recovery.
             print('Progress notification unavailable', flush=True)
 
-    def progress(self, text):
+    @staticmethod
+    def bar(percent):
+        number = str(percent).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
+        filled = percent // 10
+        return '▰' * filled + '▱' * (10 - filled) + ' ' + number + '٪'
+
+    def progress(self, text, percent=5):
         self.beat()
+        self.percent = max(getattr(self, 'percent', 0), min(99, percent))
+        number = str(self.percent).translate(str.maketrans('0123456789', '۰۱۲۳۴۵۶۷۸۹'))
         self.notify('<blockquote><b>🔄 به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
+                    + '<code>' + self.bar(self.percent) + '</code>\n\n'
                     + '<blockquote><b>در حال انجام</b>\n' + html.escape(text) + '</blockquote>'
-                    + '\n\nلطفاً منتظر بمان؛ نتیجه در همین پیام نمایش داده می‌شود.')
+                    + '\n\nدرصد بر اساس مراحل انجام‌شده نمایش داده می‌شود.',
+                    [[{'text': '⏳ در حال انجام · ' + number + '٪', 'callback_data': 'update:progress', 'style': 'primary'}]])
 
     def run(self, *args, timeout=900):
         with tempfile.TemporaryFile() as output:
@@ -206,7 +216,7 @@ class Agent:
 
     def wait_idle(self):
         self.set('update_in_progress', 1)
-        self.progress('⏳ در انتظار پایان دانلود فعلی؛ درخواست جدید موقتاً پذیرفته نمی‌شود.')
+        self.progress('⏳ در انتظار پایان دانلود فعلی؛ درخواست جدید موقتاً پذیرفته نمی‌شود.', 20)
         deadline = time.monotonic() + 1300
         while True:
             with self.db() as db:
@@ -242,23 +252,25 @@ class Agent:
 
     def finish(self, title, detail='', failed=False):
         self.set('update_in_progress', 0)
-        version, changes = release_notes()
+        version, _ = release_notes()
         previous = STATE / 'previous.json'
-        buttons = [[{'text': '🔄 بررسی دوباره و به‌روزرسانی', 'callback_data': 'update:run', 'style': 'success'}]]
+        buttons = [[{'text': '🚀 شروع به‌روزرسانی', 'callback_data': 'update:start', 'style': 'success'}]]
         if previous.is_file():
             buttons.append([{'text': '↩️ بازگشت به نسخهٔ قبلی', 'callback_data': 'update:rollback', 'style': 'danger'}])
-        buttons.append([{'text': 'پنل مدیریت', 'callback_data': 'admin', 'style': 'primary'}])
+        buttons.append([{'text': '📋 تغییرات این نسخه', 'callback_data': 'update:changes', 'style': 'primary'}])
+        buttons.append([{'text': 'بازگشت به پنل مدیریت', 'callback_data': 'update:back'}])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
-        notes = '\n'.join('• ' + html.escape(item) for item in changes)
-        text = ('<blockquote><b>' + html.escape(title) + '</b>'
-                + ('\n' + detail if detail else '') + '</blockquote>\n\n'
-                + '<b>🔄 به‌روزرسانی سیرو دانلودر</b>\n\n'
+        text = ('<blockquote><b>🔄 مدیریت به‌روزرسانی سیرو دانلودر</b></blockquote>\n\n'
+                + '<blockquote><b>' + html.escape(title) + '</b>'
+                + ('\n' + detail if failed and detail else '') + '</blockquote>\n\n'
+                + ('<code>' + self.bar(100) + '</code>\n\n' if not failed else '')
                 + 'نسخهٔ فعلی: <b>' + html.escape(version) + '</b>\n'
                 + 'آخرین بررسی: <b>' + stamp + '</b> (تهران)\n\n'
-                + '<blockquote expandable><b>✨ تغییرات این نسخه</b>\n' + notes + '</blockquote>\n\n'
-                + '<blockquote><b>✅ اطلاعات شما محفوظ است</b>\n'
-                + 'تنظیمات، کاربران و کوکی فعلی حفظ می‌شوند. پشتیبان ارتقا روی سرور نگه‌داری می‌شود.</blockquote>')
+                + 'با زدن دکمهٔ زیر، آخرین نسخه بررسی و در صورت وجود نصب می‌شود.\n'
+                + 'بازکردن این منو به‌تنهایی به‌روزرسانی را شروع نمی‌کند.')
         self.set('last_update_at', stamp)
+        self.set('update_menu.' + str(self.job['user_id']), self.job['message_id'])
+        self.set('update_menu_hash.' + str(self.job['user_id']), '')
         self.notify(text, buttons)
         with self.db() as db:
             db.execute('UPDATE update_requests SET status=? WHERE id=?', ('failed' if failed else 'done', self.job['id']))
@@ -280,7 +292,7 @@ class Agent:
             command('git', 'cat-file', '-e', saved['sha'] + '^{commit}')
             target = saved['sha']
         else:
-            self.progress('🔎 در حال بررسی آخرین نسخه در گیت‌هاب…')
+            self.progress('🔎 در حال بررسی آخرین نسخه در گیت‌هاب…', 10)
             self.run('git', 'fetch', '--prune', 'origin', 'main', timeout=120)
             target = command('git', 'rev-parse', 'origin/main')
             if target == current:
@@ -292,22 +304,23 @@ class Agent:
         self.wait_idle()
         command('docker', 'tag', IMAGE, previous['image'])
         atomic_json(recovery, {'previous': previous, 'job': self.job})
-        self.progress('📦 در حال تهیهٔ پشتیبان از نسخه، تنظیمات و داده‌ها…')
+        self.progress('📦 در حال تهیهٔ پشتیبان از نسخه، تنظیمات و داده‌ها…', 35)
         self.run('docker', 'compose', 'stop', timeout=60)
         previous['backup'] = self.backup()
         atomic_json(recovery, {'previous': previous, 'job': self.job})
         if self.job['action'] == 'rollback':
-            self.progress('↩️ در حال بازگردانی نسخهٔ قبلی…')
+            self.progress('↩️ در حال بازگردانی نسخهٔ قبلی…', 65)
             command('git', 'checkout', '--detach', target)
             command('docker', 'tag', saved['image'], IMAGE)
         else:
             command('git', 'merge', '--ff-only', target)
-            self.progress('⚙️ در حال ساخت نسخهٔ جدید؛ این مرحله ممکن است چند دقیقه طول بکشد…')
+            self.progress('⚙️ در حال ساخت نسخهٔ جدید؛ این مرحله ممکن است چند دقیقه طول بکشد…', 65)
             self.run('docker', 'compose', 'build', '--pull', timeout=1200)
-        self.progress('🧪 در حال راه‌اندازی و بررسی سلامت ربات و پردازشگر…')
+        self.progress('🚀 در حال راه‌اندازی ربات و پردازشگر…', 85)
         self.set('poller_heartbeat', 0)
         self.set('worker_heartbeat', 0)
         self.run('docker', 'compose', 'up', '-d', '--no-build', '--force-recreate', timeout=180)
+        self.progress('🧪 در حال بررسی سلامت نسخهٔ جدید…', 95)
         self.verify()
         # Update the next invocation of this agent only after the new application is healthy.
         if (PROJECT / 'scripts/install-updater.sh').is_file():
@@ -324,7 +337,7 @@ class Agent:
         if recovery.is_file():
             saved = json.loads(recovery.read_text())
             self.job = saved['job']
-            self.progress('♻️ عملیات قبلی ناتمام مانده؛ در حال بازیابی نسخهٔ سالم…')
+            self.progress('♻️ عملیات قبلی ناتمام مانده؛ در حال بازیابی نسخهٔ سالم…', 90)
             self.restore(saved['previous'])
             recovery.unlink()
             self.finish('♻️ نسخهٔ قبلی پس از توقف عملیات بازیابی شد', failed=True)
@@ -342,7 +355,7 @@ class Agent:
             print('Update failed: ' + type(exc).__name__, flush=True)
             if recovery.is_file():
                 try:
-                    self.progress('♻️ به‌روزرسانی ناموفق بود؛ در حال بازیابی خودکار نسخهٔ قبلی…')
+                    self.progress('♻️ به‌روزرسانی ناموفق بود؛ در حال بازیابی خودکار نسخهٔ قبلی…', 95)
                     self.restore(json.loads(recovery.read_text())['previous'])
                     recovery.unlink()
                     self.finish('⚠️ ارتقا ناموفق بود؛ نسخهٔ قبلی بازیابی شد', 'جزئیات اجرایی در لاگ سرویس سرور ثبت شده است.', failed=True)

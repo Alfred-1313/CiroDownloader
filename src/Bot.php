@@ -43,11 +43,12 @@ final class Bot
     }
     public function button(string $key, string $data): array { return ['text'=>$this->label($key), 'callback_data'=>$data]+$this->buttonStyle($key); }
     public function replyButton(string $key): array { return ['text'=>$this->label($key)]+$this->buttonStyle($key); }
-    public function send(int $chat, string $text, array $rows = []): void
+    public function send(int $chat, string $text, array $rows = [], int $message = 0): void
     {
         $params = ['chat_id'=>$chat, 'text'=>$text, 'parse_mode'=>'HTML', 'disable_web_page_preview'=>true];
         if ($rows) $params['reply_markup'] = ['inline_keyboard'=>$rows];
-        $this->api->call('sendMessage', $params);
+        if($message>0) $params['message_id']=$message;
+        $this->api->call($message>0?'editMessageText':'sendMessage', $params);
     }
     public function sendKeyboard(int $chat, string $text, array $rows): void
     {
@@ -69,7 +70,7 @@ final class Bot
         $rows = [[$this->button('help','help')]];
         $this->send($chat, $this->text('welcome'), $rows);
     }
-    public function panel(int $chat): void
+    public function panel(int $chat, int $message = 0): void
     {
         $on = $this->store->enabled();
         $this->send($chat, "<blockquote><b>⚙️ پنل مدیریت سیرو دانلودر</b></blockquote>\n\nوضعیت ربات: <b>".($on ? '🟢 فعال' : '🔴 متوقف')."</b>\n\nبخش موردنظر را انتخاب کن:", [
@@ -77,9 +78,9 @@ final class Bot
             [$this->button('texts','list:text')],[$this->button('buttons','list:button')],
             [$this->button('health','health')],
             [$this->button('cookies','cookies')],
-            [$this->button('update','update:run')],
+            [$this->button('update','update:menu')],
             [$this->button('back','home')],
-        ]);
+        ],$message);
     }
     public function health(int $chat): void
     {
@@ -240,9 +241,16 @@ final class Bot
             elseif ($action==='health') $this->health($chat);
             elseif ($action==='cookies') $this->beginCookieImport($chat,$user);
             elseif ($action==='cookies:info') $this->cookieInfo($chat);
-            elseif ($action==='update:run') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update');
-            elseif ($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat);
-            elseif ($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback');
+            elseif (in_array($action,['update:menu','update:run'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,(int)($message['message_id']??0));
+            elseif ($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',(int)($message['message_id']??0));
+            elseif ($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,(int)($message['message_id']??0));
+            elseif ($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback',(int)($message['message_id']??0));
+            elseif ($action==='update:changes') (new Updates($this->config,$this->store,$this->api))->changes($chat,$user,(int)($message['message_id']??0));
+            elseif ($action==='update:progress') return;
+            elseif ($action==='update:back') {
+                if($this->store->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) return;
+                $this->store->set('update_menu_hash.'.$user,''); $this->panel($chat,(int)($message['message_id']??0));
+            }
             elseif (in_array($action,['set:on','set:off'],true)) {
                 $this->store->set('enabled',$action==='set:on'?'1':'0'); $this->panel($chat);
             } else {
@@ -270,7 +278,7 @@ final class Bot
         if (($text==='/admin'||$text===$this->label('admin'))&&$this->admin($user)) { $this->panel($chat); return; }
         if (($text==='/health'||$text===$this->label('health'))&&$this->admin($user)) { $this->health($chat); return; }
         if (($text==='/cookies'||$text===$this->label('cookies'))&&$this->admin($user)) { $this->beginCookieImport($chat,$user); return; }
-        if (($text==='/update'||$text===$this->label('update'))&&$this->admin($user)) { (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update'); return; }
+        if (($text==='/update'||$text===$this->label('update'))&&$this->admin($user)) { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user); return; }
         if (!$this->store->enabled()&&!$this->admin($user)) { $this->send($chat,$this->text('offline')); return; }
         if (in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if ($text===$this->label('help')||$text==='/help') { $this->send($chat,$this->text('help')); return; }

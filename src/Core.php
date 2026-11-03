@@ -129,6 +129,10 @@ final class Telegram implements FileApi
         if ($body === false) throw new \RuntimeException('Telegram transport error ' . $errno);
         $result = json_decode($body, true);
         if (!($result['ok'] ?? false)) {
+            if($method==='editMessageText'&&str_contains((string)($result['description']??''),'message is not modified')) return true;
+            if($method==='editMessageText'&&str_contains((string)($result['description']??''),'message to edit not found')) {
+                throw new \RuntimeException('Telegram message is unavailable',404);
+            }
             // Raw API errors may include credentials/URLs. Log only numeric status.
             throw new \RuntimeException('Telegram API error ' . ($result['error_code'] ?? 0));
         }

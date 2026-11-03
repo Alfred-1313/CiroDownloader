@@ -10,7 +10,7 @@ final class FakeApi implements Zero\Api {
 }
 function check(bool $ok,string $message): void { if(!$ok) throw new RuntimeException($message); echo "PASS $message\n"; }
 function msg(int $user,string $text,int $update=1): array { return ['update_id'=>$update,'message'=>['from'=>['id'=>$user],'chat'=>['id'=>$user,'type'=>'private'],'text'=>$text]]; }
-function cb(int $user,string $data): array { return ['callback_query'=>['id'=>'test','from'=>['id'=>$user],'message'=>['chat'=>['id'=>$user,'type'=>'private']],'data'=>$data]]; }
+function cb(int $user,string $data,int $message=0): array { return ['callback_query'=>['id'=>'test','from'=>['id'=>$user],'message'=>['message_id'=>$message,'chat'=>['id'=>$user,'type'=>'private']],'data'=>$data]]; }
 $temp=sys_get_temp_dir().'/zero-tests-'.bin2hex(random_bytes(6));
 mkdir($temp,0700);
 try {
@@ -40,13 +40,26 @@ try {
     check(isset(end($api->calls)[1]['reply_markup']['keyboard']),'admin controls use reply keyboard');
     check(!str_contains(json_encode(end($api->calls),JSON_UNESCAPED_UNICODE), $bot->label('download')),'admin menu has no redundant download button');
     $bot->handle(msg(42,'/update'));
-    check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'unavailable updater does not queue an unfulfillable request');
+    $menu=(int)$store->get('update_menu.42');
+    check($menu>0&&(int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'update command opens a menu without starting an upgrade');
+    $bot->handle(cb(42,'update:start',$menu));
+    check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'unavailable updater cannot queue an upgrade');
     $store->set('updater_heartbeat',(string)time());
-    $bot->handle(msg(1,'/update')); $bot->handle(cb(1,'update:run')); $bot->handle(cb(1,'update:rollback:confirm'));
+    $bot->handle(msg(1,'/update')); $bot->handle(cb(1,'update:start',$menu)); $bot->handle(cb(1,'update:rollback:confirm',$menu));
     check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'public commands and forged callbacks cannot request updates');
-    $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:run'));
+    $sends=count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'));
+    $bot->handle(msg(42,'/update')); $bot->handle(msg(42,$bot->label('update'))); $bot->handle(cb(42,'update:run',$menu));
+    check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'command, keyboard and old inline button only open the menu');
+    $bot->handle(cb(42,'update:changes',$menu)); $bot->handle(cb(42,'update:menu',$menu));
+    check(end($api->calls)[0]==='editMessageText'&&(int)end($api->calls)[1]['message_id']===$menu,'changes and back navigation edit the existing menu');
+    $bot->handle(cb(42,'update:start',$menu+999));
+    check((int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'stale start button cannot start another menu');
+    $bot->handle(cb(42,'update:start',$menu));
+    check(end($api->calls)[0]==='editMessageText'&&str_contains(end($api->calls)[1]['text'],'۰٪'),'start button changes the same message to progress at zero percent');
+    $bot->handle(cb(42,'update:start',$menu)); $bot->handle(msg(42,'/update')); $bot->handle(cb(42,'update:back',$menu));
     $upgrade=$store->query('SELECT * FROM update_requests')->fetchAll();
-    check(count($upgrade)===1&&(int)$upgrade[0]['message_id']>0&&$upgrade[0]['action']==='update','admin update queues one request linked to its progress message');
+    check(count($upgrade)===1&&(int)$upgrade[0]['message_id']===$menu&&$upgrade[0]['action']==='update','only an explicit start queues one request using the menu message');
+    check(count(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'))===$sends,'menu navigation, start and repeat clicks create no extra bot messages');
     $store->query("UPDATE update_requests SET status='done'");
     $bot->handle(cb(1,'set:off')); check($store->enabled(),'forged admin callback denied');
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');
