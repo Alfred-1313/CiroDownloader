@@ -29,6 +29,7 @@ jobs:
           php tests/jobs.php
           php tests/customization.php
           php tests/posters.php
+          php tests/ux_fixes.php
 
       - name: Install FFmpeg for media regression tests
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
@@ -39,6 +40,7 @@ jobs:
           php tests/quality_worker.php
           php tests/quality_worker.php --audio
           php tests/quality_worker.php --shorts
+          php tests/quality_worker.php --legacy-caption
           php tests/audio.php
 
       - name: Check PHP syntax

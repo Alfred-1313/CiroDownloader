@@ -53,7 +53,7 @@ final class Personalization
     private function samples(): array
     {
         return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'1080p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>'49','id'=>'123456',
-            'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
+            'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }
     public function item(int $chat,string $kind,string $key,int $message=0,string $notice=''): void

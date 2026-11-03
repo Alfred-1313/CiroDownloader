@@ -50,12 +50,29 @@ final class Updates
         $data=json_decode($this->store->get('update_new_changes'),true);
         return is_array($data)&&($data['to']??'')===self::version()&&is_array($data['changes']??null)?array_values(array_filter($data['changes'],'is_string')):[];
     }
+    private function resume(array $active,int $chat,int $user,int $message,bool $fresh): void
+    {
+        $percent=max(0,min(99,(int)$this->store->get('update_percent','0')));
+        $stage=$this->store->get('update_stage','update_wait');
+        if(!$this->ui->definition('text',$stage)) $stage='update_wait';
+        $bar=str_repeat('▰',intdiv($percent,10)).str_repeat('▱',10-intdiv($percent,10)).' '.$percent.'%';
+        $old=(int)$active['message_id'];
+        $menu=$this->view($chat,$user,$this->ui->text('update_progress',['bar'=>$bar,'stage'=>$this->ui->text($stage)],['stage']),
+            [[$this->ui->button('update_progress','update:progress',['percent'=>(string)$percent])]],$message,$fresh&&$message===0);
+        $bound=$this->store->query("UPDATE update_requests SET message_id=? WHERE id=? AND status IN ('queued','running')",[$menu,$active['id']])->rowCount();
+        if(!$bound) { $this->menu($chat,$user,$menu); return; }
+        if($old>0&&$old!==$menu) {
+            try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$old]); } catch(\Throwable) {}
+        }
+    }
 
     public function menu(int $chat, int $user, int $message = 0, string $notice = '', bool $fresh = false): void
     {
         if(!in_array($user,$this->config->admins,true)||$chat!==$user) return;
         $active=$this->active();
-        if($active&&(int)$active['user_id']===$user) return; // Preserve the live progress screen.
+        if($active&&(int)$active['user_id']===$user) {
+            $this->resume($active,$chat,$user,$message,$fresh); return;
+        }
         if($fresh) $this->store->set('update_new_changes','');
         $notice=$notice!==''?$this->ui->text('update_notice',['title'=>$notice,'detail'=>''],['title']):'';
         $text=$this->ui->text('update_menu',['version'=>self::version(),'checked'=>$this->store->get('last_update_at',$this->ui->plain('not_checked')),'notice'=>$notice],['notice']);
@@ -107,6 +124,8 @@ final class Updates
         } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
         if($active) return;
         $this->store->set('update_new_changes','');
+        $this->store->set('update_percent','0');
+        $this->store->set('update_stage','update_wait');
         try {
             $message=$this->view($chat,$user,$this->ui->text('update_progress',['bar'=>'▱▱▱▱▱▱▱▱▱▱ 0%','stage'=>$this->ui->text('update_wait')],['stage']),
                 [[$this->ui->button('update_progress','update:progress',['percent'=>'0'])]],$message);
