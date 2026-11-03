@@ -69,6 +69,7 @@ try {
     $stub=$temp.'/failed-download';
     file_put_contents($stub,"#!/usr/bin/env php\n<?php fwrite(STDERR, 'The provided YouTube account cookies are no longer valid. Sign in to confirm you are not a bot.');exit(1);");
     chmod($stub,0700);
+    $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created,message_id,phase,expires) VALUES(4,88,88,?,'choosing',?,700,'inspect',?)",[$url,time()-31*86400,time()-30*86400]);
     $bot->handle(['update_id'=>3,'message'=>['from'=>['id'=>99],'chat'=>['id'=>99,'type'=>'private'],'text'=>$url]]);
     $environment=array_merge(getenv(),['BOT_TOKEN'=>$config->token,'ADMIN_IDS'=>'42','STORAGE_DIR'=>$storage,
         'BOT_API_URL'=>$config->api,'YT_DLP_BIN'=>$stub,'YOUTUBE_COOKIES_FILE'=>'','YOUTUBE_PROXY'=>'']);
@@ -86,6 +87,7 @@ try {
     expectJob(str_contains($recorded[2]['params']['text'],'کوکی')&&(int)$recorded[2]['params']['message_id']===501,
         'Persian cookie failure is shown in the original status message');
     expectJob($store->query('SELECT status FROM jobs WHERE update_id=3')->fetchColumn()==='failed','worker records the failed job');
+    expectJob($store->query('SELECT status FROM jobs WHERE update_id=4')->fetchColumn()==='waiting_quality','the real worker leaves an old unchosen menu unchanged without sending an expiry notice');
 } finally {
     foreach([$worker,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); }
     Zero\Download::clean($temp);
