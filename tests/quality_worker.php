@@ -66,7 +66,7 @@ try {
     do {
         $job=$store->query('SELECT * FROM jobs WHERE update_id=1')->fetch();
         $records=recorded($log);
-        if($job['status']==='choosing'&&count($records)>=3) { $ready=true; break; }
+        if($job['status']==='waiting_quality'&&count($records)>=3) { $ready=true; break; }
         usleep(100000);
     } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
     qualityCheck($ready,'worker inspects the link and waits for quality selection');

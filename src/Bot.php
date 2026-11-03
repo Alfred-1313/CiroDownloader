@@ -138,13 +138,13 @@ final class Bot
         $caption=$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]);
         if(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);
-        $this->store->query("UPDATE jobs SET status='choosing' WHERE id=?",[$job['id']]);
+        $this->store->query("UPDATE jobs SET status='waiting_quality' WHERE id=?",[$job['id']]);
     }
     private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
     {
         $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
         $job=$this->store->choose((int)$parts[1],$user,$chat,$quality);
-        $waiting=!$job&&$this->store->query("SELECT 1 FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='choosing'",[(int)$parts[1],$user,$chat])->fetchColumn();
+        $waiting=!$job&&$this->store->query("SELECT 1 FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[(int)$parts[1],$user,$chat])->fetchColumn();
         $notice=$waiting?($this->store->busy($user)?'quality_busy':($this->store->full()?'queue_full':'quality_expired')):'quality_expired';
         $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain($notice),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;

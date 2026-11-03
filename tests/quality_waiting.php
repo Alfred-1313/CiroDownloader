@@ -29,19 +29,19 @@ try {
 
     // Recreate the previous release's index and deadline before reopening the DB.
     $store->db->exec("DROP INDEX one_active; CREATE UNIQUE INDEX one_active ON jobs(user_id) WHERE status IN ('queued','running','choosing','confirming')");
-    $store->query('UPDATE jobs SET created=?,expires=? WHERE id=?',[time()-31*86400,time()-30*86400,$firstId]);
+    $store->query("UPDATE jobs SET status='choosing',created=?,expires=? WHERE id=?",[time()-31*86400,time()-30*86400,$firstId]);
     $store=new Zero\Store($temp); $bot=new Zero\Bot($config,$store,$api);
     $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$firstId])->fetch();
-    waitingCheck($saved['status']==='choosing'&&(int)$saved['expires']===0,'upgrading removes an old deadline while preserving the waiting menu');
+    waitingCheck($saved['status']==='waiting_quality'&&(int)$saved['expires']===0,'upgrading removes an old deadline while preserving the waiting menu');
     $before=count($api->calls);
     $bot->handle(waitingLink(2,$second));
     $secondJob=$store->query('SELECT * FROM jobs WHERE update_id=2')->fetch();
     waitingCheck($secondJob&&$secondJob['status']==='queued'&&count($api->calls)===$before+1&&end($api->calls)[0]==='sendMessage','a second link is accepted immediately without busy or cooldown errors');
-    waitingCheck((int)$secondJob['message_id']!==$firstMessage&&$store->query('SELECT status FROM jobs WHERE id=?',[$firstId])->fetchColumn()==='choosing','the new link gets its own status message and does not cancel or edit the previous menu');
+    waitingCheck((int)$secondJob['message_id']!==$firstMessage&&$store->query('SELECT status FROM jobs WHERE id=?',[$firstId])->fetchColumn()==='waiting_quality','the new link gets its own status message and does not cancel or edit the previous menu');
 
     $bot->handle(waitingChoice($firstId,360,$firstMessage));
     waitingCheck(end($api->calls)[0]==='answerCallbackQuery'&&end($api->calls)[1]['text']===$bot->ui->plain('quality_busy'),'selecting an older menu during active processing is answered without a database conflict');
-    waitingCheck($store->query('SELECT status FROM jobs WHERE id=?',[$firstId])->fetchColumn()==='choosing','a busy selection leaves the old menu available for later');
+    waitingCheck($store->query('SELECT status FROM jobs WHERE id=?',[$firstId])->fetchColumn()==='waiting_quality','a busy selection leaves the old menu available for later');
     $claimed=$store->claim();
     waitingCheck((int)$claimed['id']===(int)$secondJob['id'],'the worker claims the new link instead of downloading an unchosen video');
     $bot->qualityMenu($claimed,['title'=>'Second video','options'=>$options]);
@@ -55,10 +55,18 @@ try {
     waitingCheck(count($api->calls)===$before+1&&$store->query('SELECT status FROM jobs WHERE id=?',[$firstId])->fetchColumn()==='queued','repeat taps do not duplicate a download');
     $store->query("UPDATE jobs SET status='done' WHERE id=?",[$firstId]);
 
-    for($i=100;$i<125;$i++) $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created,options) VALUES(?,8,8,?,'choosing',?,?)",[$i,$first,time()-31*86400,json_encode($options)]);
+    for($i=100;$i<125;$i++) $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created,options) VALUES(?,8,8,?,'waiting_quality',?,?)",[$i,$first,time()-31*86400,json_encode($options)]);
     waitingCheck($store->enqueue(3,9,9,$second)==='queued','abandoned quality menus do not consume download queue capacity');
+    // Reproduce the older Store's index recreation with multiple waiting menus
+    // and an active job for the same user, then reopen the current Store.
+    $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(4,8,8,?,'queued',?)",[$first,time()]);
+    $store->db->exec("DROP INDEX one_active; CREATE UNIQUE INDEX one_active ON jobs(user_id) WHERE status IN ('queued','running','choosing','confirming')");
+    waitingCheck((int)$store->query("SELECT COUNT(*) FROM jobs WHERE user_id=8 AND status='waiting_quality'")->fetchColumn()===25,'the previous release can recreate its active-job index without losing waiting menus');
+    $store=new Zero\Store($temp);
+    waitingCheck((int)$store->query("SELECT COUNT(*) FROM jobs WHERE user_id=8 AND status='waiting_quality'")->fetchColumn()===25&&$store->choose((int)$store->query('SELECT id FROM jobs WHERE update_id=100')->fetchColumn(),8,8,360)===null,'upgrading again preserves waiting menus and safely handles their active job');
+    $store->query("UPDATE jobs SET status='done' WHERE update_id=4");
     $store->query("UPDATE jobs SET status='done' WHERE update_id=3");
     for($i=200;$i<220;$i++) $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(?,?,?,?,'queued',?)",[$i,$i,$i,$first,time()]);
-    $waiting=(int)$store->query("SELECT id FROM jobs WHERE user_id=8 AND status='choosing' LIMIT 1")->fetchColumn();
-    waitingCheck($store->choose($waiting,8,8,360)===null&&$store->query('SELECT status FROM jobs WHERE id=?',[$waiting])->fetchColumn()==='choosing','selecting a waiting video still respects the actual download queue capacity');
+    $waiting=(int)$store->query("SELECT id FROM jobs WHERE user_id=8 AND status='waiting_quality' LIMIT 1")->fetchColumn();
+    waitingCheck($store->choose($waiting,8,8,360)===null&&$store->query('SELECT status FROM jobs WHERE id=?',[$waiting])->fetchColumn()==='waiting_quality','selecting a waiting video still respects the actual download queue capacity');
 } finally { Zero\Download::clean($temp); }

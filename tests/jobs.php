@@ -87,7 +87,7 @@ try {
     expectJob(str_contains($recorded[2]['params']['text'],'کوکی')&&(int)$recorded[2]['params']['message_id']===501,
         'Persian cookie failure is shown in the original status message');
     expectJob($store->query('SELECT status FROM jobs WHERE update_id=3')->fetchColumn()==='failed','worker records the failed job');
-    expectJob($store->query('SELECT status FROM jobs WHERE update_id=4')->fetchColumn()==='choosing','the real worker leaves an old unchosen menu unchanged without sending an expiry notice');
+    expectJob($store->query('SELECT status FROM jobs WHERE update_id=4')->fetchColumn()==='waiting_quality','the real worker leaves an old unchosen menu unchanged without sending an expiry notice');
 } finally {
     foreach([$worker,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); }
     Zero\Download::clean($temp);

@@ -196,7 +196,9 @@ final class Store
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
             if($index&&(str_contains($index,'choosing')||!str_contains($index,'confirming'))) $this->db->exec('DROP INDEX one_active');
             $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running','confirming')");
-            $this->query("UPDATE jobs SET expires=0 WHERE status='choosing' AND expires<>0");
+            // Older releases include 'choosing' in their unique active-job index.
+            // A distinct inactive state also keeps their startup safe after rollback.
+            $this->query("UPDATE jobs SET status='waiting_quality',expires=0 WHERE status='choosing'");
             $this->query("UPDATE states SET expires=0 WHERE key='cookie.upload'");
             if($this->get('ui_html_version','0')!=='1') {
                 // Captions in older releases were sent as plaintext, even if they
@@ -242,7 +244,7 @@ final class Store
             elseif ($this->busy($user)) $result = 'busy';
             elseif ($this->full()) $result = 'full';
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
-                &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status='choosing'",[$user])->fetchColumn()) $result = 'cooldown';
+                &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status='waiting_quality'",[$user])->fetchColumn()) $result = 'cooldown';
             else {
                 $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(?,?,?,?,?,0,'inspect')", [$update,$user,$chat,$url,time()]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
@@ -265,7 +267,7 @@ final class Store
         if($quality!==null&&$quality!=='audio'&&!in_array($quality,Config::VIDEO_QUALITIES,true)) return null;
         $this->db->exec('BEGIN IMMEDIATE');
         try {
-            $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='choosing'",[$id,$user,$chat])->fetch();
+            $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[$id,$user,$chat])->fetch();
             $options=$job?json_decode($job['options'],true):[];
             $audio=$quality==='audio';
             if(!$job||($quality!==null&&(empty($options[(string)$quality])||$this->busy($user)||$this->full()))) $job=null;
