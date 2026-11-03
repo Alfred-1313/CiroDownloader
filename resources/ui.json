@@ -92,11 +92,11 @@
     "not_checked":{"label":"عنوان بررسی‌نشده","group":"updates","value":"هنوز بررسی نشده"}
   },
   "buttons": {
-    "help":{"label":"راهنما","group":"public","value":"📖 راهنما","style":"primary"},
+    "help":{"label":"راهنما","group":"public","value":"📖 راهنما","style":"primary","aliases":["راهنما"]},
     "download":{"label":"درخواست لینک قدیمی","group":"public","value":"دانلود ویدیو","hidden":true},
-    "admin":{"label":"پنل مدیریت","group":"admin","value":"⚙️ پنل مدیریت","style":"primary"},
-    "health":{"label":"وضعیت ربات","group":"admin","value":"📊 وضعیت ربات","style":"primary"},
-    "update":{"label":"ورود به به‌روزرسانی","group":"updates","value":"🔄 به‌روزرسانی ربات","style":"success"},
+    "admin":{"label":"پنل مدیریت","group":"admin","value":"⚙️ پنل مدیریت","style":"primary","aliases":["پنل مدیریت"]},
+    "health":{"label":"وضعیت ربات","group":"admin","value":"📊 وضعیت ربات","style":"primary","aliases":["وضعیت ربات"]},
+    "update":{"label":"ورود به به‌روزرسانی","group":"updates","value":"🔄 به‌روزرسانی ربات","style":"success","aliases":["به‌روزرسانی ربات"]},
     "on":{"label":"فعال‌کردن ربات","group":"admin","value":"▶️ فعال‌کردن ربات","style":"success"},
     "off":{"label":"توقف ربات","group":"admin","value":"⏸ توقف ربات","style":"danger"},
     "cookies":{"label":"واردکردن کوکی","group":"cookies","value":"🍪 واردکردن کوکی یوتیوب","style":"primary"},

@@ -4,6 +4,7 @@ namespace Zero;
 
 final class Ui
 {
+    public const REPLY_KEYS=['help','admin','health','update','cookies','download'];
     private static ?array $definitions=null;
     private array $preview=[];
     public function __construct(private Store $store) {}
@@ -45,6 +46,16 @@ final class Ui
         $replace=[];
         foreach($values as $name=>$value) $replace['{'.$name.'}']=(string)$value;
         return strtr($this->get('button.'.$key,$item['value']),$replace);
+    }
+    public function replyAction(string $text): ?string
+    {
+        foreach(self::REPLY_KEYS as $key) if($text===$this->label($key)) return $key;
+        foreach(self::REPLY_KEYS as $key) {
+            $saved=json_decode($this->store->get('button.aliases.'.$key,'[]'),true);
+            $aliases=array_merge($this->definition('button',$key)['aliases']??[],is_array($saved)?$saved:[]);
+            if(in_array($text,$aliases,true)) return $key;
+        }
+        return null;
     }
     public function button(string $key,?string $data=null,array $values=[]): array
     {

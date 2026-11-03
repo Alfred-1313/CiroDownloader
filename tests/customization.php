@@ -80,6 +80,11 @@ try {
     $store->set('text.help','<blockquote><b>CUSTOM_HELP</b></blockquote>');
     $bot->handle(input(7,$bot->label('help')));
     ensure(str_contains(end($api->calls)[1]['text'],'CUSTOM_HELP'),'reply Help uses the editable formatted message');
+    $oldHelp=$bot->label('help');
+    $bot->handle(click(42,'custom:edit:button:help'));
+    $bot->handle(input(42,'راهنمای من'));
+    $bot->handle(input(7,$oldHelp));
+    ensure(str_contains(end($api->calls)[1]['text'],'CUSTOM_HELP'),'renaming reply buttons keeps already displayed keyboards usable');
 
     $info=['formats'=>[
         ['format_id'=>'18','width'=>640,'height'=>360,'vcodec'=>'avc1','acodec'=>'aac'],

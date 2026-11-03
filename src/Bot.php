@@ -192,20 +192,20 @@ final class Bot
         }
         if(!$this->allowed($user)) { $this->send($chat,$this->denial()); return; }
         $text=trim((string)($message['text']??''));
-        $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help',
-            $this->label('cookies'),$this->label('admin'),$this->label('health'),$this->label('help'),$this->label('download'),$this->label('update')];
-        if(in_array($text,$commands,true)) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        $reply=$this->ui->replyAction($text);
+        $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
+        if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
-            if($text==='/admin'||$text===$this->label('admin')) { $this->panel($chat); return; }
-            if($text==='/health'||$text===$this->label('health')) { $this->health($chat); return; }
-            if($text==='/cookies'||$text===$this->label('cookies')) { $this->beginCookieImport($chat,$user); return; }
-            if($text==='/update'||$text===$this->label('update')) { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
+            if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
+            if($text==='/health'||$reply==='health') { $this->health($chat); return; }
+            if($text==='/cookies'||$reply==='cookies') { $this->beginCookieImport($chat,$user); return; }
+            if($text==='/update'||$reply==='update') { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
             if($text==='/customize') { $custom->home($chat); return; }
         }
         if(in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
-        if($text==='/help'||$text===$this->label('help')) { $this->send($chat,$this->text('help')); return; }
-        if($text===$this->label('download')) { $this->send($chat,$this->text('prompt')); return; }
+        if($text==='/help'||$reply==='help') { $this->send($chat,$this->text('help')); return; }
+        if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND expires>?',[$user,time()])->fetchColumn();
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;

@@ -95,6 +95,11 @@ final class Personalization
             $this->item($chat,$kind,$key,$message,$ui->text('custom_preview_failed'));
             return false;
         } finally { $ui->preview([]); }
+        if($kind==='button'&&in_array($key,Ui::REPLY_KEYS,true)&&isset($values['button.'.$key])) {
+            $aliases=json_decode($this->bot->store->get('button.aliases.'.$key,'[]'),true);
+            $aliases=array_slice(array_values(array_unique(array_merge([$ui->label($key)],is_array($aliases)?$aliases:[]))),0,10);
+            $values['button.aliases.'.$key]=json_encode($aliases,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+        }
         $this->bot->store->db->exec('BEGIN IMMEDIATE');
         try {
             foreach($values as $name=>$value) $this->bot->store->set($name,$value);
