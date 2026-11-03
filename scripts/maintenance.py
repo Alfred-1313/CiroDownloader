@@ -258,6 +258,9 @@ class Maintenance:
                 self.start(services, recreate=True)
             except BaseException as original:
                 try:
+                    # A failed recreation may already have started a DB writer.
+                    # Never replace recovery data until every service is stopped.
+                    self.command('docker', 'compose', 'stop')
                     with tempfile.TemporaryDirectory(prefix='.rollback-', dir=self.backups) as old:
                         self.unpack(recovery, old); self.replace(old)
                     self.start(services, recreate=True)

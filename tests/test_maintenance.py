@@ -42,11 +42,14 @@ class FakeDocker(maintenance.Maintenance):
         if args[2:3] in [('start',), ('up',)]:
             if self.fail_start:
                 self.fail_start = False
+                self.services = ['bot']
                 raise maintenance.MaintenanceError('Simulated startup failure')
             self.services = [name for name in args[3:] if name in ('bot', 'worker')]; return ''
         if '--entrypoint' in args and args[args.index('--entrypoint') + 1] == 'tar':
             output.write(self.data); return ''
         if '--entrypoint' in args and args[args.index('--entrypoint') + 1] == 'sh':
+            if self.services:
+                raise AssertionError('Data must never be replaced while services are running')
             self.data = input; return ''
         return ''
 
@@ -156,6 +159,24 @@ class MaintenanceTests(unittest.TestCase):
             for entry, body in [('manifest.json', manifest), ('config.env', ENV), ('data.tar', nested.getvalue())]:
                 member = tarfile.TarInfo(entry); member.size = len(body); archive.addfile(member, io.BytesIO(body))
         return path
+
+    def test_initial_restore_stop_failure_cannot_replace_data_with_running_services(self):
+        backup = self.app.backup()
+        original = self.app.command
+        stops = 0
+        def command(*args, **kwargs):
+            nonlocal stops
+            if args[2:3] == ('stop',):
+                stops += 1
+                if stops == 2:  # Recovery backup stopped/resumed; initial restore stop now fails.
+                    raise maintenance.MaintenanceError('Simulated stop failure')
+            return original(*args, **kwargs)
+        self.app.command = command
+        with self.assertRaisesRegex(maintenance.MaintenanceError, 'previous data and settings were restored'):
+            self.app.restore(backup)
+        self.assertEqual(stops, 3)
+        self.assertEqual(self.app.services, ['bot'])
+        self.assertEqual((self.project / '.env').read_bytes(), ENV)
 
     def test_unsafe_archives_are_rejected_before_stopping_services(self):
         for name, kind in [('../escape', tarfile.REGTYPE), ('/absolute', tarfile.REGTYPE), ('link', tarfile.SYMTYPE), ('hardlink', tarfile.LNKTYPE)]:
