@@ -77,16 +77,18 @@ final class Bot
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),time()+900,$job['id']]);
         $rows=[]; $row=[];
         foreach($media['options'] as $height=>$formats) {
+            if($height==='audio') continue;
             $row[]=$this->ui->button('quality','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
             if(count($row)===2) { $rows[]=$row; $row=[]; }
         }
         if($row) $rows[]=$row;
+        if(!empty($media['options']['audio'])) $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
         $rows[]=[$this->button('cancel_quality','quality:'.$job['id'].':cancel')];
         $this->jobMessage($job,$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]),$rows);
     }
     private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
     {
-        $quality=$parts[2]==='cancel'?null:(int)$parts[2];
+        $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
         $job=$this->store->choose((int)$parts[1],$user,$chat,$quality);
         $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain('quality_expired'),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;
@@ -147,7 +149,7 @@ final class Bot
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         $custom=new Personalization($this);
         if($cb) {
-            $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|cancel)$/D',$action,$choice)===1;
+            $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality;
             if($privileged&&!$this->admin($user)) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;

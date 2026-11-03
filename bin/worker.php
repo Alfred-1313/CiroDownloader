@@ -34,7 +34,7 @@ while(true) {
         if(!$store->enabled()||!($job=$store->claim())) { sleep(1); continue; }
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
-        $stage='download';
+        $stage='download'; $audio=$job['phase']==='audio';
         try {
             if(!$bot->allowed((int)$job['user_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
@@ -51,29 +51,34 @@ while(true) {
                 continue;
             }
             if(disk_free_space($downloads)<$config->maxBytes*4) throw new RuntimeException('Insufficient disk space');
-            $bot->jobMessage($job,$bot->text('downloading'));
+            $bot->jobMessage($job,$bot->text($audio?'audio_downloading':'downloading'));
             $options=json_decode($job['options'],true);
             $quality=$job['quality']!==null?(int)$job['quality']:null;
-            $media=$downloader->fetch($job['url'],$folder,$quality,$quality!==null?($options[$quality]??[]):[]);
+            $media=$audio?$downloader->fetchAudio($job['url'],$folder,$options['audio']??[]):
+                $downloader->fetch($job['url'],$folder,$quality,$quality!==null?($options[$quality]??[]):[]);
             if(!$bot->allowed((int)$job['user_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 $bot->jobMessage($job,$bot->denial()); continue;
             }
             $stage='upload';
-            $bot->jobMessage($job,$bot->text('uploading'));
-            $caption=$bot->text('video_caption',['title'=>mb_substr($media['title'],0,100),'quality'=>$media['quality'],'url'=>$job['url']]);
-            $api->call('sendVideo',['chat_id'=>(int)$job['chat_id'],'video'=>new CURLFile($media['path'],'video/mp4','video.mp4'),
-                'caption'=>$caption,'parse_mode'=>'HTML','supports_streaming'=>true,
-                'width'=>$media['width'],'height'=>$media['height'],'duration'=>$media['duration']]);
+            $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
+            $caption=$bot->text($audio?'audio_caption':'video_caption',['title'=>mb_substr($media['title'],0,100),
+                'quality'=>$media['quality']??'','format'=>$media['format']??'','url'=>$job['url']]);
+            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
+            if($audio) $api->call('sendAudio',$params+['audio'=>new CURLFile($media['path'],'audio/mpeg','audio.mp3'),
+                'title'=>mb_substr($media['title'],0,100)]);
+            else $api->call('sendVideo',$params+['video'=>new CURLFile($media['path'],'video/mp4','video.mp4'),
+                'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
-            try { $bot->jobMessage($job,$bot->text('delivered')); }
-            catch(Throwable) { error_log('Video delivered; final status edit unavailable'); }
+            try { $bot->jobMessage($job,$bot->text($audio?'audio_delivered':'delivered')); }
+            catch(Throwable) { error_log('Media delivered; final status edit unavailable'); }
         } catch(Throwable $e) {
             $detail=Zero\diagnosticMessage($e->getMessage());
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $key=$e instanceof Zero\MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
+            if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
             $notice=$bot->text($bot->ui->definition('text',$key)?$key:'failed');
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally { Zero\Download::clean($folder); }

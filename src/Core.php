@@ -123,7 +123,7 @@ final class Telegram implements FileApi
         $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => $method === 'sendVideo' ? 600 : 45]);
+            CURLOPT_TIMEOUT => in_array($method,['sendVideo','sendAudio'],true) ? 600 : 45]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         curl_close($ch);
@@ -244,14 +244,15 @@ final class Store
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
-    public function choose(int $id,int $user,int $chat,?int $quality): ?array
+    public function choose(int $id,int $user,int $chat,int|string|null $quality): ?array
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='choosing' AND expires>?",[$id,$user,$chat,time()])->fetch();
             $options=$job?json_decode($job['options'],true):[];
-            if(!$job||($quality!==null&&!isset($options[(string)$quality]))) $job=null;
-            if($job) $this->query('UPDATE jobs SET status=?,quality=?,phase=?,expires=? WHERE id=?',[$quality===null?'cancelled':'confirming',$quality,'download',time()+120,$id]);
+            $audio=$quality==='audio';
+            if(!$job||($quality!==null&&empty($options[(string)$quality]))) $job=null;
+            if($job) $this->query('UPDATE jobs SET status=?,quality=?,phase=?,expires=? WHERE id=?',[$quality===null?'cancelled':'confirming',$audio?null:$quality,$audio?'audio':'download',time()+120,$id]);
             $this->db->exec('COMMIT');
             return $job?:null;
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }

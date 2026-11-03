@@ -109,4 +109,25 @@ try {
     $store->query("UPDATE jobs SET expires=? WHERE id=?",[time()+60,$job['id']]);
     $reloaded=new Zero\Store($temp);
     ensure($reloaded->choose((int)$job['id'],9,9,null)!==null,'saved quality menus can be cancelled after a process restart');
+    $store->query("UPDATE jobs SET status='choosing',expires=? WHERE id=?",[time()+60,$job['id']]);
+    ensure($store->choose((int)$job['id'],9,9,'audio')===null,'old menus without audio formats cannot be forged into audio downloads');
+    $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);
+    $audioOptions=Zero\Download::audioOptions($info);
+    ensure($audioOptions===[['id'=>'18']],'audio choices exclude video-only formats, DRM and invalid identifiers');
+    $bot->handle(input(10,'https://youtu.be/ybNMMK5Q318'));
+    $audioJob=$store->query('SELECT * FROM jobs WHERE user_id=10')->fetch();
+    $bot->qualityMenu($audioJob,['title'=>'Audio test','options'=>$options+['audio'=>$audioOptions]]);
+    ensure($store->choose((int)$audioJob['id'],7,7,'audio')===null,'another user cannot request the audio of this job');
+    $store->set('admins_only','1');
+    $bot->handle(click(10,'quality:'.$audioJob['id'].':audio'));
+    ensure($store->query('SELECT status FROM jobs WHERE id=?',[$audioJob['id']])->fetchColumn()==='choosing','admin-only mode also blocks audio callbacks from existing public menus');
+    $store->set('admins_only','0');
+    $bot->handle(click(10,'quality:'.$audioJob['id'].':audio'));
+    $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$audioJob['id']])->fetch();
+    ensure($saved['phase']==='audio'&&$saved['quality']===null&&$saved['status']==='queued','audio selection queues an audio job without a fake video resolution');
+    ensure($store->choose((int)$audioJob['id'],10,10,'audio')===null,'repeated audio taps cannot queue duplicate downloads');
+    $bot->handle(click(42,'custom:edit:text:audio_caption'));
+    $bot->handle(input(42,'<blockquote><b>{title}</b></blockquote> {format}'));
+    $bot->handle(click(42,'custom:setcolor:extract_audio:danger'));
+    ensure($store->get('button.style.extract_audio')==='danger'&&str_contains($bot->text('audio_caption',['title'=>'Test','format'=>'MP3']),'MP3'),'audio captions and button styles use the shared Personalization editor');
 } finally { Zero\Download::clean($temp); }

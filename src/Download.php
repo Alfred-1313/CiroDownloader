@@ -131,6 +131,18 @@ final class Download
         if(!$options) throw new MediaFailure('format','No downloadable video qualities found');
         return $options;
     }
+    public static function audioOptions(array $info): array
+    {
+        $formats=array_values(array_filter($info['formats']??[],fn($format)=>
+            !empty($format['acodec'])&&$format['acodec']!=='none'&&empty($format['has_drm'])
+            &&($format['protocol']??'')!=='mhtml'
+            &&preg_match('/^[A-Za-z0-9_-]{1,64}$/D',(string)($format['format_id']??''))));
+        // Prefer audio-only sources; use a combined stream when no separate audio exists.
+        usort($formats,fn($a,$b)=>[
+            ($b['vcodec']??'none')==='none'?1:0,(float)($b['abr']??$b['tbr']??0)
+        ]<=>[($a['vcodec']??'none')==='none'?1:0,(float)($a['abr']??$a['tbr']??0)]);
+        return array_map(fn($format)=>['id'=>(string)$format['format_id']],array_slice($formats,0,8));
+    }
     public function inspect(string $url,string $folder): array
     {
         $canonical=youtubeUrl($url);
@@ -141,7 +153,44 @@ final class Download
         try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
         catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
-        return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>self::qualityOptions($info)];
+        $options=self::qualityOptions($info);
+        $audio=self::audioOptions($info);
+        if($audio) $options['audio']=$audio;
+        return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options];
+    }
+    public function fetchAudio(string $url,string $folder,array $formats): array
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        $selector=[];
+        foreach($formats as $format) {
+            if(!is_array($format)||!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',(string)($format['id']??''))) throw new MediaFailure('format','Invalid audio format identifier');
+            $selector[]=$format['id'];
+        }
+        if(!$selector) throw new MediaFailure('format','No saved audio formats are available');
+        $access=$this->access($folder);
+        $title=$this->run(array_merge($this->base(),[
+            '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
+            '--match-filter','!is_live','--break-on-reject','-f',implode('/',$selector),
+            '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],
+            $access['args'],['--',$canonical]),$folder,$this->config->timeout);
+        $this->refresh($access);
+        $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>
+            in_array(strtolower(pathinfo($file,PATHINFO_EXTENSION)),['m4a','webm','mp4','mkv','opus','ogg','mp3','aac','wav','flac'],true)));
+        if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete audio source');
+        $ready=$folder.'/ready.mp3';
+        $this->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$files[0],
+            '-map','0:a:0','-vn','-c:a','libmp3lame','-b:a','192k','-ac','2','-threads','2',$ready],$folder,$this->config->timeout);
+        clearstatcache(true,$ready);
+        if(!is_file($ready)||filesize($ready)<1) throw new MediaFailure('format','Prepared MP3 is missing');
+        if(filesize($ready)>$this->config->maxBytes) throw new MediaFailure('size','Prepared MP3 exceeds file size limit');
+        $info=$this->probe($ready,$folder);
+        $streams=array_column($info['streams']??[],'codec_name','codec_type');
+        if(($streams['audio']??'')!=='mp3'||isset($streams['video'])) throw new MediaFailure('format','Prepared MP3 has invalid streams');
+        $duration=(float)($info['format']['duration']??0);
+        if($duration<=0) throw new MediaFailure('duration','Audio has no duration');
+        return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube',
+            'format'=>'MP3','duration'=>(int)ceil($duration)];
     }
     public function fetch(string $url, string $folder, ?int $quality=null, array $formats=[]): array
     {
