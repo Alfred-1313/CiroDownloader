@@ -10,7 +10,7 @@ maintenance = importlib.util.module_from_spec(spec); spec.loader.exec_module(mai
 
 
 def command(*args):
-    return subprocess.check_output(args, cwd=root, stderr=subprocess.STDOUT).decode().strip()
+    return subprocess.run(args, cwd=root, check=True, capture_output=True).stdout.decode().strip()
 
 
 if subprocess.run(['docker', 'volume', 'inspect', 'ciro-downloader_data'], capture_output=True).returncode == 0:
