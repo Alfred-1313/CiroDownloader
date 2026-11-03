@@ -59,9 +59,9 @@ try {
     $help=end($api->calls)[1]['reply_markup']['keyboard'][0][0];
     ensure($help['style']==='danger'&&$help['icon_custom_emoji_id']==='5368324170671202286','reply keyboard uses saved color and premium emoji after reloading');
     $old=$store->get('button.icon.help'); $api->rejectEmoji=true;
-    $bot->handle(click(42,'custom:icon:admin'));
+    $bot->handle(click(42,'custom:icon:source_video'));
     $bot->handle(input(42,'5368324170671202286'));
-    ensure($store->get('button.icon.admin')===''&&$store->get('button.icon.help')===$old,'Telegram rejection preserves existing settings instead of breaking the interface');
+    ensure($store->get('button.icon.source_video')===''&&$store->get('button.icon.help')===$old,'Telegram rejection preserves existing settings instead of breaking the interface');
     $api->rejectEmoji=false;
 
     $formatted=input(42,'X 😎');
