@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 # Running from an existing checkout (for example: sudo bash install.sh).
 if [[ -f "$SCRIPT_DIR/manager.sh" && -f "$SCRIPT_DIR/compose.yaml" ]]; then
-  exec bash "$SCRIPT_DIR/manager.sh"
+  exec bash "$SCRIPT_DIR/manager.sh" "$@"
 fi
 
 echo 'Preparing the latest Ciro Downloader manager…'
@@ -33,4 +33,4 @@ else
   exit 1
 fi
 
-exec bash "$INSTALL_DIR/manager.sh"
+exec bash "$INSTALL_DIR/manager.sh" "$@"

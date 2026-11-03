@@ -5,3 +5,4 @@ storage/
 *.log
 *.zip
 *cookies*.txt
+tests/.manager-test-*/
