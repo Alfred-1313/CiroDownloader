@@ -15,12 +15,13 @@ final class Bot
     public function denial(): string { return $this->text($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline'); }
     public function button(string $key,string $data): array { return $this->ui->button($key,$data); }
     public function replyButton(string $key): array { return $this->ui->button($key); }
-    public function send(int $chat,string $text,array $rows=[],int $message=0): void
+    public function send(int $chat,string $text,array $rows=[],int $message=0): int
     {
         $params=['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true];
         if($rows||$message>0) $params['reply_markup']=['inline_keyboard'=>$rows];
         if($message>0) $params['message_id']=$message;
-        $this->api->call($message>0?'editMessageText':'sendMessage',$params);
+        $result=$this->api->call($message>0?'editMessageText':'sendMessage',$params);
+        return $message>0?$message:(int)($result['message_id']??0);
     }
     public function sendKeyboard(int $chat,string $text,array $rows): void
     {
@@ -29,15 +30,51 @@ final class Bot
     }
     public function jobMessage(array $job,string $text,array $rows=[]): void
     {
-        $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+        $saved=$this->store->query('SELECT message_id,message_kind,poster FROM jobs WHERE id=?',[$job['id']])->fetch();
+        $message=(int)$saved['message_id']; $photo=$saved['message_kind']==='photo';
         $params=['chat_id'=>(int)$job['chat_id'],'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,'reply_markup'=>['inline_keyboard'=>$rows]];
+        if($photo) {
+            $params['caption']=Ui::fitCaption($text); unset($params['text'],$params['disable_web_page_preview']);
+        }
         if($message>0) {
-            try { $this->api->call('editMessageText',$params+['message_id'=>$message]); return; }
+            try { $this->api->call($photo?'editMessageCaption':'editMessageText',$params+['message_id'=>$message]); return; }
             catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; }
         }
-        $result=$this->api->call('sendMessage',$params);
+        if($photo) $params['photo']=$saved['poster'];
+        $result=$this->api->call($photo?'sendPhoto':'sendMessage',$params);
         if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing download status message ID');
         $this->store->query('UPDATE jobs SET message_id=? WHERE id=?',[(int)$result['message_id'],$job['id']]);
+    }
+    public function jobPoster(array $job,string $poster,string $caption,array $rows): void
+    {
+        $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+        $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
+        try {
+            if($message>0) $this->api->call('editMessageMedia',$params+['message_id'=>$message,
+                'media'=>['type'=>'photo','media'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']]);
+            else {
+                $result=$this->api->call('sendPhoto',$params+['photo'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']);
+                $message=(int)($result['message_id']??0);
+                if(!$message) throw new \RuntimeException('Missing poster message ID');
+            }
+            $this->store->query("UPDATE jobs SET message_id=?,message_kind='photo',poster=? WHERE id=?",[$message,$poster,$job['id']]);
+        } catch(\RuntimeException $e) {
+            if($e->getCode()===404&&$message>0) {
+                $this->store->query('UPDATE jobs SET message_id=0 WHERE id=?',[$job['id']]);
+                $this->jobPoster($job,$poster,$caption,$rows); return;
+            }
+            if($e->getCode()!==400) throw $e;
+            // A rejected thumbnail must not prevent choosing and downloading the video.
+            $this->jobMessage($job,$caption,$rows);
+        }
+    }
+    public function finishJob(array $job): void
+    {
+        $saved=$this->store->query('SELECT message_id,message_kind FROM jobs WHERE id=?',[$job['id']])->fetch();
+        if((int)$saved['message_id']<1) return;
+        $params=['chat_id'=>(int)$job['chat_id'],'message_id'=>(int)$saved['message_id']];
+        if($saved['message_kind']==='photo') $this->api->call('editMessageCaption',$params+['caption'=>'','reply_markup'=>['inline_keyboard'=>[]]]);
+        else $this->api->call('deleteMessage',$params);
     }
     public function home(int $chat,int $user): void
     {
@@ -73,7 +110,7 @@ final class Bot
     }
     public function qualityMenu(array $job,array $media): void
     {
-        $this->store->query("UPDATE jobs SET status='choosing',title=?,options=?,expires=? WHERE id=?",
+        $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=? WHERE id=?",
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),time()+900,$job['id']]);
         $rows=[]; $row=[];
         foreach($media['options'] as $height=>$formats) {
@@ -84,7 +121,10 @@ final class Bot
         if($row) $rows[]=$row;
         if(!empty($media['options']['audio'])) $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
         $rows[]=[$this->button('cancel_quality','quality:'.$job['id'].':cancel')];
-        $this->jobMessage($job,$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]),$rows);
+        $caption=$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]);
+        if(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
+        else $this->jobMessage($job,$caption,$rows);
+        $this->store->query("UPDATE jobs SET status='choosing' WHERE id=?",[$job['id']]);
     }
     private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
     {
@@ -93,49 +133,63 @@ final class Bot
         $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain('quality_expired'),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;
         try {
-            $this->jobMessage($job,$this->text($quality===null?'cancelled':'queued'));
+            $this->jobMessage($job,$this->text($quality===null?'cancelled':($quality==='audio'?'audio_downloading':'downloading')));
             if($quality!==null) $this->store->query("UPDATE jobs SET status='queued' WHERE id=? AND status='confirming'",[$job['id']]);
         } catch(\Throwable $e) {
             $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             throw $e;
         }
     }
-    public function beginCookieImport(int $chat,int $user): void
+    public function beginCookieImport(int $chat,int $user,int $message=0): void
     {
-        $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'cookie.upload',time()+600]);
-        $this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(is_readable($this->config->cookiePath())?'cookie_present':'cookie_missing')]),[
-            [$this->button('cookie_info','cookies:info')],[$this->button('back','admin')],
-        ]);
+        $message=$this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(is_readable($this->config->cookiePath())?'cookie_present':'cookie_missing')]),[
+            [$this->button('back','admin')],
+        ],$message);
+        $this->store->set('cookie_menu.'.$user,(string)$message);
+        $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,0)',[$user,'cookie.upload']);
     }
-    public function cookieInfo(int $chat): void { $this->send($chat,$this->text('cookie_info'),[[$this->button('cookies','cookies')],[$this->button('back','admin')]]); }
+    private function cookieNotice(int $chat,int $user,string $text): void
+    {
+        $this->send($chat,$text,[[$this->button('back','admin')]],(int)$this->store->get('cookie_menu.'.$user,'0'));
+    }
     private function cookieDocument(int $chat,int $user,array $message): void
     {
         if(!$this->admin($user)) { $this->send($chat,$this->text('cookie_admin_only')); return; }
         $state=$this->store->query('SELECT key,expires FROM states WHERE user_id=?',[$user])->fetch();
         if(!$state||$state['key']!=='cookie.upload') { $this->send($chat,$this->text('cookie_begin_first')); return; }
-        $saved=false;
+        $saved=false; $folder=null; $notice='cookie_failed';
         try {
-            if((int)$state['expires']<=time()) {
-                $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-                $this->send($chat,$this->text('cookie_expired')); return;
-            }
             $doc=$message['document'];
             if(strtolower(pathinfo((string)($doc['file_name']??''),PATHINFO_EXTENSION))!=='txt'||(int)($doc['file_size']??0)>1048576||empty($doc['file_id'])) {
-                $this->send($chat,$this->text('cookie_file_invalid')); return;
+                $notice='cookie_file_invalid'; $this->cookieNotice($chat,$user,$this->text($notice)); return;
             }
             $file=$this->api->call('getFile',['file_id'=>$doc['file_id']]);
             if(!is_array($file)||empty($file['file_path'])||(int)($file['file_size']??0)>1048576||!($this->api instanceof FileApi)) throw new \RuntimeException('Cookie file unavailable');
             $content=$this->api->downloadFile((string)$file['file_path'],1048576);
+            validateYouTubeCookies($content);
+            $this->cookieNotice($chat,$user,$this->text('cookie_checking'));
+            require_once __DIR__.'/Download.php';
+            $folder=$this->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
+            if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
+            $notice='cookie_check_inconclusive';
+            $content=(new Download($this->config))->verifyCookies($content,$folder,
+                $this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
             saveYouTubeCookies($this->config,$content); $saved=true;
             $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-            $this->send($chat,$this->text('cookie_saved'),[[$this->button('back','admin')]]);
+            $notice='cookie_saved'; $this->cookieNotice($chat,$user,$this->text($notice));
         } catch(\Throwable $e) {
             error_log('Cookie import failure: '.get_class($e));
-            if(!$saved) $this->send($chat,$this->text('cookie_failed'));
+            if(!$saved) {
+                if($e instanceof MediaFailure) $notice=match($e->reason) {
+                    'cookies'=>'cookie_check_invalid','blocked'=>'cookie_check_blocked','network'=>'cookie_check_network',default=>'cookie_check_inconclusive',
+                };
+                $this->cookieNotice($chat,$user,$this->text($notice));
+            }
         } finally {
+            if($folder!==null) Download::clean($folder);
             if(isset($message['message_id'])) {
                 try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message['message_id']]); }
-                catch(\Throwable) { $this->send($chat,$this->text('cookie_delete_failed')); }
+                catch(\Throwable) { $this->cookieNotice($chat,$user,$this->text($notice)."\n\n".$this->text('cookie_delete_failed')); }
             }
         }
     }
@@ -166,10 +220,9 @@ final class Bot
             if($action==='home') $this->home($chat,$user);
             elseif($action==='help'||$action==='update:progress') return;
             elseif($action==='download') $this->send($chat,$this->text('prompt'));
-            elseif($action==='admin') $this->panel($chat);
+            elseif($action==='admin') $this->panel($chat,$menu);
             elseif($action==='health') $this->health($chat);
-            elseif($action==='cookies') $this->beginCookieImport($chat,$user);
-            elseif($action==='cookies:info') $this->cookieInfo($chat);
+            elseif(in_array($action,['cookies','cookies:info'],true)) $this->beginCookieImport($chat,$user,$menu);
             elseif(in_array($action,['update:menu','update:run','update:open'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,$menu,'',$action!=='update:menu');
             elseif($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',$menu);
             elseif($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,$menu);
@@ -194,6 +247,7 @@ final class Bot
         }
         if(!$this->allowed($user)) { $this->send($chat,$this->denial()); return; }
         $text=trim((string)($message['text']??''));
+        if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
         if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
@@ -208,13 +262,13 @@ final class Bot
         if(in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if($text==='/help'||$reply==='help') { $this->send($chat,$this->text('help')); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
-        $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND expires>?',[$user,time()])->fetchColumn();
+        $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
         if(isset($message['document'])) { $this->cookieDocument($chat,$user,$message); return; }
         if($text==='') return;
-        if($state==='cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('cookie_waiting')); return; }
+        if($state==='cookie.upload'&&$this->admin($user)) { $this->cookieNotice($chat,$user,$this->text('cookie_waiting')); return; }
         $url=youtubeUrl($text);
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $result=$this->store->enqueue((int)$update['update_id'],$user,$chat,$url);

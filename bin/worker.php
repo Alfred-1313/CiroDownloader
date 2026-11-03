@@ -47,7 +47,10 @@ while(true) {
                 if(!$bot->allowed((int)$job['user_id'])) {
                     $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                     $bot->jobMessage($job,$bot->denial());
-                } else $bot->qualityMenu($job,$info);
+                } else {
+                    $store->set('youtube_probe_url',$job['url']);
+                    $bot->qualityMenu($job,$info);
+                }
                 continue;
             }
             if(disk_free_space($downloads)<$config->maxBytes*4) throw new RuntimeException('Insufficient disk space');
@@ -63,14 +66,16 @@ while(true) {
             $stage='upload';
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             $caption=$bot->text($audio?'audio_caption':'video_caption',['title'=>mb_substr($media['title'],0,100),
-                'quality'=>$media['quality']??'','format'=>$media['format']??'','url'=>$job['url']]);
-            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
+                'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Zero\Ui::duration($media['duration']),'url'=>$job['url']]);
+            $link=$bot->ui->button('source_video'); $link['url']=$job['url'];
+            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
+                'reply_markup'=>['inline_keyboard'=>[[$link]]]];
             if($audio) $api->call('sendAudio',$params+['audio'=>new CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
             else $api->call('sendVideo',$params+['video'=>new CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
-            try { $bot->jobMessage($job,$bot->text($audio?'audio_delivered':'delivered')); }
+            try { $bot->finishJob($job); }
             catch(Throwable) { error_log('Media delivered; final status edit unavailable'); }
         } catch(Throwable $e) {
             $detail=Zero\diagnosticMessage($e->getMessage());

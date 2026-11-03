@@ -156,7 +156,36 @@ final class Download
         $options=self::qualityOptions($info);
         $audio=self::audioOptions($info);
         if($audio) $options['audio']=$audio;
-        return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options];
+        return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options,'poster'=>self::posterUrl($info,$canonical)];
+    }
+    public static function posterUrl(array $info,string $url): string
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) return '';
+        parse_str((string)parse_url($canonical,PHP_URL_QUERY),$query); $id=$query['v'];
+        $thumbnail=(string)($info['thumbnail']??'');
+        $parts=parse_url($thumbnail);
+        if($parts&&($parts['scheme']??'')==='https'&&($parts['host']??'')==='i.ytimg.com'
+            &&!isset($parts['user'])&&!isset($parts['pass'])&&!isset($parts['port'])&&strlen($thumbnail)<=2048
+            &&preg_match('~^/vi/'.preg_quote($id,'~').'/[A-Za-z0-9_-]+\.jpg$~D',$parts['path']??'')) return $thumbnail;
+        return 'https://i.ytimg.com/vi/'.$id.'/hqdefault.jpg';
+    }
+    public function verifyCookies(string $content,string $folder,string $url): string
+    {
+        validateYouTubeCookies($content);
+        $usable=false;
+        foreach(preg_split('/\r?\n/',$content) as $line) {
+            if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+            elseif($line===''||str_starts_with($line,'#')) continue;
+            $fields=explode("\t",$line); $domain=ltrim(strtolower($fields[0]),'.');
+            if(($domain==='youtube.com'||str_ends_with($domain,'.youtube.com'))&&$fields[6]!==''&&((int)$fields[4]===0||(int)$fields[4]>time())) $usable=true;
+        }
+        if(!$usable) throw new MediaFailure('cookies','All YouTube cookies have expired or are empty');
+        $candidate=clone $this->config; $candidate->youtubeCookies=$folder.'/candidate.txt'; $candidate->timeout=30;
+        if(file_put_contents($candidate->youtubeCookies,$content)!==strlen($content)) throw new \RuntimeException('Cannot write private candidate cookie file');
+        chmod($candidate->youtubeCookies,0600);
+        (new self($candidate))->inspect($url,$folder);
+        return (string)file_get_contents($candidate->youtubeCookies);
     }
     public function fetchAudio(string $url,string $folder,array $formats): array
     {

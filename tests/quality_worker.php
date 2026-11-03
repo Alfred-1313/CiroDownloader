@@ -8,15 +8,16 @@ function recorded(string $path): array { return array_values(array_filter(array_
 $temp=sys_get_temp_dir().'/ciro-quality-'.bin2hex(random_bytes(6)); mkdir($temp,0700);
 $server=null; $worker=null;
 $audio=in_array('--audio',$argv,true);
+$shorts=in_array('--shorts',$argv,true);
 try {
     $storage=$temp.'/data'; mkdir($storage,0700);
     $runner=new Zero\Download(new Zero\Config('123:fake-token',[42],$storage));
     $source=$temp.'/fixture.mp4';
-    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=640x360:r=1:d=1','-f','lavfi','-i','anullsrc=r=8000:cl=mono','-shortest','-c:v','libx264','-threads','2','-c:a','aac',$source],$temp,30);
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.($shorts?'360x640':'640x360').':r=1:d=1','-f','lavfi','-i','anullsrc=r=8000:cl=mono','-shortest','-c:v','libx264','-threads','2','-c:a','aac',$source],$temp,30);
     $sound=$temp.'/fixture.m4a';
     $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','sine=frequency=440:sample_rate=44100:duration=2.5','-c:a','aac',$sound],$temp,30);
     $log=$temp.'/api.jsonl'; $trace=$temp.'/downloader.jsonl'; file_put_contents($log,''); file_put_contents($trace,'');
-    $info=['title'=>'<title> & audio','formats'=>[
+    $info=['title'=>'<title> & audio','thumbnail'=>'https://i.ytimg.com/vi/ybNMMK5Q318/'.($shorts?'oar2':'maxresdefault').'.jpg','formats'=>[
         ['format_id'=>'18','width'=>640,'height'=>360,'vcodec'=>'avc1','acodec'=>'aac','abr'=>96],
         ['format_id'=>'22','width'=>1280,'height'=>720,'vcodec'=>'avc1','acodec'=>'aac','abr'=>128],
         ['format_id'=>'140','vcodec'=>'none','acodec'=>'aac','abr'=>128],
@@ -35,16 +36,19 @@ try {
         '$file=$_FILES["video"]??$_FILES["audio"]??null;'.
         'if(isset($_FILES["audio"])) copy($file["tmp_name"],'.var_export($temp.'/received.mp3',true).');'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"video_hash"=>$file?hash_file("sha256",$file["tmp_name"]):null,"mime"=>$file["type"]??null],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
-        'header("Content-Type: application/json");echo json_encode(["ok"=>true,"result"=>["message_id"=>(int)($_POST["message_id"]??501)]]);');
+        '$kindFile='.var_export($temp.'/message-kind',true).';$kind=is_file($kindFile)?file_get_contents($kindFile):"text";'.
+        '$valid=!(($method==="editMessageText"&&$kind==="photo")||($method==="editMessageCaption"&&$kind!=="photo"));'.
+        'if($method==="editMessageMedia") file_put_contents($kindFile,"photo");'.
+        'header("Content-Type: application/json");echo json_encode(["ok"=>$valid,"error_code"=>400,"result"=>["message_id"=>(int)($_POST["message_id"]??501)]]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr); if(!$socket) throw new RuntimeException($errstr);
     $address=stream_socket_get_name($socket,false); fclose($socket);
     $server=proc_open([PHP_BINARY,'-S',$address,$router],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-error.log','w']],$pipes);
     for($i=0;$i<40;$i++) { $connection=@stream_socket_client('tcp://'.$address,$errno,$errstr,0.05); if($connection) {fclose($connection);break;} usleep(50000); }
     $config=new Zero\Config('123:fake-token',[42],$storage,'http://'.$address,49000000,$stub);
     $store=new Zero\Store($storage); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
-    $store->set('text.video_caption','<b>{title}</b> — {quality} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
-    $store->set('text.audio_caption','<blockquote><b>{title}</b></blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
-    $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>7,'type'=>'private'],'text'=>'https://youtu.be/ybNMMK5Q318']]);
+    $store->set('text.video_caption','<b>{title}</b> — {quality} <blockquote>{duration}</blockquote> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+    $store->set('text.audio_caption','<blockquote><b>{title}</b> {duration}</blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+    $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>7,'type'=>'private'],'text'=>$shorts?'https://www.youtube.com/shorts/ybNMMK5Q318':'https://youtu.be/ybNMMK5Q318']]);
     $environment=array_merge(getenv(),['BOT_TOKEN'=>$config->token,'ADMIN_IDS'=>'42','STORAGE_DIR'=>$storage,'BOT_API_URL'=>$config->api,'MAX_FILE_BYTES'=>'49000000','YT_DLP_BIN'=>$stub,'YOUTUBE_COOKIES_FILE'=>'','YOUTUBE_PROXY'=>'']);
     $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/worker.log','w'],2=>['file',$temp.'/worker-error.log','w']],$pipes,dirname(__DIR__),$environment);
     $deadline=microtime(true)+15; $ready=false;
@@ -55,18 +59,23 @@ try {
         usleep(100000);
     } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
     qualityCheck($ready,'worker inspects the link and waits for quality selection');
+    $poster=json_decode($records[2]['params']['media']??'{}',true);
+    qualityCheck($records[2]['method']==='editMessageMedia'&&$poster['type']==='photo'&&$poster['media']===$info['thumbnail'],'the same status message becomes the actual video poster');
+    qualityCheck(str_contains($poster['caption'],'&lt;title&gt; &amp; audio')&&$poster['parse_mode']==='HTML','poster captions preserve formatting and safely escape titles');
     $invocations=recorded($trace);
     qualityCheck(count($invocations)===1&&in_array('--dump-single-json',$invocations[0],true),'no video is downloaded before the user chooses a quality');
     $keyboard=json_decode($records[2]['params']['reply_markup'],true)['inline_keyboard'];
     qualityCheck($keyboard[0][0]['text']==='360p'&&$keyboard[0][1]['text']==='720p','only available quality buttons are shown under the status message');
     qualityCheck(count($keyboard[1])===1&&$keyboard[1][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
     $bot->handle(['callback_query'=>['id'=>'local-test','from'=>['id'=>7],'message'=>['message_id'=>501,'chat'=>['id'=>7,'type'=>'private']],'data'=>'quality:'.$job['id'].($audio?':audio':':360')]]);
+    $afterChoice=recorded($log); $selected=end($afterChoice);
+    qualityCheck($selected['method']==='editMessageCaption'&&json_decode($selected['params']['reply_markup'],true)['inline_keyboard']===[],'choosing media immediately edits the poster caption and removes every button');
     $deadline=microtime(true)+20; $done=false;
     do {
         $records=recorded($log);
         $status=$store->query('SELECT status FROM jobs WHERE update_id=1')->fetchColumn();
         $last=end($records);
-        if($status==='done'&&$last['method']==='editMessageText'&&str_contains($last['params']['text'],'موفقیت')) { $done=true;break; }
+        if($status==='done'&&$last['method']==='editMessageCaption'&&$last['params']['caption']==='') { $done=true;break; }
         usleep(100000);
     } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
     qualityCheck($done,'selected quality completes real probing, MP4 preparation and upload');
@@ -83,8 +92,12 @@ try {
     }
     $caption=$uploads[0]['params']['caption'];
     qualityCheck($uploads[0]['params']['parse_mode']==='HTML'&&str_contains($caption,'&lt;title&gt; &amp; audio')&&str_contains($caption,'tg-emoji'),'custom captions retain premium emoji and safely escape video metadata');
+    qualityCheck(str_contains($caption,Zero\Ui::duration((int)$uploads[0]['params']['duration'])),'the final caption contains the formatted duration');
+    $sourceButton=json_decode($uploads[0]['params']['reply_markup'],true)['inline_keyboard'][0][0];
+    qualityCheck($sourceButton['style']==='primary'&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered file has a blue URL button linking to the original YouTube video');
     qualityCheck(count(array_filter($records,fn($record)=>$record['method']==='sendMessage'))===1,'inspection, choices, download and completion keep one status message');
-    foreach($records as $record) if($record['method']==='editMessageText') qualityCheck((int)$record['params']['message_id']===501,'status edits keep the original message ID');
+    qualityCheck(end($records)['params']['caption']===''&&json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']===[],'the old poster caption is cleared only after a successful file upload');
+    foreach($records as $record) if(str_starts_with($record['method'],'editMessage')) qualityCheck((int)$record['params']['message_id']===501,'all text, media and caption edits keep the original message ID');
 } finally {
     foreach([$worker,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); }
     Zero\Download::clean($temp);
