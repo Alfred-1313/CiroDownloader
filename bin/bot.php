@@ -15,7 +15,7 @@ while(true) {
     try {
         if(time()-$lastHeartbeat>=10) { $store->set('poller_heartbeat',(string)time()); $lastHeartbeat=time(); }
         $groups->syncHelpButtons();
-        $updates=$api->call('getUpdates',['offset'=>(int)$store->get('offset','0'),'timeout'=>30,'allowed_updates'=>['message','callback_query']]);
+        $updates=$api->call('getUpdates',['offset'=>(int)$store->get('offset','0'),'timeout'=>30,'allowed_updates'=>['message','callback_query','my_chat_member']]);
         foreach($updates as $update) {
             try { $bot->handle($update); }
             catch(Throwable $e) { error_log('Update failed: '.get_class($e)); }

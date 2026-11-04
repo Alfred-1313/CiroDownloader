@@ -15,6 +15,7 @@ final class GroupApi implements Zero\Api {
 function groupCheck(bool $ok,string $message): void { if(!$ok) throw new RuntimeException($message); echo "PASS $message\n"; }
 function groupMessage(string $text,int $user=7,int $chat=-100123,int $thread=0): array { return ['update_id'=>random_int(1,1000000),'message'=>['from'=>['id'=>$user],'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'message_thread_id'=>$thread,'text'=>$text]]; }
 function groupCallback(string $action,int $user=42,int $chat=42,int $message=900): array { return ['callback_query'=>['id'=>'group','from'=>['id'=>$user],'message'=>['message_id'=>$message,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private']],'data'=>$action]]; }
+function groupMembership(string $old,string $new,int $chat=-77,string $type='supergroup'): array { return ['my_chat_member'=>['chat'=>['id'=>$chat,'type'=>$type],'from'=>['id'=>9],'old_chat_member'=>['user'=>['id'=>123,'is_bot'=>true],'status'=>$old],'new_chat_member'=>['user'=>['id'=>123,'is_bot'=>true],'status'=>$new]]]; }
 $temp=sys_get_temp_dir().'/ciro-groups-'.bin2hex(random_bytes(6)); mkdir($temp,0700);
 try {
     $store=new Zero\Store($temp); $api=new GroupApi(); $bot=new Zero\Bot(new Zero\Config('123:fake',[42],$temp),$store,$api); $groups=new Zero\GroupSupport($bot);
@@ -33,7 +34,7 @@ try {
     groupCheck(empty(end($api->calls)[1]['reply_markup']['inline_keyboard']),'new private guides also omit the invitation while groups are disabled');
     $bot->handle(groupCallback('custom:groups_mode'));
     groupCheck($store->groupsEnabled()&&(int)$store->query('SELECT groups_enabled FROM help_messages WHERE chat_id=7')->fetchColumn()===1,'enabling groups refreshes the saved guide again');
-    foreach(['group_help','help_groups_hint','groups_disabled'] as $key) groupCheck(isset($bot->catalog('text')[$key]),'group user text is editable: '.$key);
+    foreach(['group_help','group_welcome','help_groups_hint','groups_disabled'] as $key) groupCheck(isset($bot->catalog('text')[$key]),'group user text is editable: '.$key);
     groupCheck(isset($bot->catalog('button')['add_to_group'])&&!isset($bot->catalog('button')['groups_mode']),'the public invitation is customizable while its administrator control is not');
     $bot->handle(groupCallback('custom:edit:button:add_to_group'));
     $bot->handle(groupMessage('➕ ربات را به گروهم ببر',42,42));
@@ -45,10 +46,33 @@ try {
     foreach(['hello everyone','https://example.com/','/help@AnotherBot','/download@AnotherBot https://youtu.be/ybNMMK5Q318','/admin@CiroDownloaderBot'] as $text) $bot->handle(groupMessage($text,88));
     groupCheck(count($api->calls)===$before&&!$store->query('SELECT 1 FROM users WHERE id=88')->fetchColumn(),'group chatter and commands for other bots neither trigger replies nor inflate registered users');
     $bot->handle(groupMessage('/start@CiroDownloaderBot download',8,-100123,17));
-    groupCheck(str_contains(end($api->calls)[1]['text'],'دانلود ویدیو و صدا در گروه')&&end($api->calls)[1]['message_thread_id']===17&&!isset(end($api->calls)[1]['reply_markup']['keyboard']),'the Telegram group-add command opens a guide in its topic without a private keyboard');
+    groupCheck(str_contains(end($api->calls)[1]['text'],'به گروه اضافه شد')&&end($api->calls)[1]['message_thread_id']===17&&!isset(end($api->calls)[1]['reply_markup']),'the Telegram group-add command posts the welcome guide in its topic without buttons');
     $joined=groupMessage('',9,-55); $joined['message']['chat']['type']='group'; $joined['message']['new_chat_members']=[['id'=>123,'is_bot'=>true]];
     $bot->handle($joined);
-    groupCheck(end($api->calls)[1]['chat_id']===-55&&str_contains(end($api->calls)[1]['text'],'دانلود ویدیو و صدا در گروه'),'manually adding this bot to an ordinary group also opens its guide');
+    groupCheck(end($api->calls)[1]['chat_id']===-55&&str_contains(end($api->calls)[1]['text'],'به گروه اضافه شد'),'manually adding this bot to an ordinary group also posts its welcome guide');
+
+    $join=groupMembership('left','administrator'); $bot->handle($join);
+    $welcome=end($api->calls)[1];
+    groupCheck($welcome['chat_id']===-77&&str_contains($welcome['text'],'<b>🎬')&&str_contains($welcome['text'],'<blockquote>')&&str_contains($welcome['text'],'360p، 480p و 720p')&&str_contains($welcome['text'],'استخراج صدا')&&!isset($welcome['reply_markup']),'membership updates post a formatted step-by-step welcome and usage guide without buttons');
+    $before=count($api->calls); $bot->handle($join);
+    $sameJoin=$joined; $sameJoin['message']['chat']=['id'=>-77,'type'=>'supergroup']; $bot->handle($sameJoin);
+    $bot->handle(groupMessage('/start@CiroDownloaderBot download',9,-77));
+    $bot->handle(groupMembership('member','administrator',-78));
+    $other=$joined; $other['message']['new_chat_members']=[['id'=>999]]; $bot->handle($other);
+    groupCheck(count($api->calls)===$before,'duplicate updates, the group-add command, promotions and other members do not repeat the welcome');
+    $fresh=new Zero\Bot($bot->config,new Zero\Store($temp),$api); $fresh->handle($join);
+    groupCheck(count($api->calls)===$before,'the welcome marker survives a bot restart');
+    $bot->handle(groupMembership('administrator','left'));
+    $bot->handle(groupMembership('left','member'));
+    groupCheck(count($api->calls)===$before+1,'removing and adding the bot again allows one new welcome');
+    $before=count($api->calls); $store->set('groups_enabled','0'); $bot->handle(groupMembership('left','member',-79,'group'));
+    groupCheck(count($api->calls)===$before,'group welcomes honor the disabled group setting');
+    $store->set('groups_enabled','1');
+    $bot->handle(groupCallback('custom:edit:text:group_welcome'));
+    $bot->handle(groupMessage('<b>CUSTOM_GROUP_WELCOME</b><blockquote>{username}</blockquote>',42,42));
+    $bot->handle(groupMembership('left','member',-88));
+    groupCheck(str_contains(end($api->calls)[1]['text'],'CUSTOM_GROUP_WELCOME')&&str_contains(end($api->calls)[1]['text'],'<blockquote>CiroDownloaderBot</blockquote>'),'the membership welcome uses its editable user-facing template');
+    $store->query("DELETE FROM settings WHERE key='text.group_welcome'");
 
     $url='https://youtu.be/ybNMMK5Q318'; $request=groupMessage($url,11,-100123,17); $bot->handle($request);
     $job=$store->query('SELECT * FROM jobs WHERE update_id=?',[$request['update_id']])->fetch();

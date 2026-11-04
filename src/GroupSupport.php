@@ -70,6 +70,27 @@ final class GroupSupport
             }
         }
     }
+    public function welcome(int $chat,int $thread=0): void
+    {
+        if($chat>=0||!$this->bot->store->groupsEnabled()) return;
+        $key='group_welcomed.'.$chat;
+        if((int)$this->bot->store->get($key,'0')>0) return;
+        $message=$this->bot->send($chat,$this->bot->text('group_welcome',['username'=>$this->username()]),[],0,$thread);
+        if($message<1) throw new \RuntimeException('Missing group welcome message ID');
+        $this->bot->store->set($key,(string)$message);
+    }
+    public function membership(array $change): void
+    {
+        $chat=$change['chat']??[];
+        if(!in_array($chat['type']??'',['group','supergroup'],true)||(int)($chat['id']??0)>=0) return;
+        if((int)$this->bot->store->get('bot_id','0')<1) $this->username();
+        $botId=(int)$this->bot->store->get('bot_id','0');
+        $next=$change['new_chat_member']??[]; $previous=$change['old_chat_member']??[];
+        if($botId<1||(int)($next['user']['id']??0)!==$botId) return;
+        $member=static fn(array $state): bool=>in_array($state['status']??'',['creator','administrator','member'],true)||(($state['status']??'')==='restricted'&&!empty($state['is_member']));
+        if(!$member($next)) $this->bot->store->query('DELETE FROM settings WHERE key=?',['group_welcomed.'.(int)$chat['id']]);
+        elseif(!$member($previous)) $this->welcome((int)$chat['id']);
+    }
     public function message(array $update,int $user,int $chat,int $thread): void
     {
         $message=$update['message']; $text=trim((string)($message['text']??''));
@@ -81,7 +102,11 @@ final class GroupSupport
         }
         $added=false; $botId=(int)$this->bot->store->get('bot_id','0');
         foreach($message['new_chat_members']??[] as $member) if($botId>0&&(int)$member['id']===$botId) $added=true;
-        if($added||in_array($command,['start','help'],true)) {
+        if($added||($command==='start'&&$argument==='download')) {
+            $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+            $this->welcome($chat,$thread); return;
+        }
+        if(in_array($command,['start','help'],true)) {
             $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
             if($this->bot->allowed($user,$chat)) $this->help($chat,$thread);
             else $this->bot->send($chat,$this->bot->denial($chat),[],0,$thread);

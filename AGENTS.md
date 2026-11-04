@@ -10,4 +10,5 @@
 - Enforce admin-only access in message handlers, callbacks, and the worker before delivering files. Keep the restriction notice editable.
 - The main administration panel replaces the home reply keyboard with its own reply controls and a return to the main menu. Keep administration tools inside that panel and exclude their labels from Personalization.
 - Group use defaults on and is controlled from Personalization. Gate group requests, callbacks and worker delivery with that setting; keep administrator tools private. Group selections belong to the original sender and chat, and status/media must retain forum topic IDs. Ignore group chatter, other bots and commands addressed to another bot. Register public group text and the invitation button as user-facing UI.
+- Welcome the bot's own group membership once with an editable usage guide. Group-delivered video/audio captions have no inline buttons; preserve the private source-link button and pre-download quality controls.
 - Keep README minimal. Put detailed operational explanations in focused documents.

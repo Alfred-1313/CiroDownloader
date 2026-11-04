@@ -238,6 +238,7 @@ final class Bot
     }
     public function handle(array $update): void
     {
+        if(isset($update['my_chat_member'])) { (new GroupSupport($this))->membership($update['my_chat_member']); return; }
         $cb=$update['callback_query']??null; $message=$cb['message']??$update['message']??null;
         $user=(int)($cb['from']['id']??$message['from']['id']??0);
         $type=$message['chat']['type']??''; $group=in_array($type,['group','supergroup'],true);
