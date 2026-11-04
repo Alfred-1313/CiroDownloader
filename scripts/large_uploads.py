@@ -81,7 +81,7 @@ def install(api_id, api_hash):
     atomic(PRIVATE / 'api.env', ('TELEGRAM_API_ID=' + api_id + '\nTELEGRAM_API_HASH=' + api_hash + '\n').encode())
     api_compose = ('docker', 'compose', '-f', 'compose.telegram-api.yaml')
     print('Building the official Telegram Bot API server; this can take several minutes.', flush=True)
-    run(*api_compose, 'build', timeout=3600)
+    run(*api_compose, 'build', timeout=7200)
     run(*api_compose, 'up', '-d', '--no-build', timeout=180)
     for _ in range(60):
         try:

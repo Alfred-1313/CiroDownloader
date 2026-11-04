@@ -94,11 +94,11 @@ jobs:
 
   local-bot-api:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: Build the pinned official local Bot API
-        run: docker build -f Dockerfile.telegram-api -t ciro-telegram-api:test .
+        run: docker build --build-arg BUILD_JOBS=3 -f Dockerfile.telegram-api -t ciro-telegram-api:test .
       - name: Verify the server starts and accepts connections
         run: |
           docker run -d --name local-api-test -p 127.0.0.1:18081:8081 -e TELEGRAM_API_ID=123456 -e TELEGRAM_API_HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ciro-telegram-api:test
