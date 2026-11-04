@@ -1,5 +1,9 @@
 import importlib.util
+import os
 from pathlib import Path
+import select
+import signal
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -92,6 +96,35 @@ class LargeUploadMigrationTests(unittest.TestCase):
         request.assert_not_called()
         self.assertIn('BOT_API_URL=https://api.telegram.org', (self.project / '.env').read_text())
         self.assertFalse((self.private / 'migration.json').exists())
+
+
+class BuildOutputTests(unittest.TestCase):
+    def command(self, code):
+        return [sys.executable, '-B', '-c', 'import sys; sys.path.insert(0, ' + repr(str(SCRIPTS)) +
+                '); from large_uploads import run, MaintenanceError; ' + code]
+
+    def test_compiler_output_is_visible_before_build_finishes(self):
+        build = 'import sys; print("Compiling fixture", flush=True); input(); print("Linking fixture", file=sys.stderr, flush=True)'
+        command = self.command('run(sys.executable, "-u", "-c", ' + repr(build) + ', stream=True)')
+        with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, start_new_session=True) as process:
+            try:
+                self.assertTrue(select.select([process.stdout], [], [], 5)[0], 'Build output was hidden while the compiler was running')
+                self.assertEqual(process.stdout.readline().strip(), 'Compiling fixture')
+                output, _ = process.communicate('\n', timeout=5)
+                self.assertEqual(process.returncode, 0)
+                self.assertIn('Linking fixture', output)
+            finally:
+                if process.poll() is None:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+
+    def test_streamed_build_failure_is_not_reported_as_success(self):
+        command = self.command('run(sys.executable, "-c", "import sys; print(\'Compiler failure fixture\', file=sys.stderr); sys.exit(7)", stream=True)')
+        result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Compiler failure fixture', result.stdout)
+        self.assertIn('A Docker operation failed', result.stderr)
 
 
 if __name__ == '__main__':

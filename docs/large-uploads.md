@@ -28,6 +28,24 @@ Alternatively, run `bash manager.sh` as root from the installation checkout and 
 
 Changing `MAX_FILE_BYTES` alone cannot increase the hosted API's limit. Starting `compose.telegram-api.yaml` alone also does not migrate the bot; use the manager so logout, login, and configuration changes run in order.
 
+### If the build appears stuck
+
+The first build compiles Telegram's C++ server. It can take tens of minutes or longer on a small server; the Dockerfile uses one compiler job to limit memory use. The manager shows the current step and elapsed time, not a compiler percentage. An animated indicator alone does not prove that compilation is progressing.
+
+The manager prints a **Private log** path before starting each step. Keep the installation running and open a second SSH session to inspect that exact file:
+
+```bash
+tail -f /var/log/ciro-downloader/step-XXXXXXXX.log
+```
+
+Replace `step-XXXXXXXX.log` with the filename printed by the manager. The large-upload step records Docker's plain build output, compiler activity, and migration stages as they happen. To check which processes are using CPU without showing command arguments or credentials:
+
+```bash
+ps -eo comm,pcpu,etime --sort=-pcpu | head -12
+```
+
+Compiler processes such as `cc1plus` using CPU indicate ongoing work. Low CPU use alone does not identify a failure: the build may be downloading dependencies. Check the build log for progress or errors before retrying. Older manager versions hide compiler output, so their step log may show only the initial build message. Update before a future attempt; do not start a second setup or update the checkout while the current migration is running.
+
 ## Docker configuration managed by setup
 
 | Setting | Purpose |

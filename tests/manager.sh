@@ -16,6 +16,7 @@ ui_plan 1
 run_step 'Read a supplied document' cat <"$test_root/input" >"$test_root/progress"
 check cmp -s "$test_root/input" "$LAST_STEP_LOG"
 check grep -q '\[1/1\]' "$test_root/progress"
+check grep -q 'Private log:' "$test_root/progress"
 ui_plan 1
 if run_step 'Expected failure' bash -c 'printf "failure fixture\n" >&2; exit 7' >"$test_root/failure" 2>&1; then exit 1; else result=$?; fi
 check test "$result" -eq 7
@@ -42,6 +43,11 @@ if grep -q $'\033' "$test_root/menu"; then printf 'FAIL plain output has termina
 export COLUMNS=40
 ui_init; render_menu >"$test_root/narrow"
 check awk 'length($0)>40 {exit 1}' "$test_root/narrow"
+ui_plan 1
+ui_step_progress '/' 1631 >"$test_root/narrow-progress"
+check awk 'length($0)>40 {exit 1}' "$test_root/narrow-progress"
+check grep -q '\[1/1\] 1631s' "$test_root/narrow-progress"
+if grep -q '%' "$test_root/narrow-progress"; then printf 'FAIL misleading compiler percentage\n' >&2; exit 1; fi
 export COLUMNS=80
 unset NO_COLOR
 export CLICOLOR_FORCE=1 TERM=xterm-256color CIRO_ASCII=0

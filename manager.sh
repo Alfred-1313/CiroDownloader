@@ -25,13 +25,13 @@ run_step() {
   LAST_STEP_LOG="$(mktemp "$LOG_DIR/step-XXXXXXXX.log")" || return
   local started=$SECONDS result=0 frame=0 frames=('-' '\\' '|' '/')
   ui_step_start "$label"
+  ui_note "Private log: $LAST_STEP_LOG"
   "$@" <&0 >"$LAST_STEP_LOG" 2>&1 & RUN_PID=$!
   if [[ $UI_TTY == 1 ]]; then
     printf '\033[?25l'
     while kill -0 "$RUN_PID" 2>/dev/null; do
-      printf '\r\033[K  %s%s%s %s[%s/%s]%s %s  %s[%s] %s%%%s %ss' \
-        "$UI_KEY" "${frames[$frame]}" "$UI_RESET" "$UI_DIM" "$((STEP_DONE+1))" "$STEP_TOTAL" "$UI_RESET" "$label" \
-        "$UI_ACCENT" "$(ui_bar "$((STEP_DONE*100/STEP_TOTAL))")" "$((STEP_DONE*100/STEP_TOTAL))" "$UI_RESET" "$((SECONDS-started))"
+      printf '\r\033[K'
+      ui_step_progress "${frames[$frame]}" "$((SECONDS-started))"
       frame=$(((frame+1)%4)); sleep 0.2
     done
     printf '\r\033[K\033[?25h'

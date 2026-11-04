@@ -56,6 +56,10 @@ ui_bar() {
 }
 ui_plan() { STEP_TOTAL=$1; STEP_DONE=0; }
 ui_step_start() { printf '  %s[%s/%s]%s %s\n' "$UI_DIM" "$((STEP_DONE+1))" "$STEP_TOTAL" "$UI_RESET" "$1"; }
+ui_step_progress() {
+  # Keep animation on one short line even in a narrow mobile SSH terminal.
+  printf '  %s%s%s %s[%s/%s]%s %ss' "$UI_KEY" "$1" "$UI_RESET" "$UI_DIM" "$((STEP_DONE+1))" "$STEP_TOTAL" "$UI_RESET" "$2"
+}
 ui_step_end() {
   local label=$1 status=$2 seconds=$3
   if ((status==0)); then

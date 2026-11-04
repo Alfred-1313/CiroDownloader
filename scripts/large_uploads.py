@@ -19,11 +19,12 @@ LOCAL = 'http://ciro-telegram-api:8081'
 CLOUD = 'https://api.telegram.org'
 
 
-def run(*args, timeout=1800):
-    result = subprocess.run(args, cwd=PROJECT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+def run(*args, timeout=1800, stream=False):
+    result = subprocess.run(args, cwd=PROJECT, stdout=None if stream else subprocess.PIPE,
+                            stderr=subprocess.STDOUT if stream else subprocess.PIPE, timeout=timeout)
     if result.returncode:
         raise MaintenanceError('A Docker operation failed. Check local Bot API service status and disk space.')
-    return result.stdout.decode(errors='replace').strip()
+    return result.stdout.decode(errors='replace').strip() if result.stdout is not None else ''
 
 
 def request(base, token, method):
@@ -81,7 +82,9 @@ def install(api_id, api_hash):
     atomic(PRIVATE / 'api.env', ('TELEGRAM_API_ID=' + api_id + '\nTELEGRAM_API_HASH=' + api_hash + '\n').encode())
     api_compose = ('docker', 'compose', '-f', 'compose.telegram-api.yaml')
     print('Building the official Telegram Bot API server; this can take several minutes.', flush=True)
-    run(*api_compose, 'build', timeout=7200)
+    # Let the manager's private step log receive compiler output as it happens.
+    run(*api_compose, '--progress', 'plain', 'build', timeout=7200, stream=True)
+    print('Starting the local Telegram Bot API service.', flush=True)
     run(*api_compose, 'up', '-d', '--no-build', timeout=180)
     for _ in range(60):
         try:
@@ -100,6 +103,7 @@ def install(api_id, api_hash):
         marker('preparing')
         phase = 'preparing'
     if phase == 'preparing':
+        print('Pausing bot and worker for migration.', flush=True)
         queue_pause()
         try:
             run('docker', 'compose', 'stop', 'bot', 'worker')
@@ -114,11 +118,13 @@ def install(api_id, api_hash):
         values['MAX_FILE_BYTES'] = '1990000000'
         atomic(path, ''.join(key + '=' + value + '\n' for key, value in values.items()).encode())
     if phase == 'pending_logout':
+        print('Logging the bot out of the hosted Telegram API.', flush=True)
         if not request(CLOUD, values['BOT_TOKEN'], 'logOut'):
             raise MaintenanceError('Cloud logout was not confirmed. Bot is paused; retry this setup. Do not start it manually.')
         marker('logged_out')
         phase = 'logged_out'
     if phase == 'logged_out':
+        print('Verifying login through the local Telegram API.', flush=True)
         if not request('http://127.0.0.1:18081', values['BOT_TOKEN'], 'getMe'):
             raise MaintenanceError('Local Telegram login failed. Bot is paused; verify API credentials and retry setup.')
         marker('authenticated')
@@ -128,6 +134,7 @@ def install(api_id, api_hash):
     # A previous attempt may have restarted the services before being interrupted.
     # Do not recreate them while a resumed download is running.
     queue_pause()
+    print('Restarting bot and worker with the local Telegram API.', flush=True)
     run('docker', 'compose', 'up', '-d', '--no-deps', '--force-recreate', 'bot', 'worker')
     queue_resume()
     MARKER.unlink(missing_ok=True)
