@@ -93,6 +93,11 @@ final class Personalization
         if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return false; }
         try {
             $ui->preview($values);
+            if((array_key_exists('text.help',$values)||array_key_exists('text.help_groups_hint',$values))&&!(new GroupSupport($this->bot))->helpFits()) {
+                $ui->preview([]);
+                $this->item($chat,$kind,$key,$message,$ui->text('custom_help_too_long'));
+                return false;
+            }
             $this->item($chat,$kind,$key,$message,$ui->text('custom_saved'));
         } catch(\Throwable) {
             $ui->preview([]);

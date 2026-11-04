@@ -69,7 +69,8 @@ try {
         $deadline=microtime(true)+10;
         do {
             $job=$store->query('SELECT * FROM jobs WHERE update_id=1')->fetch();
-            if($job['status']==='failed') break;
+            $records=recorded($log);
+            if($job['status']==='failed'&&count($records)>=2) break;
             usleep(100000);
         } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
         $records=recorded($log);

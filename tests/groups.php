@@ -7,6 +7,7 @@ final class GroupApi implements Zero\Api {
     public array $calls=[]; public int $next=500;
     public function call(string $method,array $params=[]): mixed {
         $this->calls[]=[$method,$params];
+        if(isset($params['text'])&&Zero\TextFormat::length(html_entity_decode(strip_tags($params['text']),ENT_QUOTES|ENT_HTML5,'UTF-8'))>4096) throw new RuntimeException('Telegram text limit exceeded',400);
         if($method==='getMe') return ['id'=>123,'username'=>'CiroDownloaderBot','is_bot'=>true];
         return $method==='sendMessage'?['message_id'=>++$this->next]:true;
     }
@@ -81,4 +82,19 @@ try {
     groupCheck((int)$store->query("SELECT COUNT(*) FROM jobs WHERE user_id=21 AND chat_id=21 AND status='queued'")->fetchColumn()===1,'private downloading still works with groups disabled');
     $bot->handle(groupCallback('custom:groups_mode',7,7));
     groupCheck(!$store->groupsEnabled(),'ordinary users cannot enable group use');
+
+    $bot->handle(groupCallback('custom:edit:text:help'));
+    $bot->handle(groupMessage('<b>'.str_repeat('A',2200).'</b>',42,42));
+    $hint=$bot->ui->template('help_groups_hint');
+    $bot->handle(groupCallback('custom:edit:text:help_groups_hint'));
+    $bot->handle(groupMessage('<blockquote>'.str_repeat('B',2200).'</blockquote>',42,42));
+    groupCheck($bot->ui->template('help_groups_hint')===$hint&&str_contains(end($api->calls)[1]['text'],$bot->text('custom_help_too_long')),'the editor rejects an oversized combined guide even while group use is disabled');
+    // Existing oversized settings must also remain usable after an upgrade.
+    $store->set('text.help_groups_hint','<blockquote>'.str_repeat('B',2200).'</blockquote>');
+    $store->set('groups_enabled','1'); $bot->handle(groupMessage('/help',23,23));
+    $long=end($api->calls)[1];
+    groupCheck(str_contains($long['text'],'<b>'.str_repeat('A',2200).'</b>')&&!str_contains($long['text'],str_repeat('B',2200))&&isset($long['reply_markup']['inline_keyboard'][0][0]['url']),'a legacy oversized guide keeps its formatted main text and invitation without exceeding Telegram limits');
+    $count=(int)$store->query('SELECT COUNT(*) FROM help_messages')->fetchColumn();
+    $bot->handle(groupCallback('custom:groups_mode')); $bot->handle(groupCallback('custom:groups_mode'));
+    groupCheck((int)$store->query('SELECT COUNT(*) FROM help_messages')->fetchColumn()===$count,'refreshing oversized legacy guides does not discard their tracking records');
 } finally { Zero\Download::clean($temp); }

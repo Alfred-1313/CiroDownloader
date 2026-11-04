@@ -31,8 +31,13 @@ final class GroupSupport
     {
         $key=$chat<0?($this->bot->store->groupsEnabled()?'group_help':'groups_disabled'):'help';
         $text=$this->bot->text($key,['username'=>$chat<0?$this->username():$this->bot->store->get('bot_username')]);
-        if($chat>0&&$rows) $text.="\n\n".$this->bot->text('help_groups_hint');
+        if($chat>0&&$rows&&$this->helpFits()) $text.="\n\n".$this->bot->text('help_groups_hint');
         return $text;
+    }
+    public function helpFits(): bool
+    {
+        $combined=$this->bot->text('help')."\n\n".$this->bot->text('help_groups_hint');
+        return TextFormat::length(html_entity_decode(strip_tags($combined),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=3900;
     }
     public function help(int $chat,int $thread=0): void
     {
