@@ -124,8 +124,11 @@ try {
     if(!$legacy) qualityCheck(str_contains($caption,'tg-emoji'),'custom captions retain premium emoji');
     else qualityCheck(str_contains($caption,'360p')&&!str_contains($caption,'https://')&&!str_contains($caption,'ویدیوی شما آماده است'),'an upgraded legacy caption shows quality and duration without the old heading or a duplicate raw URL');
     qualityCheck(str_contains($caption,Zero\Ui::duration((int)$uploads[0]['params']['duration'])),'the final caption contains the formatted duration');
-    $sourceButton=json_decode($uploads[0]['params']['reply_markup'],true)['inline_keyboard'][0][0];
-    qualityCheck($sourceButton['style']==='primary'&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered file has a blue URL button linking to the original YouTube video');
+    if($group) qualityCheck(!isset($uploads[0]['params']['reply_markup']),'delivered group video and audio have no buttons beneath their captions');
+    else {
+        $sourceButton=json_decode($uploads[0]['params']['reply_markup'],true)['inline_keyboard'][0][0];
+        qualityCheck($sourceButton['style']==='primary'&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered private file has a blue URL button linking to the original YouTube video');
+    }
     qualityCheck(count(array_filter($records,fn($record)=>$record['method']==='sendMessage'))===1,'inspection, choices, download and completion keep one status message');
     qualityCheck(end($records)['params']['caption']===''&&json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']===[],'the old poster caption is cleared only after a successful file upload');
     foreach($records as $record) if(str_starts_with($record['method'],'editMessage')) qualityCheck((int)$record['params']['message_id']===501,'all text, media and caption edits keep the original message ID');

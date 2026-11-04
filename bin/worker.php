@@ -67,9 +67,11 @@ while(true) {
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             $caption=$bot->text($audio?'audio_caption':'video_caption',['title'=>mb_substr($media['title'],0,100),
                 'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Zero\Ui::duration($media['duration']),'url'=>$job['url']]);
-            $link=$bot->ui->button('source_video'); $link['url']=$job['url'];
-            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
-                'reply_markup'=>['inline_keyboard'=>[[$link]]]];
+            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
+            if((int)$job['chat_id']>0) {
+                $link=$bot->ui->button('source_video'); $link['url']=$job['url'];
+                $params['reply_markup']=['inline_keyboard'=>[[$link]]];
+            }
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             if($audio) $api->call('sendAudio',$params+['audio'=>new CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
