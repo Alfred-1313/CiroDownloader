@@ -99,12 +99,12 @@ try {
         ['format_id'=>'bad/selector','width'=>640,'height'=>480,'vcodec'=>'avc1','acodec'=>'none'],
     ]];
     $options=Zero\Download::qualityOptions($info);
-    ensure(array_keys($options)===[360,480,720]&&count($options[480])===2,'only real 360p, 480p and 720p qualities are offered, deduplicated and portrait-aware');
+    ensure(array_keys($options)===[360,480,720,1080]&&count($options[480])===2&&count($options[1080])===2,'only supported real qualities are offered, deduplicated and portrait-aware');
     $partial=$info;
     $partial['formats']=array_values(array_filter($info['formats'],fn($format)=>min((int)($format['width']??0),(int)($format['height']??0))!==480));
-    ensure(array_keys(Zero\Download::qualityOptions($partial))===[360,720],'missing 480p is omitted while the other available qualities remain');
+    ensure(array_keys(Zero\Download::qualityOptions($partial))===[360,720,1080],'missing 480p is omitted while the other available qualities remain');
     $audioOnly=['formats'=>[
-        ['format_id'=>'137','width'=>1920,'height'=>1080,'vcodec'=>'avc1','acodec'=>'none'],
+        ['format_id'=>'160','width'=>256,'height'=>144,'vcodec'=>'avc1','acodec'=>'none'],
         ['format_id'=>'140','vcodec'=>'none','acodec'=>'aac'],
     ]];
     ensure(Zero\Download::qualityOptions($audioOnly)===[]&&Zero\Download::audioOptions($audioOnly)===[['id'=>'140']],'no unsupported or invented video quality appears when only audio is available within the policy');
@@ -113,10 +113,10 @@ try {
     $store->query("UPDATE jobs SET status='running' WHERE id=?",[$job['id']]);
     $bot->qualityMenu($job,['title'=>'<title> & audio','options'=>$options]);
     $qualityRows=end($api->calls)[1]['reply_markup']['inline_keyboard'];
-    ensure($qualityRows[0][0]['text']==='360p'&&$qualityRows[0][1]['text']==='480p'&&$qualityRows[1][0]['text']==='720p','quality buttons show the allowed choices in ascending order');
+    ensure($qualityRows[0][0]['text']==='🎬 360p (⌛)'&&$qualityRows[0][1]['text']==='🎬 480p (⌛)'&&$qualityRows[1][0]['text']==='🎬 720p (⌛)'&&$qualityRows[1][1]['text']==='🎬 1080p','quality buttons match the requested two-column layout');
     ensure($store->choose((int)$job['id'],7,7,720)===null,'another user cannot select a quality for this job');
-    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode($options+[1080=>[['id'=>'137','audio'=>false]]]),$job['id']]);
-    ensure($store->choose((int)$job['id'],9,9,1080)===null,'1080p choices from an older saved menu are also rejected');
+    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode($options+[2160=>[['id'=>'137','audio'=>false]]]),$job['id']]);
+    ensure($store->choose((int)$job['id'],9,9,2160)===null,'unsupported qualities cannot be forged into a saved menu');
     $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode(Zero\Download::qualityOptions($partial)),$job['id']]);
     ensure($store->choose((int)$job['id'],9,9,480)===null,'an unavailable allowed quality cannot be downloaded');
     $chosen=$store->choose((int)$job['id'],9,9,720);
@@ -135,6 +135,8 @@ try {
     $bot->handle(input(10,'https://youtu.be/ybNMMK5Q318'));
     $audioJob=$store->query('SELECT * FROM jobs WHERE user_id=10')->fetch();
     $bot->qualityMenu($audioJob,['title'=>'Audio test','options'=>$options+['audio'=>$audioOptions]]);
+    $audioRows=end($api->calls)[1]['reply_markup']['inline_keyboard'];
+    ensure($audioRows[2][0]['text']==='🎶 Audio'&&!isset($audioRows[2][0]['style']),'audio has a neutral full-width row below the qualities');
     ensure($store->choose((int)$audioJob['id'],7,7,'audio')===null,'another user cannot request the audio of this job');
     $store->set('admins_only','1');
     $bot->handle(click(10,'quality:'.$audioJob['id'].':audio'));
@@ -149,3 +151,4 @@ try {
     $bot->handle(click(42,'custom:setcolor:extract_audio:danger'));
     ensure($store->get('button.style.extract_audio')==='danger'&&str_contains($bot->text('audio_caption',['title'=>'Test','format'=>'MP3']),'MP3'),'audio captions and button styles use the shared Personalization editor');
 } finally { Zero\Download::clean($temp); }
+

@@ -15,6 +15,7 @@ final class MediaFailure extends \RuntimeException
             'blocked'=>'یوتیوب دسترسی این سرور را محدود کرده است. مدیر باید کوکی ورود یا اتصال خروجی سرور را تنظیم و آزمایش کند.',
             'cookies'=>'کوکی ورود یوتیوب معتبر یا قابل خواندن نیست؛ مدیر باید آن را به‌روز کند.',
             'size'=>'حجم این ویدیو از سقف ارسال ربات بیشتر است؛ یک ویدیوی کوتاه‌تر بفرست.',
+            'storage'=>'فضای خالی سرور برای آماده‌سازی یا ارسال فایل کافی نیست؛ مدیر باید فضای سرور را بررسی کند.',
             'restricted'=>'این ویدیو خصوصی، حذف‌شده یا دارای محدودیت دسترسی است و قابل دانلود نیست.',
             'duration'=>'پخش زنده یا ویدیوی بدون مدت مشخص پشتیبانی نمی‌شود.',
             'network'=>'اتصال سرور به یوتیوب برقرار نشد؛ کمی بعد دوباره تلاش کن.',
@@ -42,6 +43,11 @@ final class MediaFailure extends \RuntimeException
 final class Download
 {
     public function __construct(private Config $config) {}
+    public static function ensureSpace(string $folder,int $required=268435456): void
+    {
+        $free=@disk_free_space($folder);
+        if($free===false||$free<$required) throw new MediaFailure('storage','Insufficient free disk space');
+    }
     public function run(array $command, string $folder, int $seconds): string
     {
         $stdout=$folder.'/stdout.log'; $stderr=$folder.'/stderr.log';
@@ -55,6 +61,7 @@ final class Download
             do {
                 $status=proc_get_status($proc);
                 if (!$status['running']) { $exit=$status['exitcode']; break; }
+                self::ensureSpace($folder);
                 $bytes=0;
                 foreach (glob($folder.'/*')?:[] as $p) { clearstatcache(true,$p); if(is_file($p)) $bytes+=filesize($p); }
                 if ($bytes>$this->config->maxBytes*3) throw new MediaFailure('size','Temporary size limit exceeded');
@@ -294,3 +301,4 @@ final class Download
         rmdir($folder);
     }
 }
+

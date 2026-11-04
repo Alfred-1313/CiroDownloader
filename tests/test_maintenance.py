@@ -129,6 +129,15 @@ class MaintenanceTests(unittest.TestCase):
         with tarfile.open(fileobj=io.BytesIO(self.app.data)) as archive:
             self.assertEqual(archive.extractfile('youtube-cookies.txt').read(), b'FAKE_PRIVATE_COOKIE')
 
+    def test_restore_does_not_silently_move_between_cloud_and_local_api(self):
+        backup = self.app.backup()
+        local = ENV + b'BOT_API_URL=http://ciro-telegram-api:8081\nMAX_FILE_BYTES=1990000000\n'
+        (self.project / '.env').write_bytes(local)
+        with self.assertRaisesRegex(maintenance.MaintenanceError, 'different Telegram API'):
+            self.app.restore(backup)
+        self.assertEqual((self.project / '.env').read_bytes(), local)
+        self.assertEqual(self.app.services, ['bot'])
+
     def test_failed_restore_rolls_back_data_and_configuration(self):
         backup = self.app.backup()
         changed = ENV.replace(b'123:FAKE_OLD_TOKEN', b'321:FAKE_NEW_TOKEN')
@@ -215,3 +224,4 @@ class MaintenanceTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

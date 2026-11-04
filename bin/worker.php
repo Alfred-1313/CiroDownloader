@@ -53,7 +53,7 @@ while(true) {
                 }
                 continue;
             }
-            if(disk_free_space($downloads)<$config->maxBytes*4) throw new RuntimeException('Insufficient disk space');
+            Zero\Download::ensureSpace($downloads);
             $bot->jobMessage($job,$bot->text($audio?'audio_downloading':'downloading'));
             $options=json_decode($job['options'],true);
             $quality=$job['quality']!==null?(int)$job['quality']:null;
@@ -64,6 +64,10 @@ while(true) {
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); continue;
             }
             $stage='upload';
+            if($config->api==='http://ciro-telegram-api:8081') {
+                // The local API receives a second copy of the completed file.
+                Zero\Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
+            }
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             $caption=$bot->text($audio?'audio_caption':'video_caption',['title'=>mb_substr($media['title'],0,100),
                 'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Zero\Ui::duration($media['duration']),'url'=>$job['url']]);
@@ -92,3 +96,4 @@ while(true) {
         $store->query("DELETE FROM jobs WHERE status IN ('done','failed','cancelled') AND created<?",[time()-86400*7]);
     } catch(Throwable $e) { error_log('Worker error: '.get_class($e)); sleep(5); }
 }
+

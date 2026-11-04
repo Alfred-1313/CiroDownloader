@@ -111,6 +111,9 @@ configure_initial() {
   ui_ok 'Bot configuration saved.'
 }
 require_configuration() { [[ -f .env ]] || { ui_warn 'Install the bot first to create its configuration.'; return 1; }; }
+require_no_api_migration() {
+  [[ ! -f /var/lib/ciro-downloader-telegram-api/migration.json ]] || { ui_error 'Local Telegram API migration is incomplete. Finish it in Settings > Large uploads first.'; return 1; }
+}
 validate_bot() {
   docker compose run --rm --no-deps -T bot php -r 'require "src/Core.php"; $api=new Zero\Telegram(Zero\Config::load()); $me=$api->call("getMe"); $hook=$api->call("getWebhookInfo"); if(!empty($hook["url"])) {fwrite(STDERR,"A webhook is configured. Use a dedicated bot token or remove the webhook first.\n");exit(1);} echo "Connected as @".$me["username"].PHP_EOL;'
 }
@@ -133,6 +136,7 @@ enable_telegram_updates() {
 
 install_bot() {
   ui_screen; ui_section 'Install Ciro Downloader'
+  require_no_api_migration || return
   require_docker install || return
   configure_initial || return
   ui_plan 5
@@ -145,6 +149,7 @@ install_bot() {
 }
 update_bot() {
   ui_screen; ui_section 'Update'
+  require_no_api_migration || return
   require_configuration || return
   [[ -d .git && -z $(git status --porcelain) ]] || { ui_warn 'The checkout contains local changes or has no Git history. Nothing was fetched.'; return 1; }
   local origin
@@ -164,6 +169,7 @@ update_bot() {
   ui_ok 'Update complete. Your data and settings were kept.'
 }
 start_services() {
+  require_no_api_migration || return
   ui_section 'Start services'; require_configuration || return; require_docker || return; ui_plan 1
   run_step 'Start bot and worker' docker compose up -d || return
   ui_ok 'Services started.'
@@ -174,6 +180,7 @@ stop_services() {
   ui_ok 'Services stopped. Data and settings were kept.'
 }
 restart_services() {
+  require_no_api_migration || return
   ui_section 'Restart services'; require_configuration || return; require_docker || return; ui_plan 1
   run_step 'Restart bot and worker' docker compose restart || return
   ui_ok 'Services restarted.'
@@ -235,6 +242,26 @@ edit_setting() {
   else result=$?; fi
   rm -f -- "$SECRET_TMP"; SECRET_TMP=''; return "$result"
 }
+enable_large_uploads() {
+  ui_screen; ui_section 'Large Telegram uploads'
+  require_configuration || return; require_docker || return; require_python || return
+  ui_note 'Get your API ID and API hash at https://my.telegram.org/apps'
+  ui_note 'The API hash is hidden and stored privately on this server.'
+  ui_note 'A local Telegram server is built from official source; the first build can take a long time.'
+  ui_warn 'The bot pauses during migration. The cloud API may be unavailable for 10 minutes after logout.'
+  ui_note 'Large videos require free disk space for downloading, conversion and upload.'
+  local api_id api_hash result=0
+  ui_prompt 'API ID (Enter to go back): '; read -r api_id || return 0
+  [[ -n $api_id ]] || return 0
+  ui_prompt 'API hash: '; read -rs api_hash || return 0; printf '\n'
+  SECRET_TMP="$(mktemp)" || return
+  printf '%s\n%s\n' "$api_id" "$api_hash" >"$SECRET_TMP"; unset api_id api_hash
+  ui_plan 1
+  if run_step 'Build local Telegram API and migrate bot' python3 scripts/large_uploads.py "$SECRET_TMP"; then
+    ui_ok 'Large uploads enabled. Send a video to test delivery.'
+  else result=$?; fi
+  rm -f -- "$SECRET_TMP"; SECRET_TMP=''; return "$result"
+}
 import_youtube_cookies() {
   ui_screen; ui_section 'Import YouTube cookies'
   require_configuration || return; require_docker || return
@@ -281,9 +308,13 @@ delete_bot() {
     systemctl stop ciro-downloader-updater.service >/dev/null 2>&1 || true
     if mountpoint -q /run/ciro-downloader-data; then umount /run/ciro-downloader-data || return; fi
   fi
+  if [[ -f /var/lib/ciro-downloader-telegram-api/api.env ]]; then
+    run_step 'Remove the local Telegram API container' docker compose -f compose.telegram-api.yaml down --remove-orphans || return
+  fi
   run_step "Remove this project's containers and data" docker compose down --volumes --remove-orphans || return
   docker image rm ciro-downloader:local >/dev/null 2>&1 || true
   run_step 'Remove the local token file' rm -f -- "$PROJECT_DIR/.env" || return
+  rm -f -- /var/lib/ciro-downloader-telegram-api/api.env /var/lib/ciro-downloader-telegram-api/migration.json
   rm -f -- /var/lib/ciro-downloader-updater/recovery.json /var/lib/ciro-downloader-updater/completion-pending.json /var/lib/ciro-downloader-updater/previous.json
   ui_ok 'Ciro Downloader removed. Source code and backups were kept.'
 }
@@ -339,9 +370,10 @@ settings_menu() {
     ui_row 1 'Bot token' 'hidden input, checked before apply'
     ui_row 2 Administrators 'Telegram IDs separated by commas'
     ui_row 3 'YouTube proxy' 'set, change or disable'
+    ui_row 4 'Large uploads' 'enable a private local Telegram Bot API'
     ui_row 0 Back; ui_rule
-    ui_prompt 'Choose [0-3]: '; read -r choice || return 0
-    case "$choice" in 1) with_lock edit_setting BOT_TOKEN || true ;; 2) with_lock edit_setting ADMIN_IDS || true ;; 3) with_lock edit_setting YOUTUBE_PROXY || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
+    ui_prompt 'Choose [0-4]: '; read -r choice || return 0
+    case "$choice" in 1) with_lock edit_setting BOT_TOKEN || true ;; 2) with_lock edit_setting ADMIN_IDS || true ;; 3) with_lock edit_setting YOUTUBE_PROXY || true ;; 4) with_lock enable_large_uploads || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
     ui_pause
   done
 }
@@ -403,3 +435,4 @@ main() {
   esac
 }
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then main "$@"; fi
+

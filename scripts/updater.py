@@ -183,6 +183,8 @@ class Agent:
 
     def api(self, method, params):
         url = self.env.get('BOT_API_URL', 'https://api.telegram.org').rstrip('/')
+        if url == 'http://ciro-telegram-api:8081':
+            url = 'http://127.0.0.1:18081'
         url += '/bot' + self.env['BOT_TOKEN'] + '/' + method
         body = urllib.parse.urlencode({key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value for key, value in params.items()}).encode()
         with urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=30) as response:
@@ -408,6 +410,11 @@ class Agent:
             command('git', 'merge-base', '--is-ancestor', current, target)
         if not SHA.fullmatch(target):
             raise RuntimeError('Invalid release reference')
+        if self.env.get('BOT_API_URL', '').rstrip('/') == 'http://ciro-telegram-api:8081':
+            compose = command('git', 'show', target + ':compose.yaml')
+            updater = command('git', 'show', target + ':scripts/updater.py')
+            if 'telegram-api-data:/telegram-api:ro' not in compose or '127.0.0.1:18081' not in updater:
+                raise RuntimeError('Target release does not support the configured local Telegram API')
         self.wait_idle()
         command('docker', 'tag', IMAGE, previous['image'])
         atomic_json(recovery, {'previous': previous, 'job': self.job})
@@ -439,6 +446,8 @@ class Agent:
                     from_version=previous['version'] if self.job['action'] == 'update' else None)
 
     def tick(self):
+        if Path('/var/lib/ciro-downloader-telegram-api/migration.json').exists():
+            return
         # Recover a host reboot or killed updater before accepting another request.
         recovery = STATE / 'recovery.json'
         if recovery.is_file():
@@ -494,3 +503,4 @@ if __name__ == '__main__':
         # Never log urllib exceptions: their URLs contain the bot token.
         print('Host updater error: ' + type(error).__name__, file=sys.stderr)
         sys.exit(1)
+

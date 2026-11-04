@@ -17,6 +17,7 @@ spec.loader.exec_module(updater)
 class TestAgent(updater.Agent):
     def __init__(self, data):
         self.data = data
+        self.env = {}
         self.admins = {42}
         self.job = None
         self.last_beat = 0
@@ -290,3 +291,4 @@ class UpdaterTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

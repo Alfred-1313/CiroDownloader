@@ -8,6 +8,7 @@ x-common: &common
   read_only: true
   volumes:
     - data:/app/storage
+    - telegram-api-data:/telegram-api:ro
   tmpfs:
     - /tmp:size=64m,mode=1777
   mem_limit: 768m
@@ -30,3 +31,6 @@ services:
     command: [php, bin/worker.php]
 volumes:
   data:
+  telegram-api-data:
+    name: ciro-downloader-telegram-api-data
+

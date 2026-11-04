@@ -16,6 +16,7 @@ COPY VERSION CHANGELOG.json ./
 # Git checkouts created by the installer may inherit umask 077. Normalize the
 # code permissions in the image before dropping privileges to the runtime user.
 RUN chmod -R u=rwX,go=rX /app/src /app/bin /app/resources /app/VERSION /app/CHANGELOG.json \
-    && mkdir /app/storage && chown zero:zero /app/storage
+    && mkdir /app/storage /telegram-api && chown zero:zero /app/storage /telegram-api
 USER zero
 CMD ["php", "bin/bot.php"]
+
