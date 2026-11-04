@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/Updates.php';
 require_once __DIR__.'/Personalization.php';
+require_once __DIR__.'/GroupSupport.php';
 
 final class Bot
 {
@@ -11,15 +12,16 @@ final class Bot
     public function text(string $key,array $values=[],array $raw=[]): string { return $this->ui->text($key,$values,$raw); }
     public function label(string $key): string { return $this->ui->label($key); }
     public function admin(int $id): bool { return in_array($id,$this->config->admins,true); }
-    public function allowed(int $id): bool { return $this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1'); }
-    public function denial(): string { return $this->text($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline'); }
+    public function allowed(int $id,?int $chat=null): bool { return !($chat<0&&!$this->store->groupsEnabled())&&($this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1')); }
+    public function denial(?int $chat=null): string { return $this->text($chat<0&&!$this->store->groupsEnabled()?'groups_disabled':($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline')); }
     public function button(string $key,string $data): array { return $this->ui->button($key,$data); }
     public function replyButton(string $key): array { return $this->ui->button($key); }
-    public function send(int $chat,string $text,array $rows=[],int $message=0): int
+    public function send(int $chat,string $text,array $rows=[],int $message=0,int $thread=0): int
     {
         $params=['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true];
         if($rows||$message>0) $params['reply_markup']=['inline_keyboard'=>$rows];
         if($message>0) $params['message_id']=$message;
+        elseif($chat<0&&$thread>0) $params['message_thread_id']=$thread;
         $result=$this->api->call($message>0?'editMessageText':'sendMessage',$params);
         return $message>0?$message:(int)($result['message_id']??0);
     }
@@ -41,6 +43,7 @@ final class Bot
             catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; }
         }
         if($photo) $params['photo']=$saved['poster'];
+        if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call($photo?'sendPhoto':'sendMessage',$params);
         if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing download status message ID');
         $this->store->query('UPDATE jobs SET message_id=? WHERE id=?',[(int)$result['message_id'],$job['id']]);
@@ -53,6 +56,7 @@ final class Bot
             if($message>0) $this->api->call('editMessageMedia',$params+['message_id'=>$message,
                 'media'=>['type'=>'photo','media'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']]);
             else {
+                if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
                 $result=$this->api->call('sendPhoto',$params+['photo'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']);
                 $message=(int)($result['message_id']??0);
                 if(!$message) throw new \RuntimeException('Missing poster message ID');
@@ -221,31 +225,50 @@ final class Bot
         }
     }
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
+    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0): void
+    {
+        $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+        if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return; }
+        $result=$this->store->enqueue($update,$user,$chat,$url,$thread);
+        if($result==='queued') {
+            $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
+            try { $this->jobMessage($job,$this->text('queued')); }
+            catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
+        } elseif($result!=='duplicate') $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
+    }
     public function handle(array $update): void
     {
         $cb=$update['callback_query']??null; $message=$cb['message']??$update['message']??null;
         $user=(int)($cb['from']['id']??$message['from']['id']??0);
-        if(!$message||($message['chat']['type']??'')!=='private'||!$user) return;
+        $type=$message['chat']['type']??''; $group=in_array($type,['group','supergroup'],true);
+        if(!$message||(!$group&&$type!=='private')||!$user||!empty(($cb['from']??$message['from'])['is_bot'])||($group&&!empty($message['sender_chat']))) return;
         $chat=(int)$message['chat']['id'];
-        $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+        if(($group&&$chat>=0)||(!$group&&$chat!==$user)) return;
+        $thread=$group?max(0,(int)($message['message_thread_id']??0)):0;
+        if($group&&!$this->store->groupsEnabled()) {
+            if($cb) $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('groups_disabled'),'show_alert'=>true]);
+            return;
+        }
+        if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality;
-            if($privileged&&!$this->admin($user)) {
+            if($privileged&&($group||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
-            if(!$this->allowed($user)) {
+            if(!$this->allowed($user,$chat)) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
-                $this->send($chat,$this->denial()); return;
+                $this->send($chat,$this->denial($chat),[],0,$thread); return;
             }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
-            $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$action==='help'?mb_substr($this->ui->plain('help'),0,190):'','show_alert'=>$action==='help','cache_time'=>0]);
-            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
+            if(!$group) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            if($action==='help'||($group&&in_array($action,['home','download'],true))) { (new GroupSupport($this))->help($chat,$thread); return; }
             $menu=(int)($message['message_id']??0);
             if($custom->handle($chat,$user,$action,$menu)) return;
             if($action==='home') $this->home($chat,$user);
-            elseif($action==='help'||$action==='update:progress') return;
+            elseif($action==='update:progress') return;
             elseif($action==='download') $this->send($chat,$this->text('prompt'));
             elseif($action==='admin') $this->panel($chat,$menu);
             elseif($action==='health') $this->health($chat);
@@ -272,6 +295,7 @@ final class Bot
             }
             return;
         }
+        if($group) { (new GroupSupport($this))->message($update,$user,$chat,$thread); return; }
         if(!$this->allowed($user)) { $this->send($chat,$this->denial()); return; }
         $text=trim((string)($message['text']??''));
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
@@ -289,7 +313,7 @@ final class Bot
             if($reply==='back_home') { $this->home($chat,$user); return; }
         }
         if(in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
-        if($text==='/help'||$reply==='help') { $this->send($chat,$this->text('help')); return; }
+        if($text==='/help'||$reply==='help') { (new GroupSupport($this))->help($chat); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
@@ -300,13 +324,6 @@ final class Bot
         if($state==='cookie.upload'&&$this->admin($user)) { $this->cookieNotice($chat,$user,$this->text('cookie_waiting')); return; }
         $url=youtubeUrl($text);
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
-        $result=$this->store->enqueue((int)$update['update_id'],$user,$chat,$url);
-        if($result==='queued') {
-            $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[(int)$update['update_id']])->fetch();
-            try { $this->jobMessage($job,$this->text('queued')); }
-            catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
-            return;
-        }
-        if($result!=='duplicate') $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}));
+        $this->requestVideo((int)$update['update_id'],$user,$chat,$url);
     }
 }

@@ -124,6 +124,6 @@ try {
     }
     $before=count($api->calls);
     $bot->handle(cb(1,'help'));
-    check(count($api->calls)===$before+1&&end($api->calls)[0]==='answerCallbackQuery'&&end($api->calls)[1]['show_alert']===true,'help shown in a single callback alert');
+    check(count($api->calls)>=$before+2&&end($api->calls)[0]==='sendMessage'&&str_contains(end($api->calls)[1]['text'],'راهنما'),'legacy Help callbacks open a full guide that can contain the group invitation');
     echo "All tests passed.\n";
 } finally { Zero\Download::clean($temp); }

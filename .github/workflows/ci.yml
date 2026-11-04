@@ -30,6 +30,7 @@ jobs:
           php tests/customization.php
           php tests/personalization_scope.php
           php tests/admin_keyboard.php
+          php tests/groups.php
           php tests/posters.php
           php tests/ux_fixes.php
           php tests/quality_waiting.php
@@ -44,6 +45,9 @@ jobs:
           php tests/quality_worker.php --audio
           php tests/quality_worker.php --shorts
           php tests/quality_worker.php --legacy-caption
+          php tests/quality_worker.php --group
+          php tests/quality_worker.php --group --audio
+          php tests/quality_worker.php --group --disabled
           php tests/audio.php
 
       - name: Check PHP syntax

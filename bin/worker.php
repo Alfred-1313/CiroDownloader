@@ -36,17 +36,17 @@ while(true) {
         mkdir($folder,0700);
         $stage='download'; $audio=$job['phase']==='audio';
         try {
-            if(!$bot->allowed((int)$job['user_id'])) {
+            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                $bot->jobMessage($job,$bot->denial()); continue;
+                $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); continue;
             }
             if($job['phase']==='inspect') {
                 $stage='inspect';
                 $bot->jobMessage($job,$bot->text('inspecting'));
                 $info=$downloader->inspect($job['url'],$folder);
-                if(!$bot->allowed((int)$job['user_id'])) {
+                if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                     $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                    $bot->jobMessage($job,$bot->denial());
+                    $bot->jobMessage($job,$bot->denial((int)$job['chat_id']));
                 } else {
                     $store->set('youtube_probe_url',$job['url']);
                     $bot->qualityMenu($job,$info);
@@ -59,9 +59,9 @@ while(true) {
             $quality=$job['quality']!==null?(int)$job['quality']:null;
             $media=$audio?$downloader->fetchAudio($job['url'],$folder,$options['audio']??[]):
                 $downloader->fetch($job['url'],$folder,$quality,$quality!==null?($options[$quality]??[]):[]);
-            if(!$bot->allowed((int)$job['user_id'])) {
+            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                $bot->jobMessage($job,$bot->denial()); continue;
+                $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); continue;
             }
             $stage='upload';
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
@@ -70,6 +70,7 @@ while(true) {
             $link=$bot->ui->button('source_video'); $link['url']=$job['url'];
             $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
                 'reply_markup'=>['inline_keyboard'=>[[$link]]]];
+            if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             if($audio) $api->call('sendAudio',$params+['audio'=>new CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
             else $api->call('sendVideo',$params+['video'=>new CURLFile($media['path'],'video/mp4','video.mp4'),
