@@ -10,9 +10,11 @@ final class Personalization
     {
         $ui=$this->bot->ui;
         $state=$ui->plain($this->bot->store->get('admins_only','0')==='1'?'state_on':'state_off');
+        $groupState=$ui->plain($this->bot->store->groupsEnabled()?'state_on':'state_off');
         $this->send($chat,$ui->text('custom_panel',['state'=>$state]),[
             [$ui->button('texts','custom:groups:text'),$ui->button('captions','custom:groups:caption')],
             [$ui->button('buttons','custom:groups:button')],
+            [$ui->button('groups_mode','custom:groups_mode',['state'=>$groupState])],
             [$ui->button('admins_only','custom:access',['state'=>$state])],
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
             [$ui->button('back_admin','custom:back')],
@@ -53,7 +55,7 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>'49','id'=>'123456',
+        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>'49','id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }
@@ -91,6 +93,11 @@ final class Personalization
         if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return false; }
         try {
             $ui->preview($values);
+            if((array_key_exists('text.help',$values)||array_key_exists('text.help_groups_hint',$values))&&!(new GroupSupport($this->bot))->helpFits()) {
+                $ui->preview([]);
+                $this->item($chat,$kind,$key,$message,$ui->text('custom_help_too_long'));
+                return false;
+            }
             $this->item($chat,$kind,$key,$message,$ui->text('custom_saved'));
         } catch(\Throwable) {
             $ui->preview([]);
@@ -161,6 +168,10 @@ final class Personalization
         elseif($op==='icon') $this->begin($chat,$user,'icon',$kind,$message);
         elseif($op==='access') {
             $this->bot->store->set('admins_only',$this->bot->store->get('admins_only','0')==='1'?'0':'1');
+            $this->home($chat,$message);
+        } elseif($op==='groups_mode') {
+            $this->bot->store->set('groups_enabled',$this->bot->store->groupsEnabled()?'0':'1');
+            (new GroupSupport($this->bot))->syncHelpButtons();
             $this->home($chat,$message);
         } elseif($op==='back') $this->bot->panel($chat,$message);
         elseif($op==='color'&&$ui->definition('button',$kind)) {

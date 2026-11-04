@@ -176,6 +176,8 @@ final class Store
         $this->db->exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;');
         $this->db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS states (user_id INTEGER PRIMARY KEY, key TEXT NOT NULL, expires INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS help_messages (chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,
+                message_id INTEGER NOT NULL,groups_enabled INTEGER NOT NULL,PRIMARY KEY(chat_id,thread_id));
             CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, update_id INTEGER UNIQUE NOT NULL,
                 user_id INTEGER NOT NULL, chat_id INTEGER NOT NULL, url TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL, message_id INTEGER,
@@ -190,7 +192,7 @@ final class Store
         try {
             $columns=array_column($this->query('PRAGMA table_info(jobs)')->fetchAll(),'name');
             if(!in_array('message_id',$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN message_id INTEGER');
-            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''"] as $column=>$type) {
+            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''",'thread_id'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
                 if(!in_array($column,$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN '.$column.' '.$type);
             }
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
@@ -235,7 +237,8 @@ final class Store
         $this->query('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [$key,$value]);
     }
     public function enabled(): bool { return $this->get('enabled', '1') === '1'; }
-    public function enqueue(int $update, int $user, int $chat, string $url): string
+    public function groupsEnabled(): bool { return $this->get('groups_enabled','1')==='1'; }
+    public function enqueue(int $update, int $user, int $chat, string $url,int $thread=0): string
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
@@ -246,7 +249,7 @@ final class Store
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status='waiting_quality'",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(?,?,?,?,?,0,'inspect')", [$update,$user,$chat,$url,time()]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,'inspect',?)", [$update,$user,$chat,$url,time(),$chat<0?max(0,$thread):0]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }

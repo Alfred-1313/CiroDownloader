@@ -10,6 +10,8 @@ $server=null; $worker=null;
 $audio=in_array('--audio',$argv,true);
 $shorts=in_array('--shorts',$argv,true);
 $legacy=in_array('--legacy-caption',$argv,true);
+$group=in_array('--group',$argv,true); $disabled=$group&&in_array('--disabled',$argv,true);
+$chat=$group?-1001234567890:7; $thread=$group?321:0;
 try {
     $storage=$temp.'/data'; mkdir($storage,0700);
     $runner=new Zero\Download(new Zero\Config('123:fake-token',[42],$storage));
@@ -59,9 +61,23 @@ try {
         $store->set('text.video_caption','<b>{title}</b> — {quality} <blockquote>{duration}</blockquote> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
         $store->set('text.audio_caption','<blockquote><b>{title}</b> {duration}</blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
     }
-    $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>7,'type'=>'private'],'text'=>$shorts?'https://www.youtube.com/shorts/ybNMMK5Q318':'https://youtu.be/ybNMMK5Q318']]);
+    $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$thread,'text'=>$shorts?'https://www.youtube.com/shorts/ybNMMK5Q318':'https://youtu.be/ybNMMK5Q318']]);
+    if($disabled) $store->set('groups_enabled','0');
     $environment=array_merge(getenv(),['BOT_TOKEN'=>$config->token,'ADMIN_IDS'=>'42','STORAGE_DIR'=>$storage,'BOT_API_URL'=>$config->api,'MAX_FILE_BYTES'=>'49000000','YT_DLP_BIN'=>$stub,'YOUTUBE_COOKIES_FILE'=>'','YOUTUBE_PROXY'=>'']);
     $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/worker.log','w'],2=>['file',$temp.'/worker-error.log','w']],$pipes,dirname(__DIR__),$environment);
+    if($disabled) {
+        $deadline=microtime(true)+10;
+        do {
+            $job=$store->query('SELECT * FROM jobs WHERE update_id=1')->fetch();
+            $records=recorded($log);
+            if($job['status']==='failed'&&count($records)>=2) break;
+            usleep(100000);
+        } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
+        $records=recorded($log);
+        qualityCheck($job['status']==='failed'&&recorded($trace)===[],'the real worker rejects a queued group request after the feature is disabled, before contacting YouTube');
+        qualityCheck(count($records)===2&&$records[1]['method']==='editMessageText'&&(int)$records[1]['params']['chat_id']===$chat&&str_contains($records[1]['params']['text'],'غیرفعال'),'disabled group work edits its original status without sending a file or a private message');
+        return;
+    }
     $deadline=microtime(true)+15; $ready=false;
     do {
         $job=$store->query('SELECT * FROM jobs WHERE update_id=1')->fetch();
@@ -79,7 +95,7 @@ try {
     qualityCheck($keyboard[0][0]['text']==='360p'&&$keyboard[0][1]['text']==='720p','only available quality buttons are shown under the status message');
     qualityCheck(count($keyboard[1])===1&&$keyboard[1][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
     qualityCheck(count($keyboard)===2&&(int)$job['expires']===0,'quality selection has no deadline and no cancel button');
-    $bot->handle(['callback_query'=>['id'=>'local-test','from'=>['id'=>7],'message'=>['message_id'=>501,'chat'=>['id'=>7,'type'=>'private']],'data'=>'quality:'.$job['id'].($audio?':audio':':360')]]);
+    $bot->handle(['callback_query'=>['id'=>'local-test','from'=>['id'=>7],'message'=>['message_id'=>501,'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$thread],'data'=>'quality:'.$job['id'].($audio?':audio':':360')]]);
     $afterChoice=recorded($log); $selected=end($afterChoice);
     qualityCheck($selected['method']==='editMessageCaption'&&json_decode($selected['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($selected['params']['caption'],'<blockquote>'),'choosing media uses a simple status caption and removes every button');
     $deadline=microtime(true)+20; $done=false;
@@ -95,6 +111,7 @@ try {
     qualityCheck(count($invocations)===2&&$arguments[array_search('-f',$arguments,true)+1]===($audio?'140/22/18':'18'),'download uses only saved formats for the selected media');
     $uploads=array_values(array_filter($records,fn($record)=>$record['method']===($audio?'sendAudio':'sendVideo')));
     qualityCheck(count($uploads)===1&&!empty($uploads[0]['video_hash']),'the actual media bytes are uploaded once');
+    if($group) qualityCheck((int)$records[0]['params']['chat_id']===$chat&&(int)$records[0]['params']['message_thread_id']===$thread&&(int)$uploads[0]['params']['chat_id']===$chat&&(int)$uploads[0]['params']['message_thread_id']===$thread,'group progress and the real uploaded media stay in the original forum topic');
     qualityCheck(count(array_filter($records,fn($record)=>$record['method']===($audio?'sendVideo':'sendAudio')))===0,'the unselected media type is never sent');
     if($audio) {
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$temp.'/received.mp3'],$temp,10),true);
