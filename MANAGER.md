@@ -9,6 +9,7 @@ CiroDownloader
 CiroDownloader status
 CiroDownloader update
 CiroDownloader settings
+CiroDownloader large-uploads
 CiroDownloader backup
 CiroDownloader restore /absolute/path/backup.tar.gz
 ```
@@ -16,6 +17,8 @@ CiroDownloader restore /absolute/path/backup.tar.gz
 The main menu has Install, Update, Remove, Services, Status, Backup, Restore, Settings, Cookies, Diagnostics, Telegram updates, and Help. Services contains start, stop, restart and separate bot/worker logs. Back returns one level; end-of-input exits. `--plain` disables color and screen redraw; `NO_COLOR` also disables colors. `bash manager.sh --preview` renders the interface without requiring root or changing the server.
 
 Progress counts completed steps, rather than guessing a Docker build percentage. Errors return to the menu with the failed step and a private log under `/var/log/ciro-downloader`. Maintenance shares a lock with the Telegram updater so the two cannot change the installation simultaneously.
+
+Large-upload setup streams Docker build output and migration stages directly to the terminal while retaining the private log. The first build can take tens of minutes or longer on a small server. `CiroDownloader large-uploads` opens the setup directly, with the same hidden credential prompts as **Settings > Large uploads**.
 
 ## Settings
 

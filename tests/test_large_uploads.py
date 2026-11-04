@@ -97,6 +97,14 @@ class LargeUploadMigrationTests(unittest.TestCase):
         self.assertIn('BOT_API_URL=https://api.telegram.org', (self.project / '.env').read_text())
         self.assertFalse((self.private / 'migration.json').exists())
 
+    def test_stopped_bot_is_rejected_before_the_expensive_build(self):
+        with patch.object(FakeMaintenance, 'running', return_value=['worker']), patch.object(large, 'request') as request:
+            with self.assertRaisesRegex(large.MaintenanceError, 'Start both bot and worker'):
+                large.install('123456', 'a'*32)
+        self.assertEqual(self.events, [])
+        request.assert_not_called()
+        self.assertIn('BOT_API_URL=https://api.telegram.org', (self.project / '.env').read_text())
+
 
 class BuildOutputTests(unittest.TestCase):
     def command(self, code):
@@ -125,6 +133,11 @@ class BuildOutputTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Compiler failure fixture', result.stdout)
         self.assertIn('A Docker operation failed', result.stderr)
+
+    def test_timeout_reports_the_limit_without_exposing_command_arguments(self):
+        with self.assertRaisesRegex(large.MaintenanceError, 'timed out after 0.1 seconds') as error:
+            large.run(sys.executable, '-c', 'import time; time.sleep(5)', 'FAKE_PRIVATE_ARGUMENT', timeout=0.1)
+        self.assertNotIn('FAKE_PRIVATE_ARGUMENT', str(error.exception))
 
 
 if __name__ == '__main__':

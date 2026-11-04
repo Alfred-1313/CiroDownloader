@@ -4,22 +4,25 @@ set -Eeuo pipefail
 umask 077
 
 REPOSITORY_URL='https://github.com/Alfred-1313/CiroDownloader.git'
-INSTALLER_VERSION='3.0.0'
+INSTALLER_VERSION='3.0.1'
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 LOG_DIR='/var/log/ciro-downloader'
 BACKUP_DIR='/var/backups/ciro-downloader'
 LOCK_FILE='/run/ciro-downloader-updater.lock'
-SECRET_TMP='' RUN_PID='' LAST_STEP_LOG=''
+SECRET_TMP='' RUN_PID='' RUN_LOG_PID='' LAST_STEP_LOG=''
 STEP_TOTAL=1 STEP_DONE=0
 source "$PROJECT_DIR/scripts/manager-ui.sh"
 
 cleanup() {
   [[ -z $SECRET_TMP ]] || rm -f -- "$SECRET_TMP"
+  if [[ -n $RUN_LOG_PID ]]; then kill "$RUN_LOG_PID" 2>/dev/null || true; wait "$RUN_LOG_PID" 2>/dev/null || true; fi
   [[ ${UI_TTY:-0} == 0 ]] || printf '\033[?25h'
 }
 interrupted() { [[ -z $RUN_PID ]] || kill "$RUN_PID" 2>/dev/null || true; ui_error 'Operation interrupted. Check Status before retrying.'; exit 130; }
 
 run_step() {
+  local live=0
+  if [[ ${1:-} == --live ]]; then live=1; shift; fi
   local label=$1; shift
   [[ -d $LOG_DIR ]] || mkdir -m 700 -- "$LOG_DIR" || return
   LAST_STEP_LOG="$(mktemp "$LOG_DIR/step-XXXXXXXX.log")" || return
@@ -27,7 +30,10 @@ run_step() {
   ui_step_start "$label"
   ui_note "Private log: $LAST_STEP_LOG"
   "$@" <&0 >"$LAST_STEP_LOG" 2>&1 & RUN_PID=$!
-  if [[ $UI_TTY == 1 ]]; then
+  if ((live)); then
+    # Follow only explicitly selected output; configuration steps stay private.
+    tail --pid="$RUN_PID" --sleep-interval=0.2 -n +1 -f -- "$LAST_STEP_LOG" & RUN_LOG_PID=$!
+  elif [[ $UI_TTY == 1 ]]; then
     printf '\033[?25l'
     while kill -0 "$RUN_PID" 2>/dev/null; do
       printf '\r\033[K'
@@ -38,10 +44,11 @@ run_step() {
   fi
   if wait "$RUN_PID"; then result=0; else result=$?; fi
   RUN_PID=''
+  if [[ -n $RUN_LOG_PID ]]; then wait "$RUN_LOG_PID" || true; RUN_LOG_PID=''; fi
   ui_step_end "$label" "$result" "$((SECONDS-started))"
   if ((result!=0)); then
     ui_error 'This step failed. Completed steps may already have run.'
-    tail -n 8 -- "$LAST_STEP_LOG" >&2
+    if ((!live)); then tail -n 8 -- "$LAST_STEP_LOG" >&2; fi
     ui_note "Private log: $LAST_STEP_LOG"
   fi
   return "$result"
@@ -257,7 +264,7 @@ enable_large_uploads() {
   SECRET_TMP="$(mktemp)" || return
   printf '%s\n%s\n' "$api_id" "$api_hash" >"$SECRET_TMP"; unset api_id api_hash
   ui_plan 1
-  if run_step 'Build local Telegram API and migrate bot' python3 scripts/large_uploads.py "$SECRET_TMP"; then
+  if run_step --live 'Build local Telegram API and migrate bot' python3 -u scripts/large_uploads.py "$SECRET_TMP"; then
     ui_ok 'Large uploads enabled. Send a video to test delivery.'
   else result=$?; fi
   rm -f -- "$SECRET_TMP"; SECRET_TMP=''; return "$result"
@@ -392,6 +399,7 @@ show_help() {
   ui_kv 'Services' 'CiroDownloader start | stop | restart'; ui_kv 'Status' 'CiroDownloader status'; ui_kv 'Logs' 'CiroDownloader logs'
   ui_kv 'Backup' 'CiroDownloader backup'; ui_kv 'Restore' 'CiroDownloader restore /absolute/backup.tar.gz'
   ui_kv 'Settings' 'CiroDownloader settings'; ui_kv 'Cookies' 'CiroDownloader cookies'; ui_kv 'Diagnostics' 'CiroDownloader doctor | diagnose'
+  ui_kv 'Large files' 'CiroDownloader large-uploads'
   ui_kv 'Telegram' 'CiroDownloader telegram'; ui_kv 'Remove' 'CiroDownloader remove'
   ui_note 'Add --plain for plain terminal output. Back returns one menu level.'
   ui_note "Project: $PROJECT_DIR"; ui_note "Backups: $BACKUP_DIR"; ui_rule
@@ -430,6 +438,7 @@ main() {
     start) with_lock start_services ;; stop) with_lock stop_services ;; restart) with_lock restart_services ;;
     logs) show_logs ;; status) show_status ;; backup) with_lock backup_bot ;; restore) with_lock restore_bot "${2:-}" ;;
     settings|config) settings_menu ;; cookies) with_lock import_youtube_cookies ;; diagnose) with_lock run_diagnostics ;; doctor) doctor ;;
+    large-uploads) with_lock enable_large_uploads ;;
     telegram) ui_plan 1; with_lock run_step 'Enable Telegram updates' enable_telegram_updates ;;
     *) ui_error 'Unknown command. Run CiroDownloader help.'; return 2 ;;
   esac

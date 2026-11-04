@@ -18,10 +18,59 @@ check cmp -s "$test_root/input" "$LAST_STEP_LOG"
 check grep -q '\[1/1\]' "$test_root/progress"
 check grep -q 'Private log:' "$test_root/progress"
 ui_plan 1
+run_step --live 'Live input fixture' cat <"$test_root/input" >"$test_root/live-progress"
+check cmp -s "$test_root/input" "$LAST_STEP_LOG"
+check grep -q 'COOKIE_INPUT_FIXTURE' "$test_root/live-progress"
+check test "$STEP_DONE" -eq 1
+ui_plan 1
 if run_step 'Expected failure' bash -c 'printf "failure fixture\n" >&2; exit 7' >"$test_root/failure" 2>&1; then exit 1; else result=$?; fi
 check test "$result" -eq 7
 check grep -q 'This step failed' "$test_root/failure"
 check grep -q 'Private log:' "$test_root/failure"
+
+# The terminal must receive output while the build is still running, and retain
+# the real command's failure code after the live log follower exits.
+python3 -B - "$PROJECT_DIR/manager.sh" "$test_root" <<'PY'
+import os
+from pathlib import Path
+import select
+import signal
+import subprocess
+import sys
+import time
+
+script = '''source "$1"
+export NO_COLOR=1 CIRO_ASCII=1 TERM=dumb
+ui_init
+LOG_DIR="$2/logs"
+ui_plan 1
+run_step --live 'Compiler fixture' bash -c 'printf "compiler-live-fixture\\n"; while [[ ! -f "$1/finish" ]]; do sleep 0.05; done; printf "compiler-error-fixture\\n" >&2; exit 7' _ "$2"
+'''
+with subprocess.Popen(['bash', '-c', script, '_', sys.argv[1], sys.argv[2]],
+                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True) as process:
+    try:
+        output = b''
+        deadline = time.monotonic() + 5
+        while b'compiler-live-fixture' not in output and time.monotonic() < deadline:
+            if select.select([process.stdout], [], [], 0.1)[0]:
+                part = os.read(process.stdout.fileno(), 4096)
+                if not part:
+                    break
+                output += part
+        assert b'compiler-live-fixture' in output, 'Manager hid the running compiler output'
+        assert process.poll() is None, 'Build finished before live output was displayed'
+        Path(sys.argv[2], 'finish').touch()
+        remaining, _ = process.communicate(timeout=5)
+        output += remaining
+        assert process.returncode == 7, (process.returncode, output)
+        assert b'compiler-error-fixture' in output, output
+        assert b'This step failed' in output, output
+    finally:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+print('PASS manager displays build output live and preserves failure status')
+PY
 
 docker_ready() { return 0; }
 timeout() { shift; "$@"; }

@@ -20,8 +20,11 @@ CLOUD = 'https://api.telegram.org'
 
 
 def run(*args, timeout=1800, stream=False):
-    result = subprocess.run(args, cwd=PROJECT, stdout=None if stream else subprocess.PIPE,
-                            stderr=subprocess.STDOUT if stream else subprocess.PIPE, timeout=timeout)
+    try:
+        result = subprocess.run(args, cwd=PROJECT, stdout=None if stream else subprocess.PIPE,
+                                stderr=subprocess.STDOUT if stream else subprocess.PIPE, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise MaintenanceError(f'A Docker operation timed out after {timeout} seconds. Check the private step log before retrying.') from None
     if result.returncode:
         raise MaintenanceError('A Docker operation failed. Check local Bot API service status and disk space.')
     return result.stdout.decode(errors='replace').strip() if result.stdout is not None else ''
@@ -79,13 +82,15 @@ def install(api_id, api_hash):
     phase = json.loads(MARKER.read_text()).get('phase') if MARKER.exists() else ''
     if endpoint not in (CLOUD, LOCAL) or (endpoint == LOCAL and not phase):
         raise MaintenanceError('A different or already enabled Bot API is configured; no migration was performed.')
+    if not phase and set(app.running()) != {'bot', 'worker'}:
+        raise MaintenanceError('Start both bot and worker before enabling large uploads.')
     atomic(PRIVATE / 'api.env', ('TELEGRAM_API_ID=' + api_id + '\nTELEGRAM_API_HASH=' + api_hash + '\n').encode())
     api_compose = ('docker', 'compose', '-f', 'compose.telegram-api.yaml')
     print('Building the official Telegram Bot API server; this can take several minutes.', flush=True)
     # Let the manager's private step log receive compiler output as it happens.
     run(*api_compose, '--progress', 'plain', 'build', timeout=7200, stream=True)
     print('Starting the local Telegram Bot API service.', flush=True)
-    run(*api_compose, 'up', '-d', '--no-build', timeout=180)
+    run(*api_compose, 'up', '-d', '--no-build', timeout=180, stream=True)
     for _ in range(60):
         try:
             urllib.request.urlopen('http://127.0.0.1:18081/', timeout=2).close()

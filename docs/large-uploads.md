@@ -16,21 +16,28 @@ Uploads over 50 MB require a running local Bot API server and **both an API ID a
 Use the managed Linux installation as root, with Docker Engine and the Compose plugin available. Update Ciro Downloader first, start both `bot` and `worker` through **Services > Start**, and wait for any active download to finish.
 
 ```bash
-CiroDownloader settings
+CiroDownloader large-uploads
 ```
 
-Alternatively, run `bash manager.sh` as root from the installation checkout and open **Settings**.
+This opens the credential prompts directly. Alternatively, run `CiroDownloader settings` and choose **4 — Large uploads**, or run `bash manager.sh` as root from the installation checkout and open **Settings**.
 
-1. Choose **4 — Large uploads**.
-2. Enter the API ID and API hash obtained above. Do not replace the existing bot token with either value.
-3. Wait for the first build and migration to finish. The build compiles the official local server and may take a while. The bot is briefly paused. The manager logs the bot out of the hosted API, verifies local login, and restarts the bot and worker against the local API. Returning to the hosted Bot API after logout requires Telegram's specified 10-minute wait.
-4. After setup reports success, request a video whose final file is over 50 MB but within 1990 MB, select its quality, and confirm that Telegram receives the complete file.
+1. Enter the API ID and API hash obtained above. Do not replace the existing bot token with either value.
+2. Wait for the first build and migration to finish. Docker output, compiler progress, and migration stages are shown directly in the terminal and retained in the private step log. The build compiles the official local server and may take a while. The bot is briefly paused. The manager logs the bot out of the hosted API, verifies local login, and restarts the bot and worker against the local API. Returning to the hosted Bot API after logout requires Telegram's specified 10-minute wait.
+3. After setup reports success, request a video whose final file is over 50 MB but within 1990 MB, select its quality, and confirm that Telegram receives the complete file.
+
+To update the manager in an existing installation and open setup directly, first finish any currently running manager operation, then run as root:
+
+```bash
+cd /opt/ciro-downloader && git pull --ff-only origin main && bash manager.sh large-uploads
+```
+
+This preserves `.env` and stored data. If Git reports local changes or diverging history, resolve that message before retrying; do not reset the checkout or delete the database to enable large uploads.
 
 Changing `MAX_FILE_BYTES` alone cannot increase the hosted API's limit. Starting `compose.telegram-api.yaml` alone also does not migrate the bot; use the manager so logout, login, and configuration changes run in order.
 
 ### If the build appears stuck
 
-The first build compiles Telegram's C++ server. It can take tens of minutes or longer on a small server; the Dockerfile uses one compiler job to limit memory use. The manager shows the current step and elapsed time, not a compiler percentage. An animated indicator alone does not prove that compilation is progressing.
+The first build compiles Telegram's C++ server. It can take tens of minutes or longer on a small server; the Dockerfile uses one compiler job to limit memory use. Docker's build output is streamed to the terminal, including the compiler's own percentage when available. The manager does not estimate a separate compiler percentage. Keep the SSH session open while setup runs.
 
 The manager prints a **Private log** path before starting each step. Keep the installation running and open a second SSH session to inspect that exact file:
 
