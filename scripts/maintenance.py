@@ -251,6 +251,10 @@ class Maintenance:
         self.check_project(); self.private_directory()
         with tempfile.TemporaryDirectory(prefix='.restore-', dir=self.backups) as folder:
             self.unpack(path, folder)  # Validate all paths and DB before pausing anything.
+            current_api = environment((self.project / '.env').read_text(encoding='utf-8')).get('BOT_API_URL', 'https://api.telegram.org').rstrip('/')
+            backup_api = environment((Path(folder) / 'config.env').read_text(encoding='utf-8')).get('BOT_API_URL', 'https://api.telegram.org').rstrip('/')
+            if current_api != backup_api:
+                raise MaintenanceError('This backup uses a different Telegram API server. Migrate the bot first before restoring it.')
             recovery = self.backup('pre-restore')
             services = self.running()
             try:
@@ -364,3 +368,4 @@ if __name__ == '__main__':
     except (MaintenanceError, OSError, ValueError, sqlite3.Error, tarfile.TarError, subprocess.SubprocessError) as error:
         print(str(error) if isinstance(error, MaintenanceError) else 'Maintenance could not complete (' + type(error).__name__ + ').', file=sys.stderr)
         sys.exit(1)
+

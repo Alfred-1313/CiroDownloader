@@ -138,7 +138,7 @@ final class Bot
         $rows=[]; $row=[];
         foreach($media['options'] as $height=>$formats) {
             if($height==='audio') continue;
-            $row[]=$this->ui->button('quality','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
+            $row[]=$this->ui->button((int)$height===1080?'quality_high':'quality','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
             if(count($row)===2) { $rows[]=$row; $row=[]; }
         }
         if($row) $rows[]=$row;
@@ -327,3 +327,4 @@ final class Bot
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url);
     }
 }
+

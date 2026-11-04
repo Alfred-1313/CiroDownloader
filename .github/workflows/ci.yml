@@ -49,6 +49,7 @@ jobs:
           php tests/quality_worker.php --group --audio
           php tests/quality_worker.php --group --disabled
           php tests/audio.php
+          php tests/large_upload.php
 
       - name: Check PHP syntax
         run: find src bin tests -name '*.php' -exec php -l {} +
@@ -82,3 +83,29 @@ jobs:
 
       - name: Verify private backup and restore on an actual Docker volume
         run: python3 -B tests/integration_maintenance.py
+
+      - name: Verify local API cookie paths are bounded
+        run: |
+          sudo mkdir -p /telegram-api/test
+          printf 'private-test-data' | sudo tee /telegram-api/test/cookies.txt >/dev/null
+          sudo ln -s /etc/passwd /telegram-api/test/outside
+          php tests/local_api_paths.php
+
+  local-bot-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the pinned official local Bot API
+        run: docker build -f Dockerfile.telegram-api -t ciro-telegram-api:test .
+      - name: Verify the server starts and accepts connections
+        run: |
+          docker run -d --name local-api-test -p 127.0.0.1:18081:8081 -e TELEGRAM_API_ID=123456 -e TELEGRAM_API_HASH=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ciro-telegram-api:test
+          for attempt in $(seq 1 60); do
+            if curl -s -o /dev/null --max-time 2 http://127.0.0.1:18081/; then exit 0; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' local-api-test)" != true ]; then docker logs local-api-test; exit 1; fi
+            sleep 1
+          done
+          docker logs local-api-test
+          exit 1
+

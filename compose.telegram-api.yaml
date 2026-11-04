@@ -1,0 +1,32 @@
+name: ciro-downloader-telegram-api
+services:
+  telegram-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.telegram-api
+    image: ciro-downloader-telegram-api:local
+    env_file: /var/lib/ciro-downloader-telegram-api/api.env
+    restart: unless-stopped
+    init: true
+    read_only: true
+    volumes:
+      - telegram-api-data:/telegram-api
+    ports:
+      - 127.0.0.1:18081:8081
+    networks:
+      app:
+        aliases: [ciro-telegram-api]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options: {max-size: 10m, max-file: '3'}
+networks:
+  app:
+    name: ciro-downloader_default
+    external: true
+volumes:
+  telegram-api-data:
+    name: ciro-downloader-telegram-api-data
+

@@ -6,7 +6,7 @@ require_once __DIR__.'/Ui.php';
 
 final class Config
 {
-    public const VIDEO_QUALITIES=[360,480,720];
+    public const VIDEO_QUALITIES=[360,480,720,1080];
 
     public function __construct(
         public string $token, public array $admins, public string $storage,
@@ -43,7 +43,7 @@ final class Config
         }
         return new self($token, array_map('intval', explode(',', $ids)),
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
-            getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',600,
+            getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy);
     }
 
@@ -125,7 +125,7 @@ final class Telegram implements FileApi
         $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => in_array($method,['sendVideo','sendAudio'],true) ? 600 : 45]);
+            CURLOPT_TIMEOUT => in_array($method,['sendVideo','sendAudio'],true) ? 3600 : 45]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         curl_close($ch);
@@ -144,6 +144,19 @@ final class Telegram implements FileApi
 
     public function downloadFile(string $filePath, int $maxBytes): string
     {
+        if($this->config->api==='http://ciro-telegram-api:8081'&&str_starts_with($filePath,'/telegram-api/')) {
+            $root=realpath('/telegram-api'); $path=realpath($filePath);
+            if($maxBytes<1||$root===false||$path===false||!str_starts_with($path,$root.'/')||!is_file($path)||!is_readable($path)) {
+                throw new \RuntimeException('Invalid Telegram file path');
+            }
+            $handle=fopen($path,'rb');
+            if($handle===false) throw new \RuntimeException('Telegram file download failed');
+            try { $content=stream_get_contents($handle,$maxBytes+1); }
+            finally { fclose($handle); }
+            if($content===false) throw new \RuntimeException('Telegram file download failed');
+            if(strlen($content)>$maxBytes) throw new \RuntimeException('Telegram file exceeds import size limit');
+            return $content;
+        }
         if($maxBytes<1||!preg_match('~^[A-Za-z0-9_./-]+$~D',$filePath)
             ||str_starts_with($filePath,'/')||in_array('..',explode('/',$filePath),true)) {
             throw new \RuntimeException('Invalid Telegram file path');
@@ -311,3 +324,4 @@ function lockProcess(string $path): mixed
     if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) throw new \RuntimeException('Another instance is already running');
     return $lock; // Caller retains handle for lifetime of process.
 }
+

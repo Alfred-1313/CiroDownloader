@@ -47,7 +47,7 @@ try {
         }
     }
     foreach(['welcome','help','offline','admin_only_notice','quality_prompt','video_caption','audio_caption','error_cookies'] as $key) scopeCheck(isset($found['text'][$key]),'user-visible text remains editable: '.$key);
-    foreach(['help','quality','extract_audio','source_video'] as $key) scopeCheck(isset($found['button'][$key]),'user-visible button remains editable: '.$key);
+    foreach(['help','quality','quality_high','extract_audio','source_video'] as $key) scopeCheck(isset($found['button'][$key]),'user-visible button remains editable: '.$key);
     foreach(['admin','health','cookies','update','customize','back_custom','download'] as $key) scopeCheck(!isset($found['button'][$key])&&!isset($bot->catalog('button')[$key]),'administration or retired button is absent from all catalogs: '.$key);
     foreach(['health','admin_panel','cookie_import','custom_panel','update_menu','delivered','audio_delivered','cancelled'] as $key) scopeCheck(!isset($found['text'][$key])&&!isset($bot->catalog('text')[$key]),'administration or retired text is absent from all catalogs: '.$key);
 
@@ -82,3 +82,4 @@ try {
     $bot->handle(scopeCallback('custom:setcolor:help:danger',7));
     scopeCheck($store->get('button.style.help')==='','ordinary users cannot edit personalization');
 } finally { Zero\Download::clean($temp); }
+
