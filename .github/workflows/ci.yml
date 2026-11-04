@@ -29,6 +29,7 @@ jobs:
           php tests/jobs.php
           php tests/customization.php
           php tests/personalization_scope.php
+          php tests/admin_keyboard.php
           php tests/posters.php
           php tests/ux_fixes.php
           php tests/quality_waiting.php

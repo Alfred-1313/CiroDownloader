@@ -4,7 +4,7 @@ namespace Zero;
 
 final class Ui
 {
-    public const REPLY_KEYS=['help','admin','health','update','cookies','download'];
+    public const REPLY_KEYS=['help','admin','health','update','cookies','download','customize','on','off','back_home'];
     private static ?array $definitions=null;
     private array $preview=[];
     public function __construct(private Store $store) {}

@@ -104,7 +104,7 @@ try {
     expect(file_get_contents($config->cookiePath())===$old,'waiting for a cookie survives a long delay and a process restart');
     $bot->handle(callback(42,'cookies'));
     $bot->handle(callback(42,'admin'));
-    expect(end($api->calls)[0]==='editMessageText'&&end($api->calls)[1]['message_id']===900&&!$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'Back cancels import and edits the same message into the admin panel');
+    expect(end($api->calls)[0]==='sendMessage'&&isset(end($api->calls)[1]['reply_markup']['keyboard'])&&!$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'Back cancels import and restores the reply administration keyboard');
     $bot->handle(callback(42,'cookies')); $count=$api->downloads;
     $bot->handle(['message'=>['from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/cancel']]);
     $bot->handle(document(42));

@@ -124,6 +124,7 @@
     "back":{"audience":"admin","label":"بازگشت عمومی","group":"custom","value":"بازگشت"},
     "back_custom":{"audience":"admin","label":"بازگشت به شخصی‌سازی","group":"custom","value":"بازگشت به شخصی‌سازی"},
     "back_admin":{"audience":"admin","label":"بازگشت به مدیریت","group":"admin","value":"بازگشت به پنل مدیریت"},
+    "back_home":{"audience":"admin","label":"بازگشت به منوی اصلی","group":"admin","value":"🏠 بازگشت به منوی اصلی","aliases":["بازگشت به منوی اصلی"]},
     "back_update":{"audience":"admin","label":"بازگشت به منوی ارتقا","group":"updates","value":"بازگشت به منوی به‌روزرسانی","style":"primary"},
     "edit":{"audience":"admin","label":"ویرایش مقدار","group":"custom","value":"✏️ ویرایش","style":"primary"},
     "color":{"audience":"admin","label":"تغییر رنگ","group":"custom","value":"🎨 رنگ دکمه","style":"primary"},

@@ -34,8 +34,8 @@ try {
     $keyboard=end($api->calls)[1]['reply_markup'];
     ensure(isset($keyboard['keyboard'])&&count($keyboard['keyboard'])===1&&count($keyboard['keyboard'][0])===1,'ordinary users get only Help on the reply keyboard');
     $bot->handle(input(42,'/admin'));
-    $markup=json_encode(end($api->calls)[1]['reply_markup']);
-    ensure(str_contains($markup,'custom:home')&&!str_contains($markup,'list:text'),'message and button editors live inside Personalization');
+    $markup=end($api->calls)[1]['reply_markup'];
+    ensure(isset($markup['keyboard'])&&str_contains(json_encode($markup,JSON_UNESCAPED_UNICODE),$bot->label('customize'))&&!str_contains(json_encode($markup),'list:text'),'the reply administration panel opens Personalization instead of exposing editors directly');
     $bot->handle(click(7,'custom:access'));
     ensure($store->get('admins_only','0')==='0','forged personalization callback cannot enable access restrictions');
     $bot->handle(click(42,'custom:edit:text:admin_only_notice'));
