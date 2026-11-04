@@ -21,6 +21,8 @@ Progress counts completed steps, rather than guessing a Docker build percentage.
 
 Settings edits the bot token, comma-separated admin IDs, and optional HTTP(S)/SOCKS proxy. Token and proxy input are hidden and are never passed as command arguments. Enter keeps the current value; `clear` disables the proxy. A configuration snapshot is kept before a change. Previously running services are recreated to load the new environment; stopped services stay stopped. A new token is checked with Telegram before refreshing active services. Failed application restores the previous configuration.
 
+**Settings > Large uploads** enables the local Telegram Bot API with Docker for files over 50 MB. It requires your own Telegram API ID and API hash from [my.telegram.org/apps](https://my.telegram.org/apps), in addition to the bot token. Follow the [Docker setup and credential requirements](docs/large-uploads.md) before enabling it.
+
 ## Backup and restore
 
 Backups are kept in `/var/backups/ciro-downloader` with private permissions. They contain the SQLite database, cookies and `.env`, including the bot token. Temporary downloads and process locks are excluded. Backup briefly stops bot/worker for a consistent database snapshot, then resumes only services that were already running.
