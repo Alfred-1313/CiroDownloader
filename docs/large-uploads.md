@@ -1,6 +1,6 @@
 # Large Telegram uploads
 
-The hosted Telegram Bot API has a 50 MB upload limit. The optional local Bot API is built from the official Telegram source and accepts uploads up to 2000 MB. Ciro Downloader sets its limit to 1990 MB to leave a margin. The server needs enough free disk space for downloading, preparing, and uploading the file; at least 8 GB free is recommended for the maximum size.
+The hosted Telegram Bot API has a 50 MB upload limit. The optional local Bot API is built from the official Telegram source and accepts uploads up to 2000 MB. Ciro Downloader sets its limit to 1990 MB to leave a margin. The server needs enough free disk space for downloading, preparing, and uploading the file. Available space is checked during processing, and a large upload needs room for an additional copy; smaller files do not require the full 1990 MB limit in free space.
 
 1. Obtain your own API ID and API hash at https://my.telegram.org/apps. Do not share the hash or bot token.
 2. Update Ciro Downloader, run `CiroDownloader`, then choose **Settings > Large uploads**. Enter the API ID and hidden API hash on the server.

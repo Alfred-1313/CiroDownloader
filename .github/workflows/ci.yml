@@ -50,6 +50,7 @@ jobs:
           php tests/quality_worker.php --group --disabled
           php tests/audio.php
           php tests/large_upload.php
+          php tests/disk_space.php
 
       - name: Check PHP syntax
         run: find src bin tests -name '*.php' -exec php -l {} +

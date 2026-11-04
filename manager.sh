@@ -249,7 +249,7 @@ enable_large_uploads() {
   ui_note 'The API hash is hidden and stored privately on this server.'
   ui_note 'A local Telegram server is built from official source; the first build can take a long time.'
   ui_warn 'The bot pauses during migration. The cloud API may be unavailable for 10 minutes after logout.'
-  ui_note 'For the maximum 1990 MB upload limit, at least 8 GB of free storage is recommended.'
+  ui_note 'Large videos require free disk space for downloading, conversion and upload.'
   local api_id api_hash result=0
   ui_prompt 'API ID (Enter to go back): '; read -r api_id || return 0
   [[ -n $api_id ]] || return 0
