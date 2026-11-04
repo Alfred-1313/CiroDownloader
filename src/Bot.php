@@ -79,21 +79,25 @@ final class Bot
     public function home(int $chat,int $user): void
     {
         $rows=[[$this->replyButton('help')]];
-        if($this->admin($user)) {
-            $rows[]=[$this->replyButton('admin'),$this->replyButton('health')];
-            $rows[]=[$this->replyButton('update')];
-        }
+        if($this->admin($user)) $rows[]=[$this->replyButton('admin')];
         $this->sendKeyboard($chat,$this->text('welcome'),$rows);
     }
     public function panel(int $chat,int $message=0): void
     {
+        if(!$this->admin($chat)) return;
+        if($message>0) {
+            try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); }
+            catch(\Throwable) {
+                try { $this->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$message,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {}
+            }
+        }
         $on=$this->store->enabled();
-        $this->send($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off')],['state']),[
-            [$this->button($on?'off':'on',$on?'set:off':'set:on')],
-            [$this->button('customize','custom:home')],
-            [$this->button('health','health')],[$this->button('cookies','cookies')],
-            [$this->button('update','update:open')],[$this->button('back','home')],
-        ],$message);
+        $this->sendKeyboard($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off')],['state']),[
+            [$this->replyButton('customize'),$this->replyButton('health')],
+            [$this->replyButton('cookies'),$this->replyButton('update')],
+            [$this->replyButton($on?'off':'on')],
+            [$this->replyButton('back_home')],
+        ]);
     }
     public function health(int $chat): void
     {
@@ -280,7 +284,9 @@ final class Bot
             if($text==='/health'||$reply==='health') { $this->health($chat); return; }
             if($text==='/cookies'||$reply==='cookies') { $this->beginCookieImport($chat,$user); return; }
             if($text==='/update'||$reply==='update') { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
-            if($text==='/customize') { $custom->home($chat); return; }
+            if($text==='/customize'||$reply==='customize') { $custom->home($chat); return; }
+            if($reply==='on'||$reply==='off') { $this->store->set('enabled',$reply==='on'?'1':'0'); $this->panel($chat); return; }
+            if($reply==='back_home') { $this->home($chat,$user); return; }
         }
         if(in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
         if($text==='/help'||$reply==='help') { $this->send($chat,$this->text('help')); return; }

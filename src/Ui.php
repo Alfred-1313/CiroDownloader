@@ -4,7 +4,7 @@ namespace Zero;
 
 final class Ui
 {
-    public const REPLY_KEYS=['help','admin','health','update','cookies','download'];
+    public const REPLY_KEYS=['help','admin','health','update','cookies','download','customize','on','off','back_home'];
     private static ?array $definitions=null;
     private array $preview=[];
     public function __construct(private Store $store) {}
@@ -15,10 +15,16 @@ final class Ui
         return self::$definitions??=json_decode((string)file_get_contents(dirname(__DIR__).'/resources/ui.json'),true,512,JSON_THROW_ON_ERROR);
     }
     public function definition(string $kind,string $key): ?array { return self::definitions()[$kind==='button'?'buttons':'texts'][$key]??null; }
+    public function customizable(string $kind,string $key): bool
+    {
+        if(!in_array($kind,['text','button'],true)) return false;
+        $item=$this->definition($kind,$key);
+        return ($item['audience']??'')==='user'&&empty($item['hidden']);
+    }
     public function catalog(string $kind): array
     {
         $result=[];
-        foreach(self::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) $result[$key]=[$item['label'],$item['value']];
+        foreach(self::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) if($this->customizable($kind,$key)) $result[$key]=[$item['label'],$item['value']];
         return $result;
     }
     public function template(string $key): string

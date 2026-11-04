@@ -22,7 +22,7 @@ final class Personalization
     {
         $result=[];
         foreach(Ui::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) {
-            if(!empty($item['hidden'])||($group!==''&&$item['group']!==$group)) continue;
+            if(!$this->bot->ui->customizable($kind==='button'?'button':'text',$key)||($group!==''&&$item['group']!==$group)) continue;
             if($kind==='caption'&&empty($item['caption'])) continue;
             if($kind==='text'&&!empty($item['caption'])) continue;
             $result[$key]=$item;
@@ -41,6 +41,7 @@ final class Personalization
     {
         if(!in_array($kind,['text','caption','button'],true)||!isset(Ui::definitions()['groups'][$group])) return;
         $ui=$this->bot->ui; $items=$this->entries($kind,$group); $pages=max(1,(int)ceil(count($items)/8));
+        if(!$items) { $this->groups($chat,$kind,$message); return; }
         $page=max(0,min($pages-1,$page)); $rows=[];
         foreach(array_slice($items,$page*8,8,true) as $key=>$item) $rows[]=[$ui->button('catalog_item','custom:item:'.($kind==='caption'?'text':$kind).':'.$key,['label'=>$item['label']])];
         $navigation=[];
@@ -52,14 +53,14 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'1080p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>'49','id'=>'123456',
+        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>'49','id'=>'123456',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }
     public function item(int $chat,string $kind,string $key,int $message=0,string $notice=''): void
     {
         $ui=$this->bot->ui; $definition=$ui->definition($kind,$key);
-        if(!$definition||!in_array($kind,['text','button'],true)) return;
+        if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return; }
         $value=$kind==='button'?Ui::escape($ui->label($key,$this->samples())):$ui->text($key,$this->samples());
         $text=$ui->text('custom_item',['title'=>$definition['label'],'value'=>$value],['value']).($notice!==''?"\n\n".$notice:'');
         $rows=[];
@@ -77,7 +78,7 @@ final class Personalization
     public function begin(int $chat,int $user,string $kind,string $key,int $message=0): void
     {
         $ui=$this->bot->ui; $definition=$ui->definition($kind==='icon'?'button':$kind,$key);
-        if(!$definition) return;
+        if(!$ui->customizable($kind==='icon'?'button':$kind,$key)) { $this->home($chat,$message); return; }
         $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>$kind,'key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
         $variables=empty($definition['variables'])?'':$ui->text('custom_variables',['variables'=>implode(', ',array_map(fn($name)=>'{'.$name.'}',$definition['variables']))]);
         if(!empty($definition['inline'])) $variables.="\n".$ui->text('custom_inline_hint');
@@ -87,6 +88,7 @@ final class Personalization
     private function commit(int $chat,string $kind,string $key,int $message,array $values,array $remove=[]): bool
     {
         $ui=$this->bot->ui;
+        if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return false; }
         try {
             $ui->preview($values);
             $this->item($chat,$kind,$key,$message,$ui->text('custom_saved'));
@@ -111,6 +113,10 @@ final class Personalization
     public function receive(int $chat,int $user,array $message,array $state): void
     {
         $ui=$this->bot->ui; ['kind'=>$kind,'key'=>$key,'message'=>$menu]=$state;
+        if(!$ui->customizable($kind==='icon'?'button':$kind,$key)) {
+            $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $this->home($chat,(int)$menu); return;
+        }
         $values=[];
         try {
             $definition=$ui->definition($kind==='icon'?'button':$kind,$key);
@@ -141,6 +147,12 @@ final class Personalization
         $ui=$this->bot->ui; $parts=explode(':',$action);
         if(($parts[0]??'')!=='custom') return false;
         $op=$parts[1]??''; $kind=$parts[2]??''; $key=$parts[3]??'';
+        $target=match($op) {
+            'item','edit','reset'=>[$kind,$key],
+            'icon','color','setcolor','clearicon'=>['button',$kind],
+            default=>null,
+        };
+        if($target&&!$ui->customizable($target[0],$target[1])) { $this->home($chat,$message); return true; }
         if($op==='home') $this->home($chat,$message);
         elseif($op==='groups') $this->groups($chat,$kind,$message);
         elseif($op==='list') $this->listing($chat,$kind,$key,(int)($parts[4]??0),$message);

@@ -83,9 +83,9 @@ try {
     $bot->handle(msg(42,'/admin')); check(end($api->calls)[0]==='sendMessage','admin accessible while offline');
     $bot->handle(msg(42,'/health')); check(str_contains((string)end($api->calls)[1]['text'],'وضعیت ربات'),'admin health status');
     $bot->handle(cb(42,'set:on')); check($store->enabled(),'admin turns bot on');
-    $bot->handle(cb(42,'edit:button:download')); $bot->handle(msg(42,'Get video'));
-    check($bot->label('download')==='Get video','edit button label');
-    $bot->handle(cb(42,'reset:button:download')); check($bot->label('download')===$bot->catalog('button')['download'][1],'reset label');
+    $bot->handle(cb(42,'edit:button:help')); $bot->handle(msg(42,'Guide'));
+    check($bot->label('help')==='Guide','edit button label');
+    $bot->handle(cb(42,'reset:button:help')); check($bot->label('help')===$bot->catalog('button')['help'][1],'reset label');
     $bot->handle(cb(42,'edit:text:video_caption')); $bot->handle(msg(42,'Title: {title}'));
     check($bot->text('video_caption')==='Title: {title}','custom caption persists');
     $bot->handle(cb(42,'edit:text:welcome')); $bot->handle(msg(42,'/cancel')); $bot->handle(msg(42,'Ignored text'));
