@@ -263,6 +263,7 @@ final class Bot
             }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
+            if($action==='custom:noop') return;
             if(!$group) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
             if($action==='help'||($group&&in_array($action,['home','download'],true))) { (new GroupSupport($this))->help($chat,$thread); return; }
             $menu=(int)($message['message_id']??0);

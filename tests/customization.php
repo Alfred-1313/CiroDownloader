@@ -7,7 +7,7 @@ final class SettingsApi implements Zero\Api {
     public array $calls=[]; public bool $rejectEmoji=false;
     public function call(string $method,array $params=[]): mixed {
         $this->calls[]=[$method,$params];
-        if($this->rejectEmoji&&str_contains(json_encode($params),'icon_custom_emoji_id')) throw new RuntimeException('Telegram API error 400');
+        if($this->rejectEmoji&&str_contains(json_encode($params),'icon_custom_emoji_id')) throw new RuntimeException('Telegram API error 400',400);
         return $method==='sendMessage'?['message_id'=>count($this->calls)]:true;
     }
 }

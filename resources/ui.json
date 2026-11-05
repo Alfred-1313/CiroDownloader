@@ -73,6 +73,7 @@
     "custom_saved":{"audience":"admin","label":"ذخیرهٔ شخصی‌سازی","group":"custom","value":"<blockquote><b>✅ تغییر ذخیره شد.</b></blockquote>"},
     "custom_help_too_long":{"audience":"admin","label":"طول ترکیبی راهنما و توضیح گروه","group":"custom","value":"<blockquote><b>راهنما و توضیح افزودن به گروه در کنار هم بیش از حد بلند هستند.</b></blockquote>\nیکی از این دو متن را کوتاه‌تر کن؛ مقدار قبلی حفظ شد."},
     "custom_preview_failed":{"audience":"admin","label":"ردشدن پیش‌نمایش توسط تلگرام","group":"custom","value":"<blockquote><b>تلگرام این قالب یا ایموجی را نپذیرفت.</b></blockquote>\nمقدار قبلی حفظ شد. شناسهٔ ایموجی و پشتیبانی حساب مالک را بررسی کن."},
+    "custom_preview_unavailable":{"audience":"admin","label":"پیش‌نمایش ذخیره‌شدهٔ نامعتبر","group":"custom","value":"<blockquote><b>⚠️ پیش‌نمایش فعلی قابل نمایش نیست.</b></blockquote>\nاز دکمه‌های پایین برای اصلاح مقدار یا بازگشت به پیش‌فرض استفاده کن."},
     "custom_variables":{"audience":"admin","label":"راهنمای متغیرهای متن","group":"custom","variables":["variables"],"value":"متغیرهای قابل استفاده: <code>{variables}</code>"},
     "custom_inline_hint":{"audience":"admin","label":"راهنمای متن درون عنوان","group":"custom","value":"این فیلد داخل عنوان یا متن دیگری نمایش داده می‌شود؛ بولد و ایموجی پریمیوم مجاز است، اما نقل‌قول و بلوک کد را در قالب اصلی تنظیم کن."},
     "error_blocked":{"audience":"user","label":"خطای دسترسی یوتیوب","group":"errors","value":"<blockquote><b>⚠️ یوتیوب دسترسی این سرور را محدود کرده است.</b></blockquote>\nمدیر باید کوکی ورود یا اتصال خروجی سرور را تنظیم و آزمایش کند."},

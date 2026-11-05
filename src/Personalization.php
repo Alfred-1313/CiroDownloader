@@ -5,7 +5,24 @@ namespace Zero;
 final class Personalization
 {
     public function __construct(private Bot $bot) {}
-    private function send(int $chat,string $text,array $rows,int $message): void { $this->bot->send($chat,$text,$rows,$message); }
+    private function send(int $chat,string $text,array $rows,int $message): int
+    {
+        try { return $this->bot->send($chat,$text,$rows,$message); }
+        catch(\RuntimeException $e) {
+            if($e->getCode()!==404||$message<1) throw $e;
+        }
+        $replacement=$this->bot->send($chat,$text,$rows);
+        $saved=$this->bot->store->query('SELECT key FROM states WHERE user_id=?',[$chat])->fetchColumn();
+        if(is_string($saved)&&str_starts_with($saved,'ui:')) {
+            $state=json_decode(substr($saved,3),true);
+            if(is_array($state)&&(int)($state['message']??0)===$message) {
+                $state['message']=$replacement;
+                $this->bot->store->query('UPDATE states SET key=? WHERE user_id=? AND key=?',
+                    ['ui:'.json_encode($state,JSON_THROW_ON_ERROR),$chat,$saved]);
+            }
+        }
+        return $replacement;
+    }
     public function home(int $chat,int $message=0): void
     {
         $ui=$this->bot->ui;
@@ -59,7 +76,7 @@ final class Personalization
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }
-    public function item(int $chat,string $kind,string $key,int $message=0,string $notice=''): void
+    public function item(int $chat,string $kind,string $key,int $message=0,string $notice='',bool $strictPreview=false): void
     {
         $ui=$this->bot->ui; $definition=$ui->definition($kind,$key);
         if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return; }
@@ -74,18 +91,30 @@ final class Personalization
         }
         $rows[]=[$ui->button('reset',"custom:reset:$kind:$key")];
         $listKind=!empty($definition['caption'])?'caption':$kind;
-        $rows[]=[$ui->button('back',"custom:list:$listKind:".$definition['group'].':0')];
-        $this->send($chat,$text,$rows,$message);
+        $position=array_search($key,array_keys($this->entries($listKind,$definition['group'])),true);
+        $page=$position===false?0:intdiv($position,8);
+        $rows[]=[$ui->button('back',"custom:list:$listKind:".$definition['group'].':'.$page)];
+        try { $this->send($chat,$text,$rows,$message); }
+        catch(\RuntimeException $e) {
+            if($strictPreview||$e->getCode()!==400) throw $e;
+            // Keep repair controls usable when a previously saved emoji or text
+            // is no longer accepted by Telegram. Never use this fallback to save.
+            if($kind==='button') array_shift($rows);
+            $plain=Ui::escape(html_entity_decode(strip_tags($value),ENT_QUOTES|ENT_HTML5,'UTF-8'));
+            $text=$ui->text('custom_item',['title'=>$definition['label'],'value'=>$plain],['value']);
+            $text.="\n\n".$ui->text('custom_preview_unavailable').($notice!==''?"\n\n".$notice:'');
+            $this->send($chat,$text,$rows,$message);
+        }
     }
     public function begin(int $chat,int $user,string $kind,string $key,int $message=0): void
     {
         $ui=$this->bot->ui; $definition=$ui->definition($kind==='icon'?'button':$kind,$key);
         if(!$ui->customizable($kind==='icon'?'button':$kind,$key)) { $this->home($chat,$message); return; }
-        $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>$kind,'key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
         $variables=empty($definition['variables'])?'':$ui->text('custom_variables',['variables'=>implode(', ',array_map(fn($name)=>'{'.$name.'}',$definition['variables']))]);
         if(!empty($definition['inline'])) $variables.="\n".$ui->text('custom_inline_hint');
         $text=$kind==='icon'?$ui->text('custom_icon_prompt'):$ui->text('custom_prompt',['title'=>$definition['label'],'variables'=>$variables],['variables']);
-        $this->send($chat,$text,[[$ui->button('cancel','custom:item:'.($kind==='icon'?'button':$kind).':'.$key)]],$message);
+        $message=$this->send($chat,$text,[[$ui->button('cancel','custom:item:'.($kind==='icon'?'button':$kind).':'.$key)]],$message);
+        $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>$kind,'key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
     }
     private function commit(int $chat,string $kind,string $key,int $message,array $values,array $remove=[]): bool
     {
@@ -98,8 +127,9 @@ final class Personalization
                 $this->item($chat,$kind,$key,$message,$ui->text('custom_help_too_long'));
                 return false;
             }
-            $this->item($chat,$kind,$key,$message,$ui->text('custom_saved'));
-        } catch(\Throwable) {
+            $this->item($chat,$kind,$key,$message,$ui->text('custom_saved'),true);
+        } catch(\RuntimeException $e) {
+            if($e->getCode()!==400) throw $e;
             $ui->preview([]);
             $this->item($chat,$kind,$key,$message,$ui->text('custom_preview_failed'));
             return false;
