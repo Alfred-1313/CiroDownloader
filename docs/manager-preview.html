@@ -1,37 +1,109 @@
 <!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Ciro Downloader — terminal preview</title><style>
-body{margin:0;padding:40px 20px;background:#090f19;color:#c7d2e2;font:14px system-ui,sans-serif}
-main{max-width:840px;margin:auto}p{color:#94a3b8;line-height:1.6}h1{font-size:20px;color:#f8fafc}
-.terminal{background:#0d1624;border:1px solid #263a52;border-radius:12px;overflow:auto;box-shadow:0 20px 70px #0005}
-.chrome{padding:14px 20px;border-bottom:1px solid #263a52;color:#94a3b8;font-size:12px}
-pre{margin:0;padding:10px 20px 26px;line-height:1.55;font:14px/1.55 Consolas,"Cascadia Code",monospace}
-</style><main><h1>Ciro Downloader · manager 3.0</h1><p>Actual shell layout. Service indicators are simulated for this preview.</p>
-<div class="terminal"><div class="chrome">root@server · CiroDownloader</div><pre><span style="color:#c7d2e2">
-  </span><span style="color:#38bdf8">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c7d2e2">
+body{margin:0;padding:32px 16px;background:#090f19;color:#c7d2e2;font:14px system-ui,sans-serif}
+main{max-width:1100px;margin:auto}p{color:#94a3b8;line-height:1.6}h1{font-size:22px;color:#f8fafc}
+.previews{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start}
+.terminal{background:#0d1624;border:1px solid #263a52;border-radius:12px;overflow:hidden;min-width:0}
+h2{margin:0;padding:14px 16px;border-bottom:1px solid #263a52;color:#94a3b8;font-size:12px;font-weight:500}
+pre{margin:0;padding:8px 8px 24px;overflow:auto;font:14px/1.55 Consolas,"Cascadia Code",monospace;tab-size:4}
+@media(max-width:1000px){.previews{grid-template-columns:1fr}.terminal{width:fit-content;max-width:100%}}
+</style><main><h1>Ciro Downloader · terminal manager 3.1</h1>
+<p>Actual shell output at desktop and mobile widths. Status is simulated: bot running, worker stopped.</p>
+<div class="previews"><section class="terminal"><h2>Desktop SSH · 80 columns</h2><pre><span style="color:#c7d2e2">
+  </span><span style="color:#38bdf8">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c7d2e2">
   </span><span style="color:#38bdf8">◆</span><span style="color:#c7d2e2">  </span><span style="color:#f8fafc">CIRO DOWNLOADER</span><span style="color:#c7d2e2">
     </span><span style="color:#94a3b8">video and audio, delivered in Telegram</span><span style="color:#c7d2e2">
-  </span><span style="color:#38bdf8">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c7d2e2">
-    </span><span style="color:#94a3b8">Version     </span><span style="color:#c7d2e2"> 1.3.0  (manager 3.0.0)
+  </span><span style="color:#38bdf8">━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Version     </span><span style="color:#c7d2e2"> 1.5.0  (manager 3.1.0)
     </span><span style="color:#94a3b8">Bot         </span><span style="color:#c7d2e2"> </span><span style="color:#4ade80">● Running</span><span style="color:#c7d2e2">
-    </span><span style="color:#94a3b8">Worker      </span><span style="color:#c7d2e2"> </span><span style="color:#4ade80">● Running</span><span style="color:#c7d2e2">
-    </span><span style="color:#94a3b8">Auto-updates</span><span style="color:#c7d2e2"> </span><span style="color:#4ade80">● Active</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Worker      </span><span style="color:#c7d2e2"> </span><span style="color:#facc15">● Stopped</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Auto-updates</span><span style="color:#c7d2e2"> </span><span style="color:#facc15">● Disabled</span><span style="color:#c7d2e2">
 
-  </span><span style="color:#38bdf8">│</span><span style="color:#c7d2e2"> </span><span style="color:#f8fafc">Menu</span><span style="color:#c7d2e2">
-  </span><span style="color:#256287">────────────────────────────────────────────────────────────</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 1</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Install      </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">set up or rebuild the bot</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 2</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Update       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">newest code, keeps your data</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 3</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#f87171">Remove       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">delete this bot and its data</span><span style="color:#c7d2e2">
-  </span><span style="color:#256287">────────────────────────────────────────────────────────────</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 4</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Services     </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">start, stop, restart and logs</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 5</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Status       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">bot, worker and updater health</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 6</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Backup       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">database, cookies and settings</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 7</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Restore      </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">recover a private backup</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 8</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Settings     </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">bot token, admins and proxy</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 9</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Cookies      </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">import a YouTube cookie file</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9">10</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Diagnostics  </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">server checks and delivery test</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9">11</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Telegram     </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">enable administrator updates</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9">12</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Help         </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">commands and shortcuts</span><span style="color:#c7d2e2">
-   </span><span style="color:#67e8f9"> 0</span><span style="color:#c7d2e2"> </span><span style="color:#256287">│</span><span style="color:#c7d2e2"> </span><span style="color:#c7d2e2">Exit         </span><span style="color:#c7d2e2">
-  </span><span style="color:#256287">────────────────────────────────────────────────────────────</span><span style="color:#c7d2e2">
+  </span><span style="color:#f8fafc">│ Main menu</span><span style="color:#c7d2e2">
+  </span><span style="color:#256287">────────────────────────────────────────────────────────────────────────────</span><span style="color:#c7d2e2">
 
-  </span><span style="color:#67e8f9">❯</span><span style="color:#c7d2e2"> Choose [0-12]: </span></pre></div></main></html>
+  </span><span style="color:#94a3b8">SETUP</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 1]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Install       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">set up or rebuild the bot</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 2]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Update        </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">newest code, keeps your data</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">OPERATIONS</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 4]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Services      </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">start, stop, restart and logs</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 5]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Status        </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">bot, worker and updater health</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">DATA &amp; SETTINGS</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 6]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Backup        </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">database, cookies and settings</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 7]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Restore       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">recover a private backup</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 8]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Settings      </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">bot token, admins and proxy</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 9]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Cookies       </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">import a YouTube cookie file</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">TOOLS</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[10]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Diagnostics   </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">server checks and delivery test</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[11]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Auto-updates  </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">enable updates from Telegram</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[12]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Help          </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">commands and shortcuts</span><span style="color:#c7d2e2">
+  </span><span style="color:#256287">────────────────────────────────────────────────────────────────────────────</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 3]</span><span style="color:#c7d2e2">  </span><span style="color:#f87171">Remove        </span><span style="color:#c7d2e2"> </span><span style="color:#94a3b8">permanently delete bot data</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 0]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Exit          </span><span style="color:#c7d2e2">
+  </span><span style="color:#256287">────────────────────────────────────────────────────────────────────────────</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#67e8f9">❯</span><span style="color:#c7d2e2"> Choose [0-12]: </span></pre></section><section class="terminal"><h2>Mobile SSH · 32 columns</h2><pre><span style="color:#c7d2e2">
+  </span><span style="color:#38bdf8">━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c7d2e2">
+  </span><span style="color:#38bdf8">◆</span><span style="color:#c7d2e2">  </span><span style="color:#f8fafc">CIRO DOWNLOADER</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">video and audio, </span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">delivered in Telegram</span><span style="color:#c7d2e2">
+  </span><span style="color:#38bdf8">━━━━━━━━━━━━━━━━━━━━━━━━━━━━</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Version</span><span style="color:#c7d2e2">
+      </span><span style="color:#c7d2e2">1.5.0  (manager 3.1.0)</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Bot         </span><span style="color:#c7d2e2"> </span><span style="color:#4ade80">● Running</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Worker      </span><span style="color:#c7d2e2"> </span><span style="color:#facc15">● Stopped</span><span style="color:#c7d2e2">
+    </span><span style="color:#94a3b8">Auto-updates</span><span style="color:#c7d2e2"> </span><span style="color:#facc15">● Disabled</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#f8fafc">│ Main menu</span><span style="color:#c7d2e2">
+  </span><span style="color:#256287">────────────────────────────</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">SETUP</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 1]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Install       </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">set up or rebuild the </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">bot</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 2]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Update        </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">newest code, keeps </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">your data</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">OPERATIONS</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 4]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Services      </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">start, stop, restart </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">and logs</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 5]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Status        </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">bot, worker and </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">updater health</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">DATA &amp; SETTINGS</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 6]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Backup        </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">database, cookies and </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">settings</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 7]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Restore       </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">recover a private </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">backup</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 8]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Settings      </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">bot token, admins and </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">proxy</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 9]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Cookies       </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">import a YouTube </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">cookie file</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#94a3b8">TOOLS</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[10]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Diagnostics   </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">server checks and </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">delivery test</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[11]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Auto-updates  </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">enable updates from </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">Telegram</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[12]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Help          </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">commands and shortcuts</span><span style="color:#c7d2e2">
+  </span><span style="color:#256287">────────────────────────────</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 3]</span><span style="color:#c7d2e2">  </span><span style="color:#f87171">Remove        </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">permanently delete </span><span style="color:#c7d2e2">
+        </span><span style="color:#94a3b8">bot data</span><span style="color:#c7d2e2">
+  </span><span style="color:#67e8f9">[ 0]</span><span style="color:#c7d2e2">  </span><span style="color:#c7d2e2">Exit          </span><span style="color:#c7d2e2">
+  </span><span style="color:#256287">────────────────────────────</span><span style="color:#c7d2e2">
+
+  </span><span style="color:#67e8f9">❯</span><span style="color:#c7d2e2"> Choose [0-12]: </span></pre></section></div></main></html>

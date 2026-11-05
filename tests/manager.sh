@@ -88,6 +88,9 @@ check grep -q 'Worker.*Stopped' "$test_root/menu"
 check grep -q 'Backup' "$test_root/menu"
 check grep -q 'Restore' "$test_root/menu"
 check grep -q 'Settings' "$test_root/menu"
+check grep -q 'OPERATIONS' "$test_root/menu"
+check grep -q 'DATA & SETTINGS' "$test_root/menu"
+check grep -q '\[11\].*Auto-updates' "$test_root/menu"
 if grep -q $'\033' "$test_root/menu"; then printf 'FAIL plain output has terminal escapes\n' >&2; exit 1; fi
 export COLUMNS=40
 ui_init; render_menu >"$test_root/narrow"
@@ -97,6 +100,73 @@ ui_step_progress '/' 1631 >"$test_root/narrow-progress"
 check awk 'length($0)>40 {exit 1}' "$test_root/narrow-progress"
 check grep -q '\[1/1\] 1631s' "$test_root/narrow-progress"
 if grep -q '%' "$test_root/narrow-progress"; then printf 'FAIL misleading compiler percentage\n' >&2; exit 1; fi
+
+# Whole screens, long paths, prompts and operation feedback fit mobile SSH widths.
+for columns in 28 32 40 60 80; do
+  export COLUMNS=$columns
+  ui_init
+  {
+    render_menu
+    show_help
+    ui_section 'Main menu / Diagnostics'
+    ui_prompt 'Administrator IDs, separated by commas (Enter to go back): '
+    printf '\n'
+    ui_status Configuration 'Not installed'
+    ui_error 'This step failed. Completed steps may already have run.'
+    ui_warn 'An update or another manager operation is running. Try again shortly.'
+    ui_plan 1
+    ui_step_start 'Build local Telegram API and migrate bot'
+    ui_step_end 'Build local Telegram API and migrate bot' 0 1631
+  } >"$test_root/width-$columns" 2>&1
+  check awk -v width="$columns" 'length($0)>width {print "Overflow: " $0; exit 1}' "$test_root/width-$columns"
+done
+
+# The real output TTY wins over a stale/exported COLUMNS value, including after
+# resizing, when Bash is noninteractive and stdin is not a terminal.
+python3 -B - "$PROJECT_DIR/manager.sh" <<'PY'
+import fcntl
+import os
+import pty
+import struct
+import subprocess
+import sys
+import termios
+
+master, slave = pty.openpty()
+try:
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+    script = '''source "$1"
+ui_init
+printf 'INITIAL_WIDTH=%s\\n' "$UI_WIDTH"
+stty cols 32 <&1
+ui_screen
+printf 'RESIZED_WIDTH=%s\\n' "$UI_WIDTH"
+'''
+    subprocess.run(['bash', '-c', script, '_', sys.argv[1]], input=b'',
+                   stdout=slave, stderr=slave, env=dict(os.environ, COLUMNS='99'),
+                   check=True, timeout=5)
+    output = os.read(master, 4096).decode()
+    assert 'INITIAL_WIDTH=76' in output, output
+    assert 'RESIZED_WIDTH=28' in output, output
+finally:
+    os.close(master)
+    os.close(slave)
+print('PASS actual TTY width and resize with piped input')
+PY
+
+# A failed Compose query is unknown, not evidence that a service is uninstalled.
+(
+  docker() { return 1; }
+  render_status
+) >"$test_root/status-error"
+check grep -q 'Bot.*Unknown' "$test_root/status-error"
+check grep -q 'Worker.*Unknown' "$test_root/status-error"
+(
+  docker() { printf 'other-bot\nworker-helper\n'; }
+  render_status
+) >"$test_root/status-names"
+check grep -q 'Bot.*Not installed' "$test_root/status-names"
+check grep -q 'Worker.*Not installed' "$test_root/status-names"
 export COLUMNS=80
 unset NO_COLOR
 export CLICOLOR_FORCE=1 TERM=xterm-256color CIRO_ASCII=0
@@ -111,6 +181,34 @@ printf '4\n0\n8\n0\n10\n0\n0\n' | menu >"$test_root/navigation"
 check grep -q 'Bye' "$test_root/navigation"
 menu </dev/null >"$test_root/eof"
 check test "$(grep -c 'CIRO DOWNLOADER' "$test_root/eof")" -eq 1
+
+# An invalid selection must not consume the next valid selection as a pause.
+printf 'wrong\n99\n4\nwrong\n0\n0\n' | menu >"$test_root/invalid-navigation"
+check grep -q 'Main menu / Services' "$test_root/invalid-navigation"
+check grep -q 'Bye' "$test_root/invalid-navigation"
+check test "$(grep -c 'Enter a number' "$test_root/invalid-navigation")" -eq 3
+printf 'wrong\n' | menu >"$test_root/invalid-eof"
+check test "$(grep -c 'CIRO DOWNLOADER' "$test_root/invalid-eof")" -eq 1
+printf '04\n' | (ui_read_choice 7 choice; test "$choice" = 4)
+
+# Initial setup corrects typos inline, hides the token, and saves only at the end.
+mkdir "$test_root/configuration"
+(
+  PROJECT_DIR="$test_root/configuration"
+  printf 'invalid\n123:PRIVATE_TEST_TOKEN\n@admin\n42,99\n' | configure_initial
+) >"$test_root/wizard" 2>&1
+check grep -q '^ADMIN_IDS=42,99$' "$test_root/configuration/.env"
+if grep -q PRIVATE_TEST_TOKEN "$test_root/wizard"; then printf 'FAIL token exposed in setup output\n' >&2; exit 1; fi
+check test "$(stat -c %a "$test_root/configuration/.env")" = 600
+mkdir "$test_root/cancelled"
+for input in '' '123:PRIVATE_TEST_TOKEN'; do
+  if (
+    PROJECT_DIR="$test_root/cancelled"
+    printf '%s\n\n' "$input" | configure_initial
+  ) >"$test_root/wizard-cancel" 2>&1; then printf 'FAIL cancelled setup succeeded\n' >&2; exit 1; fi
+  check test ! -e "$test_root/cancelled/.env"
+  check grep -q 'Setup cancelled' "$test_root/wizard-cancel"
+done
 
 # Stop and removal cancellation must not run any Docker command.
 printf '\n' | delete_bot >"$test_root/cancel"

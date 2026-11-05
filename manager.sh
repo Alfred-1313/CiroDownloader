@@ -4,7 +4,7 @@ set -Eeuo pipefail
 umask 077
 
 REPOSITORY_URL='https://github.com/Alfred-1313/CiroDownloader.git'
-INSTALLER_VERSION='3.0.1'
+INSTALLER_VERSION='3.1.0'
 PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 LOG_DIR='/var/log/ciro-downloader'
 BACKUP_DIR='/var/backups/ciro-downloader'
@@ -105,12 +105,22 @@ require_docker() {
 configure_initial() {
   [[ ! -f .env ]] || return 0
   ui_section 'Connect your bot'
-  ui_note 'The token is hidden. Existing bot settings are kept on later runs.'
+  ui_note 'Create your bot in Telegram with @BotFather. Its token stays hidden.'
+  ui_note 'Press Enter at either prompt to cancel without saving.'
   local token ids
-  ui_prompt 'Telegram bot token: '; read -rs token || return 1; printf '\n'
-  [[ $token =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] || { ui_error 'Invalid bot token.'; return 1; }
-  ui_prompt 'Administrator IDs, separated by commas: '; read -r ids || return 1
-  [[ $ids =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] || { ui_error 'Use numeric Telegram IDs separated by commas.'; return 1; }
+  while true; do
+    ui_prompt 'Bot token (1/2): '; read -rs token || { printf '\n'; return 1; }; printf '\n'
+    [[ -n $token ]] || { ui_note 'Setup cancelled. Nothing was saved.'; return 1; }
+    [[ $token =~ ^[0-9]+:[A-Za-z0-9_-]+$ ]] && break
+    ui_error 'Use the full token from @BotFather, including the colon.'
+  done
+  ui_note 'Use numeric Telegram user IDs, not @usernames. Example: 123456789,987654321'
+  while true; do
+    ui_prompt 'Administrator IDs (2/2): '; read -r ids || return 1
+    [[ -n $ids ]] || { ui_note 'Setup cancelled. Nothing was saved.'; return 1; }
+    [[ $ids =~ ^[1-9][0-9]*(,[1-9][0-9]*)*$ ]] && break
+    ui_error 'Use positive numbers separated by commas, without spaces.'
+  done
   SECRET_TMP="$(mktemp "$PROJECT_DIR/.env.setup-XXXXXXXX")" || return
   printf 'BOT_TOKEN=%s\nADMIN_IDS=%s\nBOT_API_URL=https://api.telegram.org\nMAX_FILE_BYTES=49000000\nSTORAGE_DIR=/app/storage\nYT_DLP_BIN=/opt/yt/bin/yt-dlp\n' "$token" "$ids" >"$SECRET_TMP" || return
   chmod 600 "$SECRET_TMP"; mv -- "$SECRET_TMP" "$PROJECT_DIR/.env" || return
@@ -147,7 +157,7 @@ install_bot() {
   require_docker install || return
   configure_initial || return
   ui_plan 5
-  run_step 'Build the application' docker compose build --pull || return
+  run_step --live 'Build the application' docker compose build --pull || return
   run_step 'Verify the Telegram connection' validate_bot || return
   run_step 'Start bot and worker' docker compose up -d --no-build || return
   run_step 'Set up Telegram updates' enable_telegram_updates || return
@@ -168,7 +178,7 @@ update_bot() {
   ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
   run_step 'Fetch the latest release' git fetch origin main || return
   run_step 'Apply the release' git merge --ff-only origin/main || return
-  run_step 'Build the new application' docker compose build --pull || return
+  run_step --live 'Build the new application' docker compose build --pull || return
   run_step 'Verify the Telegram connection' validate_bot || return
   run_step 'Start the new version' docker compose up -d --no-build || return
   run_step 'Refresh Telegram updates' enable_telegram_updates || return
@@ -329,10 +339,13 @@ delete_bot() {
 render_status() {
   local bot='Not installed' worker='Not installed' running='' known=''
   if docker_ready; then
-    running=$(timeout 5 docker compose ps --status running --services 2>/dev/null) || running=''
-    known=$(timeout 5 docker compose ps --all --services 2>/dev/null) || known=''
-    [[ $known != *bot* ]] || bot=Stopped; [[ $known != *worker* ]] || worker=Stopped
-    [[ $running != *bot* ]] || bot=Running; [[ $running != *worker* ]] || worker=Running
+    if running=$(timeout 5 docker compose ps --status running --services 2>/dev/null) && \
+       known=$(timeout 5 docker compose ps --all --services 2>/dev/null); then
+      [[ $'\n'$known$'\n' != *$'\nbot\n'* ]] || bot=Stopped
+      [[ $'\n'$known$'\n' != *$'\nworker\n'* ]] || worker=Stopped
+      [[ $'\n'$running$'\n' != *$'\nbot\n'* ]] || bot=Running
+      [[ $'\n'$running$'\n' != *$'\nworker\n'* ]] || worker=Running
+    else bot=Unknown; worker=Unknown; fi
   else bot=Unavailable; worker=Unavailable; fi
   local version='Not installed' updater=Disabled
   [[ ! -f VERSION ]] || version=$(tr -d '\r\n' <VERSION)
@@ -341,30 +354,36 @@ render_status() {
   ui_status 'Bot' "$bot"; ui_status 'Worker' "$worker"; ui_status 'Auto-updates' "$updater"
 }
 render_menu() {
-  ui_screen; render_status; ui_section 'Menu'
+  ui_screen; render_status
+  [[ -f .env ]] || ui_note 'First setup? Choose 1 to connect your bot.'
+  ui_section 'Main menu'
+  ui_group 'SETUP'
   ui_row 1 Install 'set up or rebuild the bot'
   ui_row 2 Update 'newest code, keeps your data'
-  ui_row 3 Remove 'delete this bot and its data' "$UI_BAD"
-  ui_rule
+  ui_group 'OPERATIONS'
   ui_row 4 Services 'start, stop, restart and logs'
   ui_row 5 Status 'bot, worker and updater health'
+  ui_group 'DATA & SETTINGS'
   ui_row 6 Backup 'database, cookies and settings'
   ui_row 7 Restore 'recover a private backup'
   ui_row 8 Settings 'bot token, admins and proxy'
   ui_row 9 Cookies 'import a YouTube cookie file'
+  ui_group 'TOOLS'
   ui_row 10 Diagnostics 'server checks and delivery test'
-  ui_row 11 Telegram 'enable administrator updates'
+  ui_row 11 'Auto-updates' 'enable updates from Telegram'
   ui_row 12 Help 'commands and shortcuts'
+  ui_rule
+  ui_row 3 Remove 'permanently delete bot data' "$UI_BAD"
   ui_row 0 Exit
   ui_rule
 }
 services_menu() {
   local choice
   while true; do
-    ui_screen; ui_section 'Services'
+    ui_screen; ui_section 'Main menu / Services'
     ui_row 1 Start 'start bot and worker'; ui_row 2 Stop 'keep all data and settings'; ui_row 3 Restart
     ui_row 4 'All logs'; ui_row 5 'Bot logs'; ui_row 6 'Worker logs'; ui_row 7 Status; ui_row 0 Back; ui_rule
-    ui_prompt 'Choose [0-7]: '; read -r choice || return 0
+    ui_read_choice 7 choice || return 0
     case "$choice" in 1) with_lock start_services || true ;; 2) with_lock stop_services || true ;; 3) with_lock restart_services || true ;; 4) show_logs || true ;; 5) show_logs bot || true ;; 6) show_logs worker || true ;; 7) show_status ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
     ui_pause
   done
@@ -372,14 +391,14 @@ services_menu() {
 settings_menu() {
   local choice
   while true; do
-    ui_screen; ui_section 'Settings'
+    ui_screen; ui_section 'Main menu / Settings'
     if [[ -f .env ]] && command -v python3 >/dev/null 2>&1; then python3 scripts/maintenance.py summary || true; fi
     ui_row 1 'Bot token' 'hidden input, checked before apply'
     ui_row 2 Administrators 'Telegram IDs separated by commas'
     ui_row 3 'YouTube proxy' 'set, change or disable'
     ui_row 4 'Large uploads' 'enable a private local Telegram Bot API'
     ui_row 0 Back; ui_rule
-    ui_prompt 'Choose [0-4]: '; read -r choice || return 0
+    ui_read_choice 4 choice || return 0
     case "$choice" in 1) with_lock edit_setting BOT_TOKEN || true ;; 2) with_lock edit_setting ADMIN_IDS || true ;; 3) with_lock edit_setting YOUTUBE_PROXY || true ;; 4) with_lock enable_large_uploads || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
     ui_pause
   done
@@ -387,8 +406,8 @@ settings_menu() {
 diagnostics_menu() {
   local choice
   while true; do
-    ui_screen; ui_section 'Diagnostics'; ui_row 1 'Server checks' 'no Telegram messages'; ui_row 2 'Delivery test' 'sends a test video to your admin'; ui_row 0 Back; ui_rule
-    ui_prompt 'Choose [0-2]: '; read -r choice || return 0
+    ui_screen; ui_section 'Main menu / Diagnostics'; ui_row 1 'Server checks' 'no Telegram messages'; ui_row 2 'Delivery test' 'sends a test video to your admin'; ui_row 0 Back; ui_rule
+    ui_read_choice 2 choice || return 0
     case "$choice" in 1) doctor ;; 2) with_lock run_diagnostics || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
     ui_pause
   done
@@ -407,7 +426,7 @@ show_help() {
 menu() {
   local choice
   while true; do
-    render_menu; ui_prompt 'Choose [0-12]: '; read -r choice || return 0
+    render_menu; ui_read_choice 12 choice || return 0
     case "$choice" in
       1) with_lock install_bot || true ;;
       2) if with_lock update_bot; then ui_pause; exec bash "$PROJECT_DIR/manager.sh"; fi ;;

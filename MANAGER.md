@@ -14,9 +14,13 @@ CiroDownloader backup
 CiroDownloader restore /absolute/path/backup.tar.gz
 ```
 
-The main menu has Install, Update, Remove, Services, Status, Backup, Restore, Settings, Cookies, Diagnostics, Telegram updates, and Help. Services contains start, stop, restart and separate bot/worker logs. Back returns one level; end-of-input exits. `--plain` disables color and screen redraw; `NO_COLOR` also disables colors. `bash manager.sh --preview` renders the interface without requiring root or changing the server.
+The main menu groups the existing numbered actions into Setup, Operations, Data & Settings, and Tools. Remove is separated at the bottom; all action numbers and command shortcuts are unchanged. Services contains start, stop, restart and separate bot/worker logs. Submenus show their location, and Back returns one level. Invalid selections are corrected at the same prompt without an extra Enter; end-of-input exits.
 
-Progress counts completed steps, rather than guessing a Docker build percentage. Errors return to the menu with the failed step and a private log under `/var/log/ciro-downloader`. Maintenance shares a lock with the Telegram updater so the two cannot change the installation simultaneously.
+The layout adapts to terminals from 28 columns upward, wrapping descriptions, long paths, prompts and step results. Width is refreshed when a screen is drawn. `--plain` disables color and screen redraw; `NO_COLOR` also disables colors. `bash manager.sh --preview` renders the interface without requiring root or changing the server. [Desktop and mobile-width previews](docs/manager-preview.html) use the actual shell renderer with simulated service status. Regenerate them with `python3 docs/render_manager_preview.py`.
+
+Progress counts completed steps, rather than guessing a Docker build percentage. Application builds stream their output while retaining the private log. Errors return to the menu with the failed step and a private log under `/var/log/ciro-downloader`. A failed Compose status query is shown as **Unknown**, rather than **Not installed**. Maintenance shares a lock with the Telegram updater so the two cannot change the installation simultaneously.
+
+First-time setup explains where to obtain a bot token, keeps it hidden, and lets you correct a typo without restarting the installation. Administrator IDs are numeric user IDs, not usernames. Pressing Enter at either prompt cancels setup before any configuration is saved.
 
 Large-upload setup streams Docker build output and migration stages directly to the terminal while retaining the private log. The first build can take tens of minutes or longer on a small server. `CiroDownloader large-uploads` opens the setup directly, with the same hidden credential prompts as **Settings > Large uploads**.
 
