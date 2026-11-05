@@ -2,7 +2,9 @@ import contextlib
 import importlib.util
 import json
 from pathlib import Path
+import py_compile
 import sqlite3
+import subprocess
 import tarfile
 import tempfile
 import time
@@ -94,6 +96,51 @@ class UpdaterTests(unittest.TestCase):
         if args[:2] == ('git', 'rev-parse'):
             return 'a' * 40 if args[2] == 'HEAD' else 'b' * 40
         return ''
+
+    def source_checkout(self):
+        (self.project / '.gitignore').write_bytes((Path(__file__).parents[1] / '.gitignore').read_bytes())
+        (self.project / 'scripts').mkdir()
+        source = self.project / 'scripts/maintenance.py'
+        source.write_text('fixture = True\n')
+        for args in [('init', '-q'), ('add', '.'),
+                     ('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-qm', 'Fixture')]:
+            subprocess.run(['git', *args], cwd=self.project, check=True, capture_output=True)
+        return source
+
+    def checkout_commands(self, *args, **kwargs):
+        if args == ('git', 'status', '--porcelain'):
+            return subprocess.check_output(args, cwd=self.project, text=True).strip()
+        return self.commands(*args, **kwargs)
+
+    def test_python_import_cache_does_not_block_update(self):
+        source = self.source_checkout()
+        cache = Path(py_compile.compile(str(source), doraise=True))
+        self.assertTrue(cache.is_file())
+        (self.project / 'scripts/legacy.pyc').write_bytes(cache.read_bytes())
+        self.queue()
+        with patch.object(updater, 'command', self.checkout_commands):
+            self.agent.tick()
+        with self.agent.db() as db:
+            self.assertEqual(db.execute('SELECT status FROM update_requests').fetchone()[0], 'done')
+        self.assertTrue(cache.is_file(), 'Updating must not delete the cache to bypass the source check')
+
+    def test_real_source_changes_still_block_update(self):
+        source = self.source_checkout()
+        py_compile.compile(str(source), doraise=True)
+        for changed in (source, self.project / 'scripts/new_feature.py'):
+            with self.subTest(path=changed.name):
+                source.write_text('fixture = True\n')
+                changed.write_text('fixture = "local work"\n')
+                with self.agent.db() as db:
+                    db.execute('DELETE FROM update_requests')
+                self.agent.calls.clear()
+                self.queue()
+                with patch.object(updater, 'command', self.checkout_commands):
+                    self.agent.tick()
+                with self.agent.db() as db:
+                    self.assertEqual(db.execute('SELECT status FROM update_requests').fetchone()[0], 'failed')
+                self.assertFalse(any(method == 'run' for method, _ in self.agent.calls))
+                self.assertFalse((self.state / 'recovery.json').exists())
 
     def test_denies_forged_requests(self):
         for user, chat, action in [(1, 1, 'update'), (42, -1, 'update'), (42, 42, 'sh rm anything')]:

@@ -6,3 +6,5 @@ storage/
 *.zip
 *cookies*.txt
 tests/.manager-test-*/
+__pycache__/
+*.py[cod]
