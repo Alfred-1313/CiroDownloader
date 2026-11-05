@@ -61,7 +61,8 @@ final class Ui
         if(!$item) throw new \RuntimeException('Unregistered UI button: '.$key);
         $replace=[];
         foreach($values as $name=>$value) $replace['{'.$name.'}']=(string)$value;
-        return strtr($this->get('button.'.$key,$item['value']),$replace);
+        $fallback=isset($item['inherits'])?$this->get('button.'.$item['inherits'],$item['value']):$item['value'];
+        return strtr($this->get('button.'.$key,$fallback),$replace);
     }
     public function replyAction(string $text): ?string
     {
@@ -89,12 +90,52 @@ final class Ui
         $item=$this->definition('button',$key);
         $button=['text'=>$this->label($key,$values)];
         if($data!==null) $button['callback_data']=$data;
-        $style=$this->get('button.style.'.$key,$item['style']??'');
+        $parent=$item['inherits']??'';
+        $style=$this->get('button.style.'.$key,$parent!==''?$this->get('button.style.'.$parent,$this->definition('button',$parent)['style']??''):($item['style']??''));
         if(in_array($style,['primary','success','danger'],true)) $button['style']=$style;
-        $icon=$this->get('button.icon.'.$key);
+        $icon=$this->get('button.icon.'.$key,$parent!==''?$this->get('button.icon.'.$parent):'');
         if(preg_match('/^\d{5,24}$/D',$icon)) $button['icon_custom_emoji_id']=$icon;
         return $button;
     }
+    public function coverCaption(string $title,string $maxSize): string
+    {
+        $mode=$this->get('cover.parts','');
+        if($mode==='legacy'||($mode===''&&$this->store->get('text.quality_prompt','')!=='')) return $this->text('quality_prompt',['title'=>$title,'max_size'=>$maxSize]);
+        return $this->text('cover_title',['title'=>$title])."\n\n".$this->text('cover_instruction')."\n".$this->text('cover_limit',['max_size'=>$maxSize]);
+    }
+    public function coverPartsFit(string $maxSize): bool
+    {
+        // The downloader retains up to 180 Unicode characters; each can occupy
+        // two Telegram UTF-16 units. Check the combined photo caption before saving.
+        $title=strtr($this->template('cover_title'),['{title}'=>self::escape(str_repeat('🙂',180))]);
+        $limit=strtr($this->template('cover_limit'),['{max_size}'=>self::escape($maxSize)]);
+        $plain=html_entity_decode(strip_tags($title."\n\n".$this->template('cover_instruction')."\n".$limit),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        return TextFormat::length($plain)<=1024;
+    }
+    public function mediaCaption(string $kind,array $values): string
+    {
+        $mode=$this->get('media.'.$kind.'.parts','');
+        if($mode==='legacy'||($mode===''&&$this->store->get('text.'.$kind.'_caption','')!=='')) return $this->text($kind.'_caption',$values);
+        $detail=$kind==='video'?'video_quality':'audio_format';
+        return $this->text($kind.'_title',$values)."\n\n<blockquote>".$this->text($detail,$values)."\n".$this->text($kind.'_duration',$values).'</blockquote>';
+    }
+    public function mediaPartsFit(string $kind): bool
+    {
+        $values=['{title}'=>self::escape(str_repeat('🙂',100)),'{quality}'=>'1080p','{format}'=>'MP3',
+            '{duration}'=>str_repeat('9',24),'{url}'=>'https://www.youtube.com/watch?v=ybNMMK5Q318'];
+        $detail=$kind==='video'?'video_quality':'audio_format';
+        $html=strtr($this->template($kind.'_title'),$values)."\n\n".strtr($this->template($detail),$values)."\n".strtr($this->template($kind.'_duration'),$values);
+        return TextFormat::length(html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=1024;
+    }
+    public function coverOrder(): array
+    {
+        $default=['360','480','720','1080','audio'];
+        $order=json_decode($this->store->get('cover.order',''),true);
+        if(!is_array($order)||count($order)!==count($default)||count(array_unique($order,SORT_REGULAR))!==count($default)) return $default;
+        foreach($order as $key) if(!is_string($key)||!in_array($key,$default,true)) return $default;
+        return $order;
+    }
+    public static function qualityKey(string $quality): string { return $quality==='1080'?'quality_high':'quality_'.$quality; }
 }
 
 final class TextFormat

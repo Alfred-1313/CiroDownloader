@@ -136,14 +136,18 @@ final class Bot
         $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=0 WHERE id=?",
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),$job['id']]);
         $rows=[]; $row=[];
-        foreach($media['options'] as $height=>$formats) {
-            if($height==='audio') continue;
-            $row[]=$this->ui->button((int)$height===1080?'quality_high':'quality','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
+        foreach($this->ui->coverOrder() as $height) {
+            if(empty($media['options'][$height])) continue;
+            if($height==='audio') {
+                if($row) { $rows[]=$row; $row=[]; }
+                $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
+                continue;
+            }
+            $row[]=$this->ui->button(Ui::qualityKey($height),'quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
             if(count($row)===2) { $rows[]=$row; $row=[]; }
         }
         if($row) $rows[]=$row;
-        if(!empty($media['options']['audio'])) $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
-        $caption=$this->text('quality_prompt',['title'=>$media['title'],'max_size'=>round($this->config->maxBytes/1000000,1)]);
+        $caption=$this->ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));
         if(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);
         $this->store->query("UPDATE jobs SET status='waiting_quality' WHERE id=?",[$job['id']]);

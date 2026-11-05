@@ -69,9 +69,9 @@ while(true) {
                 Zero\Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
             }
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
-            $caption=$bot->text($audio?'audio_caption':'video_caption',['title'=>mb_substr($media['title'],0,100),
+            $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
                 'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Zero\Ui::duration($media['duration']),'url'=>$job['url']]);
-            $link=$bot->ui->button('source_video'); $link['url']=$job['url'];
+            $link=$bot->ui->button($audio?'source_audio':'source_video'); $link['url']=$job['url'];
             $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
                 'reply_markup'=>['inline_keyboard'=>[[$link]]]];
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];

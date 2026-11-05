@@ -29,6 +29,7 @@ jobs:
           php tests/jobs.php
           php tests/customization.php
           php tests/personalization_recovery.php
+          php tests/personalization_sections.php
           php tests/personalization_scope.php
           php tests/admin_keyboard.php
           php tests/groups.php
@@ -44,10 +45,13 @@ jobs:
           php tests/media.php
           php tests/quality_worker.php
           php tests/quality_worker.php --audio
+          php tests/quality_worker.php --custom-parts
+          php tests/quality_worker.php --audio --custom-parts
           php tests/quality_worker.php --shorts
           php tests/quality_worker.php --legacy-caption
           php tests/quality_worker.php --group
           php tests/quality_worker.php --group --audio
+          php tests/quality_worker.php --group --audio --custom-parts
           php tests/quality_worker.php --group --disabled
           php tests/audio.php
           php tests/large_upload.php

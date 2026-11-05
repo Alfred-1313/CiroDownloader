@@ -29,6 +29,7 @@ final class Personalization
         $state=$ui->plain($this->bot->store->get('admins_only','0')==='1'?'state_on':'state_off');
         $groupState=$ui->plain($this->bot->store->groupsEnabled()?'state_on':'state_off');
         $this->send($chat,$ui->text('custom_panel',['state'=>$state]),[
+            [$ui->button('sections','custom:sections')],
             [$ui->button('texts','custom:groups:text'),$ui->button('captions','custom:groups:caption')],
             [$ui->button('buttons','custom:groups:button')],
             [$ui->button('groups_mode','custom:groups_mode',['state'=>$groupState])],
@@ -36,6 +37,102 @@ final class Personalization
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
             [$ui->button('back_admin','custom:back')],
         ],$message);
+    }
+    private function sectionItems(string $section): array
+    {
+        $screens=[
+            'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
+            'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
+            'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
+            'help'=>[['text','welcome'],['text','help'],['text','prompt'],['text','your_id'],['button','help']],
+            'group'=>[['text','group_help'],['text','help_groups_hint'],['text','groups_disabled'],['button','add_to_group']],
+            'access'=>[['text','offline'],['text','admin_only_notice']],
+            'progress'=>[['text','queued'],['text','inspecting'],['text','quality_expired'],['text','quality_busy'],['text','downloading'],['text','uploading'],['text','audio_downloading'],['text','audio_uploading']],
+            'errors'=>[],
+        ];
+        if(!array_key_exists($section,$screens)) return [];
+        $items=$screens[$section];
+        if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
+        return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
+    }
+    private function sections(int $chat,int $message): void
+    {
+        $ui=$this->bot->ui; $rows=[];
+        foreach(['cover','video','audio','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
+        $rows[]=[$ui->button('back_custom','custom:home')];
+        $this->send($chat,$ui->text('section_info',['title'=>$ui->label('sections')]),$rows,$message);
+    }
+    private function section(int $chat,string $section,int $message): void
+    {
+        $ui=$this->bot->ui; $items=$this->sectionItems($section);
+        if(!$items) { $this->sections($chat,$message); return; }
+        $this->bot->store->set('custom.section.'.$chat,$section); $rows=[];
+        foreach($items as [$kind,$key]) $rows[]=[$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>$ui->definition($kind,$key)['label']])];
+        if($section==='cover') {
+            $rows[]=[$ui->button('cover_use_parts','custom:covermode:parts')];
+            $rows[]=[$ui->button('cover_use_legacy','custom:covermode:legacy')];
+            $rows[]=[$ui->button('reorder','custom:reorder')];
+        }
+        if(in_array($section,['video','audio'],true)) {
+            $rows[]=[$ui->button('cover_use_parts','custom:mediamode:'.$section.':parts')];
+            $rows[]=[$ui->button('cover_use_legacy','custom:mediamode:'.$section.':legacy')];
+        }
+        $rows[]=[$ui->button('back','custom:sections')];
+        $text=$section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]);
+        $this->send($chat,$text,$rows,$message);
+    }
+    private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void
+    {
+        $ui=$this->bot->ui; $rows=[];
+        foreach($order as $index=>$quality) {
+            $key=$quality==='audio'?'extract_audio':Ui::qualityKey($quality);
+            $sample=$plain?$ui->button('catalog_item','custom:noop',['label'=>$ui->definition('button',$key)['label']]):$ui->button($key,'custom:noop',['quality'=>$quality.'p']);
+            $row=[$sample];
+            if($index>0) $row[]=$ui->button('move_up','custom:move:'.$quality.':up');
+            if($index<count($order)-1) $row[]=$ui->button('move_down','custom:move:'.$quality.':down');
+            $rows[]=$row;
+        }
+        $rows[]=[$ui->button('reset_order','custom:orderreset')];
+        $rows[]=[$ui->button('back','custom:section:cover')];
+        $this->send($chat,$ui->text('reorder_info').($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    private function coverMode(int $chat,int $message,string $mode): void
+    {
+        $ui=$this->bot->ui; $ui->preview(['cover.parts'=>$mode]);
+        try {
+            if($mode==='parts'&&!$ui->coverPartsFit((string)round($this->bot->config->maxBytes/1000000,1))) {
+                $this->send($chat,$ui->text('cover_too_long'),[[$ui->button('back','custom:section:cover')]],$message);
+                return;
+            }
+            $caption=$ui->coverCaption($this->samples()['title'],(string)round($this->bot->config->maxBytes/1000000,1));
+            $text=$ui->text('custom_item',['title'=>$ui->label('section_cover'),'value'=>$caption],['value'])."\n\n".$ui->text('custom_saved');
+            $this->send($chat,$text,[[$ui->button('back','custom:section:cover')]],$message);
+        } catch(\RuntimeException $e) {
+            if($e->getCode()!==400) throw $e;
+            $ui->preview([]);
+            $this->send($chat,$ui->text('custom_preview_failed'),[[$ui->button('back','custom:section:cover')]],$message);
+            return;
+        } finally { $ui->preview([]); }
+        $this->bot->store->set('cover.parts',$mode);
+    }
+    private function mediaMode(int $chat,int $message,string $kind,string $mode): void
+    {
+        $ui=$this->bot->ui; $ui->preview(['media.'.$kind.'.parts'=>$mode]);
+        try {
+            if($mode==='parts'&&!$ui->mediaPartsFit($kind)) {
+                $this->send($chat,$ui->text('cover_too_long'),[[$ui->button('back','custom:section:'.$kind)]],$message);
+                return;
+            }
+            $caption=$ui->mediaCaption($kind,$this->samples());
+            $text=$ui->text('custom_item',['title'=>$ui->label('section_'.$kind),'value'=>$caption],['value'])."\n\n".$ui->text('custom_saved');
+            $this->send($chat,$text,[[$ui->button('back','custom:section:'.$kind)]],$message);
+        } catch(\RuntimeException $e) {
+            if($e->getCode()!==400) throw $e;
+            $ui->preview([]);
+            $this->send($chat,$ui->text('custom_preview_failed'),[[$ui->button('back','custom:section:'.$kind)]],$message);
+            return;
+        } finally { $ui->preview([]); }
+        $this->bot->store->set('media.'.$kind.'.parts',$mode);
     }
     private function entries(string $kind,string $group=''): array
     {
@@ -72,7 +169,7 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>'49','id'=>'123456','username'=>'CiroDownloaderBot',
+        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }
@@ -80,10 +177,13 @@ final class Personalization
     {
         $ui=$this->bot->ui; $definition=$ui->definition($kind,$key);
         if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return; }
-        $value=$kind==='button'?Ui::escape($ui->label($key,$this->samples())):$ui->text($key,$this->samples());
+        $samples=$this->samples();
+        if(preg_match('/^quality_(360|480|720)$/D',$key,$match)) $samples['quality']=$match[1].'p';
+        elseif($key==='quality_high') $samples['quality']='1080p';
+        $value=$kind==='button'?Ui::escape($ui->label($key,$samples)):$ui->text($key,$samples);
         $text=$ui->text('custom_item',['title'=>$definition['label'],'value'=>$value],['value']).($notice!==''?"\n\n".$notice:'');
         $rows=[];
-        if($kind==='button') $rows[]=[$ui->button($key,'custom:noop',$this->samples())];
+        if($kind==='button') $rows[]=[$ui->button($key,'custom:noop',$samples)];
         $rows[]=[$ui->button('edit',"custom:edit:$kind:$key")];
         if($kind==='button') {
             $rows[]=[$ui->button('color','custom:color:'.$key),$ui->button('icon','custom:icon:'.$key)];
@@ -93,7 +193,9 @@ final class Personalization
         $listKind=!empty($definition['caption'])?'caption':$kind;
         $position=array_search($key,array_keys($this->entries($listKind,$definition['group'])),true);
         $page=$position===false?0:intdiv($position,8);
-        $rows[]=[$ui->button('back',"custom:list:$listKind:".$definition['group'].':'.$page)];
+        $section=$this->bot->store->get('custom.section.'.$chat);
+        $back=in_array([$kind,$key],$this->sectionItems($section),true)?'custom:section:'.$section:"custom:list:$listKind:".$definition['group'].':'.$page;
+        $rows[]=[$ui->button('back',$back)];
         try { $this->send($chat,$text,$rows,$message); }
         catch(\RuntimeException $e) {
             if($strictPreview||$e->getCode()!==400) throw $e;
@@ -120,8 +222,24 @@ final class Personalization
     {
         $ui=$this->bot->ui;
         if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return false; }
+        if($kind==='text'&&in_array($key,['cover_title','cover_instruction','cover_limit'],true)) $values['cover.parts']='parts';
+        elseif($kind==='text'&&$key==='quality_prompt') $values['cover.parts']='legacy';
+        if($kind==='text') foreach(['video'=>['video_title','video_quality','video_duration'],'audio'=>['audio_title','audio_format','audio_duration']] as $media=>$fields) {
+            if(in_array($key,$fields,true)) $values['media.'.$media.'.parts']='parts';
+            elseif($key===$media.'_caption') $values['media.'.$media.'.parts']='legacy';
+        }
         try {
             $ui->preview($values);
+            if($kind==='text'&&in_array($key,['cover_title','cover_instruction','cover_limit'],true)&&!$ui->coverPartsFit((string)round($this->bot->config->maxBytes/1000000,1))) {
+                $ui->preview([]);
+                $this->item($chat,$kind,$key,$message,$ui->text('cover_too_long'));
+                return false;
+            }
+            if($kind==='text') foreach(['video'=>['video_title','video_quality','video_duration'],'audio'=>['audio_title','audio_format','audio_duration']] as $media=>$fields) {
+                if(in_array($key,$fields,true)&&!$ui->mediaPartsFit($media)) {
+                    $ui->preview([]); $this->item($chat,$kind,$key,$message,$ui->text('cover_too_long')); return false;
+                }
+            }
             if((array_key_exists('text.help',$values)||array_key_exists('text.help_groups_hint',$values))&&!(new GroupSupport($this->bot))->helpFits()) {
                 $ui->preview([]);
                 $this->item($chat,$kind,$key,$message,$ui->text('custom_help_too_long'));
@@ -134,6 +252,16 @@ final class Personalization
             $this->item($chat,$kind,$key,$message,$ui->text('custom_preview_failed'));
             return false;
         } finally { $ui->preview([]); }
+        // Legacy installations shared the source button. Detach each audio
+        // attribute before changing its video counterpart so the old audio
+        // appearance remains stable without losing existing customization.
+        if($kind==='button'&&$key==='source_video') {
+            $old=$ui->button('source_video');
+            foreach(['button.'=>$ui->label('source_video'),'button.style.'=>$old['style']??'','button.icon.'=>$old['icon_custom_emoji_id']??''] as $prefix=>$value) {
+                $videoKey=$prefix.'source_video'; $audioKey=$prefix.'source_audio';
+                if(array_key_exists($videoKey,$values)&&!$this->bot->store->query('SELECT 1 FROM settings WHERE key=?',[$audioKey])->fetchColumn()) $values[$audioKey]=$value;
+            }
+        }
         if($kind==='button'&&in_array($key,Ui::REPLY_KEYS,true)&&isset($values['button.'.$key])) {
             $aliases=json_decode($this->bot->store->get('button.aliases.'.$key,'[]'),true);
             $aliases=array_slice(array_values(array_unique(array_merge([$ui->label($key)],is_array($aliases)?$aliases:[]))),0,10);
@@ -190,9 +318,27 @@ final class Personalization
             default=>null,
         };
         if($target&&!$ui->customizable($target[0],$target[1])) { $this->home($chat,$message); return true; }
-        if($op==='home') $this->home($chat,$message);
-        elseif($op==='groups') $this->groups($chat,$kind,$message);
-        elseif($op==='list') $this->listing($chat,$kind,$key,(int)($parts[4]??0),$message);
+        if($op==='home') { $this->bot->store->set('custom.section.'.$chat,''); $this->home($chat,$message); }
+        elseif($op==='sections') $this->sections($chat,$message);
+        elseif($op==='section') $this->section($chat,$kind,$message);
+        elseif($op==='covermode'&&in_array($kind,['parts','legacy'],true)) $this->coverMode($chat,$message,$kind);
+        elseif($op==='mediamode'&&in_array($kind,['video','audio'],true)&&in_array($key,['parts','legacy'],true)) $this->mediaMode($chat,$message,$kind,$key);
+        elseif($op==='reorder') {
+            try { $this->reorder($chat,$message,$ui->coverOrder()); }
+            catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $this->reorder($chat,$message,$ui->coverOrder(),$ui->text('custom_preview_unavailable'),true); }
+        }
+        elseif($op==='move'&&in_array($kind,['360','480','720','1080','audio'],true)&&in_array($key,['up','down'],true)) {
+            $order=$ui->coverOrder(); $index=array_search($kind,$order,true); $other=$index+($key==='up'?-1:1);
+            if($other>=0&&$other<count($order)) [$order[$index],$order[$other]]=[$order[$other],$order[$index]];
+            try { $this->reorder($chat,$message,$order); $this->bot->store->set('cover.order',json_encode($order,JSON_THROW_ON_ERROR)); }
+            catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $this->reorder($chat,$message,$ui->coverOrder(),$ui->text('custom_preview_failed'),true); }
+        }
+        elseif($op==='orderreset') {
+            try { $this->reorder($chat,$message,['360','480','720','1080','audio']); $this->bot->store->query('DELETE FROM settings WHERE key=?',['cover.order']); }
+            catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $this->reorder($chat,$message,$ui->coverOrder(),$ui->text('custom_preview_failed'),true); }
+        }
+        elseif($op==='groups') { $this->bot->store->set('custom.section.'.$chat,''); $this->groups($chat,$kind,$message); }
+        elseif($op==='list') { $this->bot->store->set('custom.section.'.$chat,''); $this->listing($chat,$kind,$key,(int)($parts[4]??0),$message); }
         elseif($op==='item') $this->item($chat,$kind,$key,$message);
         elseif($op==='edit') $this->begin($chat,$user,$kind,$key,$message);
         elseif($op==='icon') $this->begin($chat,$user,'icon',$kind,$message);
@@ -214,7 +360,11 @@ final class Personalization
         } elseif($op==='clearicon'&&$ui->definition('button',$kind)) $this->commit($chat,'button',$kind,$message,['button.icon.'.$kind=>'']);
         elseif($op==='reset'&&($definition=$ui->definition($kind,$key))) {
             $values=[$kind.'.'.$key=>$definition['value']];
-            if($kind==='button') $values+=['button.style.'.$key=>$definition['style']??'','button.icon.'.$key=>''];
+            if($kind==='button') {
+                $parent=$definition['inherits']??''; $parentButton=$parent!==''?$ui->button($parent):[];
+                if($parent!=='') $values['button.'.$key]=$ui->label($parent);
+                $values+=['button.style.'.$key=>$parentButton['style']??($definition['style']??''),'button.icon.'.$key=>$parentButton['icon_custom_emoji_id']??''];
+            }
             $this->commit($chat,$kind,$key,$message,$values,array_keys($values));
         }
         return true;

@@ -10,6 +10,7 @@ $server=null; $worker=null;
 $audio=in_array('--audio',$argv,true);
 $shorts=in_array('--shorts',$argv,true);
 $legacy=in_array('--legacy-caption',$argv,true);
+$customParts=in_array('--custom-parts',$argv,true);
 $group=in_array('--group',$argv,true); $disabled=$group&&in_array('--disabled',$argv,true);
 $chat=$group?-1001234567890:7; $thread=$group?321:0;
 try {
@@ -60,6 +61,14 @@ try {
     if(!$legacy) {
         $store->set('text.video_caption','<b>{title}</b> — {quality} <blockquote>{duration}</blockquote> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
         $store->set('text.audio_caption','<blockquote><b>{title}</b> {duration}</blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+    }
+    if($customParts) {
+        $kind=$audio?'audio':'video';
+        $store->set('media.'.$kind.'.parts','parts');
+        $store->set('text.'.$kind.'_title','<b>{title}</b> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+        $store->set('text.'.$kind.'_duration','<b>CUSTOM {duration}</b>');
+        $store->set('button.source_'.$kind,'CUSTOM SOURCE');
+        $store->set('button.style.source_'.$kind,'danger');
     }
     $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$thread,'text'=>$shorts?'https://www.youtube.com/shorts/ybNMMK5Q318':'https://youtu.be/ybNMMK5Q318']]);
     if($disabled) $store->set('groups_enabled','0');
@@ -124,8 +133,10 @@ try {
     if(!$legacy) qualityCheck(str_contains($caption,'tg-emoji'),'custom captions retain premium emoji');
     else qualityCheck(str_contains($caption,'360p')&&!str_contains($caption,'https://')&&!str_contains($caption,'ویدیوی شما آماده است'),'an upgraded legacy caption shows quality and duration without the old heading or a duplicate raw URL');
     qualityCheck(str_contains($caption,Zero\Ui::duration((int)$uploads[0]['params']['duration'])),'the final caption contains the formatted duration');
+    if($customParts) qualityCheck(str_contains($caption,'CUSTOM '),'the actual delivered media uses its separately configured caption part');
     $sourceButton=json_decode($uploads[0]['params']['reply_markup'],true)['inline_keyboard'][0][0];
-    qualityCheck($sourceButton['style']==='primary'&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered file has a blue URL button linking to the original YouTube video');
+    qualityCheck($sourceButton['style']===($customParts?'danger':'primary')&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered file has the configured URL button linking to the original YouTube video');
+    if($customParts) qualityCheck($sourceButton['text']==='CUSTOM SOURCE','the delivered media uses its independently configured source button');
     qualityCheck(count(array_filter($records,fn($record)=>$record['method']==='sendMessage'))===1,'inspection, choices, download and completion keep one status message');
     qualityCheck(end($records)['params']['caption']===''&&json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']===[],'the old poster caption is cleared only after a successful file upload');
     foreach($records as $record) if(str_starts_with($record['method'],'editMessage')) qualityCheck((int)$record['params']['message_id']===501,'all text, media and caption edits keep the original message ID');
