@@ -92,6 +92,7 @@ try {
     check($bot->text('welcome')===$bot->catalog('text')['welcome'][1],'cancel editing');
     $bot->handle(cb(42,'edit:button:help')); $bot->handle(msg(42,str_repeat('x',49)));
     check($bot->label('help')===$bot->catalog('button')['help'][1],'reject excessive label length');
+    $store->set('processing_limit.private','1'); // Explicitly enable the legacy one-job policy.
     $bot->handle(msg(1,$url,20)); $bot->handle(msg(1,$url,20)); $bot->handle(msg(1,$url,21));
     check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===1,'deduplicate updates and active jobs');
     $job=$store->claim(); check($job!==null&&$store->claim()===null,'claim only queued job');

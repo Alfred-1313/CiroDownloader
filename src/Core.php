@@ -208,11 +208,13 @@ final class Store
             foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''",'thread_id'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
                 if(!in_array($column,$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN '.$column.' '.$type);
             }
+            // Limits are configurable and checked under BEGIN IMMEDIATE. A unique
+            // per-user index would reject the second job even with limits off.
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
-            if($index&&(str_contains($index,'choosing')||!str_contains($index,'confirming'))) $this->db->exec('DROP INDEX one_active');
-            $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS one_active ON jobs(user_id) WHERE status IN ('queued','running','confirming')");
-            // Older releases include 'choosing' in their unique active-job index.
-            // A distinct inactive state also keeps their startup safe after rollback.
+            if($index&&(str_contains(strtoupper($index),'UNIQUE')||str_contains($index,'choosing')||!str_contains($index,'confirming'))) $this->db->exec('DROP INDEX one_active');
+            // Retain the old name so a rollback does not try to recreate a unique
+            // index while this version has several active jobs for one user.
+            $this->db->exec("CREATE INDEX IF NOT EXISTS one_active ON jobs(user_id,chat_id) WHERE status IN ('queued','running','confirming')");
             $this->query("UPDATE jobs SET status='waiting_quality',expires=0 WHERE status='choosing'");
             $this->query("UPDATE states SET expires=0 WHERE key='cookie.upload'");
             if($this->get('ui_html_version','0')!=='1') {
@@ -257,10 +259,10 @@ final class Store
         try {
             if ($this->get('update_in_progress','0')==='1') $result = 'updating';
             elseif ($this->query('SELECT 1 FROM jobs WHERE update_id=?', [$update])->fetchColumn()) $result = 'duplicate';
-            elseif ($this->busy($user)) $result = 'busy';
+            elseif ($this->busy($user,$chat)) $result = 'busy';
             elseif ($this->full()) $result = 'full';
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
-                &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status='waiting_quality'",[$user])->fetchColumn()) $result = 'cooldown';
+                &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
                 $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,'inspect',?)", [$update,$user,$chat,$url,time(),$chat<0?max(0,$thread):0]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
@@ -286,15 +288,21 @@ final class Store
             $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[$id,$user,$chat])->fetch();
             $options=$job?json_decode($job['options'],true):[];
             $audio=$quality==='audio';
-            if(!$job||($quality!==null&&(empty($options[(string)$quality])||$this->busy($user)||$this->full()))) $job=null;
+            if(!$job||($quality!==null&&(empty($options[(string)$quality])||$this->busy($user,$chat)||$this->full()))) $job=null;
             if($job) $this->query('UPDATE jobs SET status=?,quality=?,phase=?,expires=? WHERE id=?',[$quality===null?'cancelled':'confirming',$audio?null:$quality,$audio?'audio':'download',time()+120,$id]);
             $this->db->exec('COMMIT');
             return $job?:null;
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
-    public function busy(int $user): bool
+    public function processingLimit(int $chat): int
     {
-        return (bool)$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('queued','running','confirming')",[$user])->fetchColumn();
+        return max(0,min(20,(int)$this->get($chat<0?'processing_limit.group':'processing_limit.private','0')));
+    }
+    public function busy(int $user,?int $chat=null): bool
+    {
+        $chat??=$user;
+        $limit=$this->processingLimit($chat);
+        return $limit>0&&(int)$this->query("SELECT COUNT(*) FROM jobs WHERE user_id=? AND chat_id=? AND status IN ('queued','running','confirming')",[$user,$chat])->fetchColumn()>=$limit;
     }
     public function full(): bool
     {

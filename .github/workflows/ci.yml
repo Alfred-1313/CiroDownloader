@@ -36,6 +36,7 @@ jobs:
           php tests/posters.php
           php tests/ux_fixes.php
           php tests/quality_waiting.php
+          php tests/processing_limits.php
 
       - name: Install FFmpeg for media regression tests
         run: sudo apt-get update && sudo apt-get install -y ffmpeg

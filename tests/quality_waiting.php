@@ -18,6 +18,7 @@ $temp=sys_get_temp_dir().'/ciro-waiting-'.bin2hex(random_bytes(6)); mkdir($temp,
 try {
     $store=new Zero\Store($temp); $api=new WaitingApi(); $config=new Zero\Config('123:fake',[42],$temp);
     $bot=new Zero\Bot($config,$store,$api);
+    $store->set('processing_limit.private','1'); // Busy-menu behavior with the optional limit enabled.
     $options=[360=>[['id'=>'18','audio'=>true]],480=>[['id'=>'135','audio'=>false]],'audio'=>[['id'=>'18']]];
     $first='https://youtu.be/ybNMMK5Q318'; $second='https://youtu.be/oXWMmELDOq0';
     $bot->handle(waitingLink(1,$first)); $firstJob=$store->claim();

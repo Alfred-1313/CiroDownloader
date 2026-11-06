@@ -157,7 +157,7 @@ final class Bot
         $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
         $job=$this->store->choose((int)$parts[1],$user,$chat,$quality);
         $waiting=!$job&&$this->store->query("SELECT 1 FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[(int)$parts[1],$user,$chat])->fetchColumn();
-        $notice=$waiting?($this->store->busy($user)?'quality_busy':($this->store->full()?'queue_full':'quality_expired')):'quality_expired';
+        $notice=$waiting?($this->store->busy($user,$chat)?'quality_busy':($this->store->full()?'queue_full':'quality_expired')):'quality_expired';
         $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain($notice),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;
         try {

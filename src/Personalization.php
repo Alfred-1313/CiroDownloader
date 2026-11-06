@@ -26,17 +26,51 @@ final class Personalization
     public function home(int $chat,int $message=0): void
     {
         $ui=$this->bot->ui;
+        $this->bot->store->set('custom.section.'.$chat,'home');
         $state=$ui->plain($this->bot->store->get('admins_only','0')==='1'?'state_on':'state_off');
         $groupState=$ui->plain($this->bot->store->groupsEnabled()?'state_on':'state_off');
         $this->send($chat,$ui->text('custom_panel',['state'=>$state]),[
+            [$this->heading($ui->label('sections'))],
             [$ui->button('sections','custom:sections')],
-            [$ui->button('texts','custom:groups:text'),$ui->button('captions','custom:groups:caption')],
+            [$this->heading($ui->label('texts'))],
+            [$ui->button('texts','custom:groups:text')],
+            [$this->heading($ui->label('captions'))],
+            [$ui->button('captions','custom:groups:caption')],
+            [$this->heading($ui->label('buttons'))],
             [$ui->button('buttons','custom:groups:button')],
+            [$this->heading($ui->label('section_group'))],
             [$ui->button('groups_mode','custom:groups_mode',['state'=>$groupState])],
+            [$this->heading($ui->label('section_access'))],
             [$ui->button('admins_only','custom:access',['state'=>$state])],
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
+            [$this->heading($ui->label('processing_limits'))],
+            [$ui->button('processing_limits','custom:limits')],
             [$ui->button('back_admin','custom:back')],
         ],$message);
+    }
+    private function heading(string $label): array
+    {
+        return $this->bot->ui->button('custom_heading','custom:noop',['label'=>$label]);
+    }
+    private function limits(int $chat,int $message,string $notice=''): void
+    {
+        $ui=$this->bot->ui; $rows=[];
+        foreach(['private','group'] as $scope) {
+            $limit=$this->bot->store->processingLimit($scope==='group'?-1:$chat);
+            $rows[]=[$this->heading($ui->label('limit_'.$scope))];
+            $rows[]=[$ui->button('limit_value','custom:limit:'.$scope,['state'=>$limit>0?(string)$limit:$ui->plain('limit_disabled')])];
+        }
+        $rows[]=[$ui->button('back_custom','custom:home')];
+        $this->send($chat,$ui->text('processing_limits_info').($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    private function beginLimit(int $chat,int $user,string $scope,int $message): void
+    {
+        $ui=$this->bot->ui;
+        $message=$this->send($chat,$ui->text('processing_limit_prompt',['title'=>$ui->label('limit_'.$scope)]),[
+            [$ui->button('limit_off','custom:limitoff:'.$scope)],
+            [$ui->button('back','custom:limits')],
+        ],$message);
+        $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>'limit','key'=>$scope,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
     }
     private function sectionItems(string $section): array
     {
@@ -57,7 +91,7 @@ final class Personalization
     }
     private function sections(int $chat,int $message): void
     {
-        $ui=$this->bot->ui; $rows=[];
+        $ui=$this->bot->ui; $rows=[[$this->heading($ui->label('sections'))]];
         foreach(['cover','video','audio','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
         $rows[]=[$ui->button('back_custom','custom:home')];
         $this->send($chat,$ui->text('section_info',['title'=>$ui->label('sections')]),$rows,$message);
@@ -66,7 +100,7 @@ final class Personalization
     {
         $ui=$this->bot->ui; $items=$this->sectionItems($section);
         if(!$items) { $this->sections($chat,$message); return; }
-        $this->bot->store->set('custom.section.'.$chat,$section); $rows=[];
+        $this->bot->store->set('custom.section.'.$chat,$section); $rows=[[$this->heading($ui->label('section_'.$section))]];
         foreach($items as [$kind,$key]) $rows[]=[$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>$ui->definition($kind,$key)['label']])];
         if($section==='cover') {
             $rows[]=[$ui->button('cover_use_parts','custom:covermode:parts')];
@@ -148,7 +182,8 @@ final class Personalization
     public function groups(int $chat,string $kind,int $message): void
     {
         if(!in_array($kind,['text','caption','button'],true)) return;
-        $ui=$this->bot->ui; $rows=[];
+        $this->bot->store->set('custom.section.'.$chat,'');
+        $ui=$this->bot->ui; $rows=[[$this->heading($ui->label($kind==='button'?'buttons':($kind==='caption'?'captions':'texts')))]];
         foreach(Ui::definitions()['groups'] as $key=>$label) if($this->entries($kind,$key)) $rows[]=[$ui->button('group_'.$key,'custom:list:'.$kind.':'.$key.':0')];
         $rows[]=[$ui->button('back_custom','custom:home')];
         $this->send($chat,$ui->text('custom_catalog',['title'=>$ui->label($kind==='button'?'buttons':($kind==='caption'?'captions':'texts')),'page'=>1,'pages'=>1]),$rows,$message);
@@ -158,7 +193,8 @@ final class Personalization
         if(!in_array($kind,['text','caption','button'],true)||!isset(Ui::definitions()['groups'][$group])) return;
         $ui=$this->bot->ui; $items=$this->entries($kind,$group); $pages=max(1,(int)ceil(count($items)/8));
         if(!$items) { $this->groups($chat,$kind,$message); return; }
-        $page=max(0,min($pages-1,$page)); $rows=[];
+        $this->bot->store->set('custom.section.'.$chat,'');
+        $page=max(0,min($pages-1,$page)); $rows=[[$this->heading($ui->label('group_'.$group))]];
         foreach(array_slice($items,$page*8,8,true) as $key=>$item) $rows[]=[$ui->button('catalog_item','custom:item:'.($kind==='caption'?'text':$kind).':'.$key,['label'=>$item['label']])];
         $navigation=[];
         if($page>0) $navigation[]=$ui->button('previous',"custom:list:$kind:$group:".($page-1));
@@ -195,6 +231,7 @@ final class Personalization
         $page=$position===false?0:intdiv($position,8);
         $section=$this->bot->store->get('custom.section.'.$chat);
         $back=in_array([$kind,$key],$this->sectionItems($section),true)?'custom:section:'.$section:"custom:list:$listKind:".$definition['group'].':'.$page;
+        if($section==='home'&&$kind==='text'&&$key==='admin_only_notice') $back='custom:home';
         $rows[]=[$ui->button('back',$back)];
         try { $this->send($chat,$text,$rows,$message); }
         catch(\RuntimeException $e) {
@@ -278,6 +315,17 @@ final class Personalization
     public function receive(int $chat,int $user,array $message,array $state): void
     {
         $ui=$this->bot->ui; ['kind'=>$kind,'key'=>$key,'message'=>$menu]=$state;
+        if($kind==='limit'&&in_array($key,['private','group'],true)) {
+            $value=strtr(trim((string)($message['text']??'')),array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',-1,PREG_SPLIT_NO_EMPTY),str_split('01234567890123456789')));
+            if(!preg_match('/^(?:[0-9]|1[0-9]|20)$/D',$value)) {
+                $this->send($chat,$ui->text('processing_limit_invalid'),[[$ui->button('back','custom:limits')]],(int)$menu);
+                return;
+            }
+            $this->bot->store->set('processing_limit.'.$key,$value);
+            $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $this->limits($chat,(int)$menu,$ui->text('custom_saved'));
+            return;
+        }
         if(!$ui->customizable($kind==='icon'?'button':$kind,$key)) {
             $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
             $this->home($chat,(int)$menu); return;
@@ -318,7 +366,13 @@ final class Personalization
             default=>null,
         };
         if($target&&!$ui->customizable($target[0],$target[1])) { $this->home($chat,$message); return true; }
-        if($op==='home') { $this->bot->store->set('custom.section.'.$chat,''); $this->home($chat,$message); }
+        if($op==='home') $this->home($chat,$message);
+        elseif($op==='limits') $this->limits($chat,$message);
+        elseif($op==='limit'&&in_array($kind,['private','group'],true)) $this->beginLimit($chat,$user,$kind,$message);
+        elseif($op==='limitoff'&&in_array($kind,['private','group'],true)) {
+            $this->bot->store->set('processing_limit.'.$kind,'0');
+            $this->limits($chat,$message,$ui->text('custom_saved'));
+        }
         elseif($op==='sections') $this->sections($chat,$message);
         elseif($op==='section') $this->section($chat,$kind,$message);
         elseif($op==='covermode'&&in_array($kind,['parts','legacy'],true)) $this->coverMode($chat,$message,$kind);
