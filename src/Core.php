@@ -228,6 +228,7 @@ final class Store
             foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''",'thread_id'=>'INTEGER NOT NULL DEFAULT 0','run_token'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
                 if(!in_array($column,$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN '.$column.' '.$type);
             }
+            if(!in_array('thread_id',array_column($this->query('PRAGMA table_info(update_requests)')->fetchAll(),'name'),true)) $this->db->exec('ALTER TABLE update_requests ADD COLUMN thread_id INTEGER NOT NULL DEFAULT 0');
             // Limits are configurable and checked under BEGIN IMMEDIATE. A unique
             // per-user index would reject the second job even with limits off.
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();

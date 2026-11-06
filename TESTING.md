@@ -13,6 +13,7 @@ GitHub Actions runs these checks on each push:
 - `php tests/personalization_sections.php`: covers screen grouping, independent cover captions and qualities, backward-compatible shared button settings, layout changes, rejected previews, persistence, and administrator-only access.
 - `php tests/admin_keyboard.php`: switching home/administration reply keyboards, actual routing of every tool, stopping/starting, returning from submenus, clearing pending input, old inline navigation and deletion failure, and denying forged public reply labels. A strict fake rejects reply keyboards on Telegram edit methods.
 - `php tests/groups.php`: default-on group use, native invitation URL and neutral styling, editable invitation/user guides, refreshing displayed guides after toggles, ownership and chat validation, forum destinations, addressed commands, privacy-mode fallback, quiet handling of unrelated messages, keeping administrator state private, and combined Help length validation with safe rendering/refresh of oversized legacy settings.
+- `php tests/group_updates.php`: bot-administrator `/update` and addressed commands in groups, owner/chat/topic-bound inline controls, private-state isolation, stale/copy rejection, single update requests, progress reopening without cross-chat redirection, and closing the menu in place.
 - `php tests/media.php`: real FFmpeg processing of landscape MP4, 480x854 portrait Shorts and higher-resolution WebM; isolated cookie copies, bounded parallel fragment settings, YouTube proxy forwarding and real multipart HTTP file upload against a local test endpoint. Mixed-codec cases compare stream hashes to prove that suitable H.264 video or AAC audio is copied without re-encoding.
 - `php tests/audio.php`: real AAC, Opus and combined video-to-MP3 conversion, complete audio duration, private cookie copies, proxy forwarding, saved format validation and file size enforcement.
 - `php tests/quality_worker.php`, `--audio` and `--shorts`: link inspection, conversion of the same text message into a poster, quality/audio choice, button removal, actual multipart delivery, duration and the blue source link, then deleting the entire poster message after delivery. A strict local API rejects text edits on photo messages.
@@ -23,7 +24,10 @@ GitHub Actions runs these checks on each push:
 - `bash tests/manager.sh`: real step-process I/O, failure recovery, plain/color output, mixed service state, submenu Back/EOF behavior and operation-lock contention.
 - `test_maintenance.py`: private backup round trips, invalid archive rejection, settings validation, stopped-service preservation and rollback on failed settings/restore application.
 - `test_updater.py`: recovery and rollback, tracking a reopened progress menu, and rebuilding outdated or missing services even when the Git checkout is already current. Rebuilding is skipped only when both running application versions also match.
+
 - `integration_maintenance.py`: after the production image build, an isolated CI Compose volume verifies actual SQLite/cookie backup and restore with runtime UID 10001; it makes no Telegram requests.
+
+Updater tests also verify group requests, invalid topic rejection, and editing the same group progress message through completion or a host-updater restart without sending a separate completion message. These tests use local SQLite and recorded API calls; they do not deploy to a server.
 
 The media test replaces YouTube transport with local fixtures and Telegram with a local HTTP endpoint. It does not prove that a deployment's IP can access YouTube or that its bot token can upload to Telegram.
 

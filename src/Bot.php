@@ -261,13 +261,27 @@ final class Bot
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
             $isPage=preg_match('/^igpage:(\d+):([2-9]|1\d|20)$/D',$action,$page)===1;
+            $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back'],true);
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage;
-            if($privileged&&($group||!$this->admin($user))) {
+            if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
             if(!$this->allowed($user,$chat)) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
                 $this->send($chat,$this->denial($chat),[],0,$thread); return;
+            }
+            if($groupUpdate) {
+                $updater=new Updates($this->config,$this->store,$this->api,$thread); $menu=(int)($message['message_id']??0);
+                $owns=$updater->ownsMenu($chat,$user,$menu);
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$owns?'':$this->ui->plain('denied'),'show_alert'=>!$owns,'cache_time'=>0]);
+                if(!$owns) return;
+                if(in_array($action,['update:menu','update:run','update:open'],true)) $updater->menu($chat,$user,$menu);
+                elseif($action==='update:start') $updater->request($chat,$user,'update',$menu);
+                elseif($action==='update:rollback') $updater->confirmRollback($chat,$user,$menu);
+                elseif($action==='update:rollback:confirm') $updater->request($chat,$user,'rollback',$menu);
+                elseif($action==='update:changes') $updater->changes($chat,$user,$menu);
+                elseif($action==='update:back') $updater->close($chat,$user,$menu);
+                return;
             }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             if($isPage) {

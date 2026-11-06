@@ -128,6 +128,20 @@ class Agent:
                 chat_id INTEGER NOT NULL, message_id INTEGER NOT NULL DEFAULT 0,
                 action TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
                 CREATE UNIQUE INDEX IF NOT EXISTS one_update ON update_requests((1)) WHERE status IN ('queued','running');""")
+            if 'thread_id' not in {row['name'] for row in db.execute('PRAGMA table_info(update_requests)')}:
+                db.execute('ALTER TABLE update_requests ADD COLUMN thread_id INTEGER NOT NULL DEFAULT 0')
+
+    def authorized(self, job):
+        return (job['user_id'] in self.admins and job['action'] in ('update', 'rollback')
+                and (job['chat_id'] == job['user_id'] or job['chat_id'] < 0)
+                and isinstance(job.get('thread_id', 0), int) and job.get('thread_id', 0) >= 0
+                and (job['chat_id'] < 0 or job.get('thread_id', 0) == 0))
+
+    def menu_scope(self):
+        scope = str(self.job['user_id'])
+        if self.job['chat_id'] < 0:
+            scope += '.' + str(self.job['chat_id']) + '.' + str(self.job.get('thread_id', 0))
+        return scope
 
     @contextlib.contextmanager
     def db(self):
@@ -197,8 +211,9 @@ class Agent:
         if not self.job or not self.job.get('id'):
             return
         with self.db() as db:
-            current = db.execute('SELECT chat_id,message_id FROM update_requests WHERE id=?', (self.job['id'],)).fetchone()
-        if current and current['message_id'] > 0 and current['chat_id'] == self.job['chat_id']:
+            current = db.execute('SELECT chat_id,thread_id,message_id FROM update_requests WHERE id=?', (self.job['id'],)).fetchone()
+        if (current and current['message_id'] > 0 and current['chat_id'] == self.job['chat_id']
+                and current['thread_id'] == self.job.get('thread_id', 0)):
             self.job['message_id'] = current['message_id']
 
     def notify(self, text, buttons=None):
@@ -255,7 +270,7 @@ class Agent:
             db.execute("UPDATE update_requests SET status='failed' WHERE status='queued' AND message_id=0 AND created<?", (int(time.time()) - 120,))
             row = db.execute("SELECT * FROM update_requests WHERE status='queued' AND message_id>0 ORDER BY id LIMIT 1").fetchone()
             if row:
-                allowed = (row['user_id'] in self.admins and row['chat_id'] == row['user_id'] and row['action'] in ('update', 'rollback'))
+                allowed = self.authorized(dict(row))
                 db.execute('UPDATE update_requests SET status=? WHERE id=?', ('running' if allowed else 'denied', row['id']))
                 if allowed:
                     self.job = dict(row)
@@ -333,7 +348,7 @@ class Agent:
             buttons.append([self.button('update_rollback', 'update:rollback')])
         if additions:
             buttons.append([self.button('update_changes', 'update:changes')])
-        buttons.append([self.button('back_admin', 'update:back')])
+        buttons.append([self.button('close_update' if self.job['chat_id'] < 0 else 'back_admin', 'update:back')])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
         notes = '\n'.join('• ' + html.escape(item[:240]) for item in additions[:12])
         notice = self.ui('update_notice', title=title, detail='\n' + detail if failed and detail else '', _raw=('title', 'detail')) if title else ''
@@ -345,12 +360,12 @@ class Agent:
             db.execute('UPDATE update_requests SET status=? WHERE id=?', ('failed' if failed else 'done', self.job['id']))
             current = db.execute('SELECT message_id FROM update_requests WHERE id=?', (self.job['id'],)).fetchone()
             self.job['message_id'] = current['message_id']
-            key = 'update_menu.' + str(self.job['user_id'])
+            key = 'update_menu.' + self.menu_scope()
             menu = db.execute('SELECT value FROM settings WHERE key=?', (key,)).fetchone()
             # A fresh menu opened after completion must remain the current menu.
             if menu is None or str(menu['value']) in ('0', str(self.job['message_id'])):
                 db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(self.job['message_id'])))
-                db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('update_menu_hash.' + str(self.job['user_id']), ''))
+                db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('update_menu_hash.' + self.menu_scope(), ''))
         self.notify(text, buttons)
         (STATE / 'completion-pending.json').unlink(missing_ok=True)
 
@@ -365,7 +380,7 @@ class Agent:
         with self.db() as db:
             job = db.execute("SELECT * FROM update_requests WHERE id=? AND status='done'", (saved['job']['id'],)).fetchone()
             active = db.execute("SELECT 1 FROM update_requests WHERE status IN ('queued','running')").fetchone()
-        if active or not job or job['user_id'] not in self.admins or job['chat_id'] != job['user_id']:
+        if active or not job or not self.authorized(dict(job)):
             return
         if job['action'] not in ('update', 'rollback'):
             return

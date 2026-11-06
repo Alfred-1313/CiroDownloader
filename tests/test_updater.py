@@ -75,7 +75,7 @@ class UpdaterTests(unittest.TestCase):
         with self.agent.db() as db:
             db.executescript("""CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);
                 CREATE TABLE jobs(id INTEGER,status TEXT);
-                CREATE TABLE update_requests(id INTEGER PRIMARY KEY,user_id INTEGER,chat_id INTEGER,message_id INTEGER,action TEXT,status TEXT,created INTEGER);
+                CREATE TABLE update_requests(id INTEGER PRIMARY KEY,user_id INTEGER,chat_id INTEGER,message_id INTEGER,action TEXT,status TEXT,created INTEGER,thread_id INTEGER NOT NULL DEFAULT 0);
                 CREATE UNIQUE INDEX one_update ON update_requests((1)) WHERE status IN ('queued','running');""")
         (self.data / 'youtube-cookies.txt').write_text('PRIVATE_TEST_COOKIE')
 
@@ -84,9 +84,9 @@ class UpdaterTests(unittest.TestCase):
             item.stop()
         self.temp.cleanup()
 
-    def queue(self, user=42, chat=42, action='update', message=99):
+    def queue(self, user=42, chat=42, action='update', message=99, thread=0):
         with self.agent.db() as db:
-            db.execute('INSERT INTO update_requests VALUES(1,?,?,?,?,?,?)', (user, chat, message, action, 'queued', int(time.time())))
+            db.execute('INSERT INTO update_requests VALUES(1,?,?,?,?,?,?,?)', (user, chat, message, action, 'queued', int(time.time()), thread))
 
     def commands(self, *args, **kwargs):
         if args[:4] == ('git', 'remote', 'get-url', 'origin'):
@@ -143,7 +143,7 @@ class UpdaterTests(unittest.TestCase):
                 self.assertFalse((self.state / 'recovery.json').exists())
 
     def test_denies_forged_requests(self):
-        for user, chat, action in [(1, 1, 'update'), (42, -1, 'update'), (42, 42, 'sh rm anything')]:
+        for user, chat, action in [(1, 1, 'update'), (1, -100123, 'update'), (42, 7, 'update'), (42, 0, 'update'), (42, 42, 'sh rm anything')]:
             with self.agent.db() as db:
                 db.execute('DELETE FROM update_requests')
             self.queue(user, chat, action)
@@ -156,7 +156,32 @@ class UpdaterTests(unittest.TestCase):
         self.assertFalse(self.agent.claim())
         with self.agent.db() as db:
             with self.assertRaises(sqlite3.IntegrityError):
-                db.execute("INSERT INTO update_requests VALUES(2,42,42,100,'update','queued',0)")
+                db.execute("INSERT INTO update_requests VALUES(2,42,42,100,'update','queued',0,0)")
+
+    def test_group_progress_and_completion_edit_the_same_message(self):
+        self.queue(chat=-100123, thread=17)
+        with self.agent.db() as db:
+            db.execute("INSERT INTO settings VALUES('update_menu.42','777')")
+        self.assertTrue(self.agent.claim())
+        self.agent.progress('update_build', 65)
+        self.agent.finish('✅ با موفقیت نصب شد')
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        self.assertEqual(len(edits), 2)
+        self.assertTrue(all(item['chat_id'] == -100123 and item['message_id'] == 99 for item in edits))
+        self.assertIn('65%', edits[0]['text'])
+        self.assertIn('با موفقیت نصب شد', edits[-1]['text'])
+        self.assertFalse(any(method == 'sendMessage' for method, _ in self.agent.calls))
+        with self.agent.db() as db:
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_menu.42.-100123.17'").fetchone()[0], '99')
+            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_menu.42'").fetchone()[0], '777')
+
+    def test_rejects_invalid_update_topics(self):
+        for chat, thread in [(-100123, -1), (42, 17)]:
+            with self.subTest(chat=chat, thread=thread):
+                with self.agent.db() as db:
+                    db.execute('DELETE FROM update_requests')
+                self.queue(chat=chat, thread=thread)
+                self.assertFalse(self.agent.claim())
 
     def test_backup_contains_consistent_database_and_private_configuration(self):
         self.queue()
@@ -302,6 +327,21 @@ class UpdaterTests(unittest.TestCase):
         self.assertNotIn('100%', edits[0]['text'])
         self.assertFalse(any(method == 'sendMessage' for method, _ in self.agent.calls))
         self.assertFalse((self.state / 'completion-pending.json').exists())
+
+    def test_group_completion_after_restart_edits_the_original_progress_message(self):
+        self.queue(chat=-100123, thread=17)
+        self.agent.claim()
+        previous = {'sha': 'a' * 40, 'image': 'ciro-downloader:backup-' + 'a' * 12 + '-123', 'version': '1.0.0'}
+        updater.atomic_json(self.state / 'completion-pending.json', {'previous': previous, 'job': self.agent.job})
+        with self.agent.db() as db:
+            db.execute("UPDATE update_requests SET status='done'")
+        self.agent.job = None
+        self.agent.tick()
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        self.assertEqual(len(edits), 1)
+        self.assertEqual((edits[0]['chat_id'], edits[0]['message_id']), (-100123, 99))
+        self.assertIn('با موفقیت نصب شد', edits[0]['text'])
+        self.assertFalse(any(method == 'sendMessage' for method, _ in self.agent.calls))
 
     def test_changes_exclude_installed_and_repeated_features(self):
         entries = [
