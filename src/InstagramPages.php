@@ -81,12 +81,10 @@ final class InstagramPages
         $description=$state['description'];
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
         $caption=Ui::fitCaption($bot->text('instagram_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description]));
-        $source=$bot->ui->button('source_instagram'); $source['url']=$job['url']; $navigation=[]; $revision=(int)$state['revision']+1;
+        $navigation=[]; $revision=(int)$state['revision']+1;
         if($index>1) $navigation[]=$bot->ui->button('instagram_prev','igpage:'.$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
-        $navigation[]=$bot->ui->button('instagram_page_counter','igpage:noop',['index'=>$index,'count'=>$count]);
         if($index<$count) $navigation[]=$bot->ui->button('instagram_next','igpage:'.$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
-        $rows=[$navigation];
-        $rows[]=[$source];
+        $rows=array_merge([$navigation],$bot->ui->instagramSourceRows($job['url']));
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
         $media=['type'=>$item['type'],'media'=>$cached?$item['file_id']:'attach://slide','caption'=>$caption,'parse_mode'=>'HTML'];
         if($item['type']==='video') $media+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];

@@ -77,7 +77,7 @@ final class Personalization
     private function sectionItems(string $section): array
     {
         $screens=[
-            'instagram'=>[['text','instagram_queued'],['text','instagram_downloading'],['text','instagram_uploading'],['text','instagram_caption'],['text','instagram_page_caption'],['button','instagram_prev'],['button','instagram_page_counter'],['button','instagram_next'],['button','source_instagram'],['button','open_instagram_article']],
+            'instagram'=>[['text','instagram_queued'],['text','instagram_downloading'],['text','instagram_uploading'],['text','instagram_caption'],['text','instagram_page_caption'],['button','instagram_prev'],['button','instagram_next'],['button','source_instagram'],['button','open_instagram_article']],
             'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
@@ -109,6 +109,8 @@ final class Personalization
             $rows[]=[$this->heading($ui->label('instagram_output'))];
             $rows[]=[$ui->button('instagram_mode_pages','custom:igmode:pages')];
             $rows[]=[$ui->button('instagram_mode_article','custom:igmode:article')];
+            $rows[]=[$this->heading($ui->label('instagram_source_heading'))];
+            $rows[]=[$ui->button('instagram_source_toggle','custom:igsource',['state'=>$ui->plain($ui->instagramSourceEnabled()?'state_on':'state_off')])];
         }
         foreach($items as [$kind,$key]) $rows[]=[$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>$ui->definition($kind,$key)['label']])];
         if($section==='cover') {
@@ -409,6 +411,10 @@ final class Personalization
         elseif($op==='section') $this->section($chat,$kind,$message);
         elseif($op==='igmode'&&in_array($kind,['pages','article'],true)) {
             $this->bot->store->set('instagram.carousel_mode',$kind);
+            $this->section($chat,'instagram',$message);
+        }
+        elseif($op==='igsource') {
+            $this->bot->store->set('instagram.source_button',$ui->instagramSourceEnabled()?'0':'1');
             $this->section($chat,'instagram',$message);
         }
         elseif($op==='covermode'&&in_array($kind,['parts','legacy'],true)) $this->coverMode($chat,$message,$kind);

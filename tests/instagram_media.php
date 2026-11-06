@@ -91,7 +91,7 @@ try {
     $slides=array_values(array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)));
     $state=json_decode($job['options'],true)['pages']; $firstMessage=$state['message']; $cache=$storage.'/instagram-pages/'.$state['folder'];
     $markup=json_decode($slides[0]['params']['reply_markup'],true)['inline_keyboard'];
-    igMediaCheck($job['status']==='done'&&count($slides)===1&&$slides[0]['method']==='sendPhoto'&&$markup[0][0]['callback_data']==='igpage:noop'&&$markup[0][0]['style']==='primary'&&$markup[0][1]['callback_data']==='igpage:'.$job['id'].':2:1'&&!isset($markup[0][1]['style']),'the first slide has a blue counter, a neutral Next button and no Previous button');
+    igMediaCheck($job['status']==='done'&&count($slides)===1&&$slides[0]['method']==='sendPhoto'&&count($markup[0])===1&&$markup[0][0]['callback_data']==='igpage:'.$job['id'].':2:1'&&$markup[0][0]['text']==='بعدی ⏭️'&&!isset($markup[0][0]['style']),'the first slide has one full-row neutral Next button with no counter or Previous button');
     igMediaCheck(str_contains($slides[0]['params']['caption'],'متن اصلی پست')&&str_contains($slides[0]['params']['caption'],'&lt;script&gt;')&&!array_filter($calls,fn($call)=>in_array($call['method'],['upload','fallback','createAccount','createPage'],true)),'native pages include an escaped original caption and never contact an external host');
     igMediaCheck(count(glob($cache.'/*'))===3&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'only the prepared private media files survive initial-job cleanup');
     // A new poller/store instance must use the durable cursor, not process memory.
@@ -123,20 +123,25 @@ try {
     igMediaCheck(count($edits)===1&&json_decode($edits[0]['params']['media'],true)['type']==='video'&&$edits[0]['uploads']['slide']['mime']==='video/mp4'&&$shown['thread']===321&&$state['message']===$firstMessage&&count(file($trace))===1,'the next slide replaces the first photo with a real multipart video in the same message and topic');
     igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','sendMessage','deleteMessage'],true)),'navigation leaves only one media message and sends no extra status or replacement messages');
     $buttons=json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'][0];
-    igMediaCheck(count($buttons)===3&&$buttons[0]['callback_data']==='igpage:'.$job['id'].':1:2'&&$buttons[1]['text']==='2 / 3'&&$buttons[2]['callback_data']==='igpage:'.$job['id'].':3:2'&&str_contains($shown['caption'],'متن اصلی پست'),'the middle slide keeps the post caption and shows Previous, counter and Next together');
+    igMediaCheck(count($buttons)===2&&$buttons[0]['callback_data']==='igpage:'.$job['id'].':1:2'&&$buttons[1]['callback_data']==='igpage:'.$job['id'].':3:2'&&!isset($buttons[0]['style'])&&!isset($buttons[1]['style'])&&str_contains($shown['caption'],'متن اصلی پست'),'the middle slide keeps its caption and uses two wide neutral navigation buttons without a counter');
+    $toggleSource=fn()=>$pageBot->handle(['callback_query'=>['id'=>'source-toggle','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igsource']]);
+    $toggleSource();
     file_put_contents($log,''); $turn($job,3); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia')); $lastButtons=json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'][0];
-    igMediaCheck(count($edits)===1&&count($lastButtons)===2&&$lastButtons[0]['callback_data']==='igpage:'.$job['id'].':2:3'&&is_dir($cache),'the last slide hides Next and retains the files so Previous still works');
+    igMediaCheck(count($edits)===1&&count($lastButtons)===1&&$lastButtons[0]['callback_data']==='igpage:'.$job['id'].':2:3'&&is_dir($cache),'the last slide has one full-row Previous button and retains the files for returning');
+    igMediaCheck(count(json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'])===1,'disabling the source button in Personalization takes effect on the next slide edit');
     file_put_contents($log,''); $turn($job,2); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia'));
     igMediaCheck(count($edits)===1&&$edits[0]['uploads']===[]&&str_starts_with(json_decode($edits[0]['params']['media'],true)['media'],'fixture_video_'),'Previous restores the video through its confirmed Telegram file ID without uploading it again');
     $turn($job,1,revision:2); igMediaCheck($store->claim('media')===null,'a delayed button from an earlier visit cannot navigate again after returning to the same slide');
+    $toggleSource();
     file_put_contents($log,''); $turn($job,1); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia')); $shown=json_decode(file_get_contents($temp.'/telegram-media.json'),true)['messages'][$job['chat_id'].'.'.$firstMessage];
     igMediaCheck(count($edits)===1&&$edits[0]['uploads']===[]&&$shown['type']==='photo'&&json_decode($job['options'],true)['pages']['message']===$firstMessage,'returning to the first photo replaces the video and keeps the original message ID');
+    igMediaCheck(count(json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'])===2,'enabling the source button restores its separate row on the next slide edit');
     $store->query('INSERT OR REPLACE INTO states VALUES(?,?,?)',[42,'pending-private-input',time()+600]);
     $pageBot->handle(['callback_query'=>['id'=>'counter','from'=>['id'=>42],'message'=>['message_id'=>999,'chat'=>['id'=>42,'type'=>'private']],'data'=>'igpage:noop']]);
-    igMediaCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='pending-private-input'&&$store->claim('media')===null,'the display-only counter never queues a page or cancels pending private input');
+    igMediaCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='pending-private-input'&&$store->claim('media')===null,'an old removed-counter callback remains harmless to private input and the media queue');
     $job=$process(['photo','photo']); $legacy=json_decode($job['options'],true)['pages']; unset($legacy['current'],$legacy['target'],$legacy['revision']); $legacy['next']=2;
     $job['options']=json_encode(['pages'=>$legacy]); $store->query('UPDATE jobs SET options=? WHERE id=?',[$job['options'],$job['id']]);
     $turn($job,2,legacy:true); $worker->process($store->claim('media'));
@@ -154,6 +159,12 @@ try {
     $job=$process(['photo','photo']); $state=json_decode($job['options'],true)['pages']; $cache=$storage.'/instagram-pages/'.$state['folder'];
     $turn($job,2); $next=$store->claim('media'); $worker->recover($next); $turn($job,2);
     igMediaCheck(!is_dir($cache)&&$store->claim('media')===null&&$store->query('SELECT status FROM jobs WHERE id=?',[$next['id']])->fetchColumn()==='failed','recovering an interrupted page releases its files and never replays an uncertain upload');
+    $toggleSource();
+    foreach([['photo'],['video']] as $kind) {
+        $job=$process($kind); $sent=array_values(array_filter($requests(),fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)));
+        igMediaCheck($job['status']==='done'&&json_decode($sent[0]['params']['reply_markup'],true)['inline_keyboard']===[],'the disabled source button is absent from a single Instagram '.$kind[0]);
+    }
+    $toggleSource();
     $pageBot->handle(['callback_query'=>['id'=>'custom-mode','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igmode:article']]);
     igMediaCheck($store->get('instagram.carousel_mode')==='article','Personalization can select the retained article output for future requests');
     $calls=$requests(); $rows=json_decode(end($calls)['params']['reply_markup'],true)['inline_keyboard'];

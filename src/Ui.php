@@ -97,6 +97,13 @@ final class Ui
         if(preg_match('/^\d{5,24}$/D',$icon)) $button['icon_custom_emoji_id']=$icon;
         return $button;
     }
+    public function instagramSourceEnabled(): bool { return $this->get('instagram.source_button','1')==='1'; }
+    public function instagramSourceRows(string $url): array
+    {
+        if(!$this->instagramSourceEnabled()) return [];
+        $button=$this->button('source_instagram'); $button['url']=$url;
+        return [[$button]];
+    }
     public function coverCaption(string $title,string $maxSize): string
     {
         $mode=$this->get('cover.parts','');
