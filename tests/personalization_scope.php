@@ -47,8 +47,8 @@ try {
         }
     }
     foreach(['welcome','help','offline','admin_only_notice','quality_prompt','video_caption','audio_caption','error_cookies'] as $key) scopeCheck(isset($found['text'][$key]),'user-visible text remains editable: '.$key);
-    foreach(['help','quality','quality_high','extract_audio','source_video'] as $key) scopeCheck(isset($found['button'][$key]),'user-visible button remains editable: '.$key);
-    foreach(['admin','health','cookies','update','customize','back_custom','download'] as $key) scopeCheck(!isset($found['button'][$key])&&!isset($bot->catalog('button')[$key]),'administration or retired button is absent from all catalogs: '.$key);
+    foreach(['help','quality_360','quality_480','quality_720','quality_high','extract_audio','source_video'] as $key) scopeCheck(isset($found['button'][$key]),'user-visible button remains editable: '.$key);
+    foreach(['admin','health','cookies','update','customize','back_custom','download','quality'] as $key) scopeCheck(!isset($found['button'][$key])&&!isset($bot->catalog('button')[$key]),'administration or retired button is absent from all catalogs: '.$key);
     foreach(['health','admin_panel','cookie_import','custom_panel','update_menu','delivered','audio_delivered','cancelled'] as $key) scopeCheck(!isset($found['text'][$key])&&!isset($bot->catalog('text')[$key]),'administration or retired text is absent from all catalogs: '.$key);
 
     $saved=['button.health'=>'Saved administrator label','button.style.health'=>'success','button.icon.health'=>'5368324170671202286','text.health'=>'Saved administrator status',
@@ -56,6 +56,7 @@ try {
     foreach($saved as $key=>$value) $store->set($key,$value);
     foreach(['custom:item:text:health','custom:edit:text:health','custom:reset:text:health','custom:edit:button:health','custom:reset:button:health',
         'custom:color:health','custom:setcolor:health:danger','custom:icon:health','custom:clearicon:health',
+        'custom:edit:button:quality','custom:reset:button:quality','custom:color:quality','edit:button:quality','reset:button:quality',
         'custom:edit:button:admin','custom:edit:button:cookies','custom:edit:button:update','custom:edit:button:customize','custom:edit:button:back_custom',
         'custom:edit:text:cookie_import','custom:edit:text:update_menu','custom:edit:text:custom_panel','custom:edit:button:download',
         'edit:button:health','reset:button:health','edit:text:health','reset:text:health'] as $action) {

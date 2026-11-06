@@ -31,9 +31,23 @@ try {
         }
     }
     foreach(['text','button'] as $kind) foreach($bot->catalog($kind) as $key=>$definition) {
-        if($kind==='button'&&$key==='quality') continue; // Retained shared legacy setting remains in the old catalog.
         sectionCheck(isset($seen[$kind][$key]),'user-facing field belongs to a screen: '.$kind.'.'.$key);
     }
+    $bot->handle(sectionClick('custom:list:caption:download:0'));
+    $captionKeys=['quality_prompt','cover_title','cover_instruction','cover_limit','video_caption','video_title','video_quality','video_duration','audio_caption','audio_title','audio_format','audio_duration'];
+    $captionActions=array_values(array_filter(sectionActions($api),fn($action)=>str_starts_with($action,'custom:item:')));
+    sectionCheck($captionActions===array_map(fn($key)=>'custom:item:text:'.$key,$captionKeys),'download captions are ordered by cover, video and audio, with every component separate on one page');
+    $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $headings=[];
+    foreach($rows as $row) foreach($row as $button) {
+        if($button['callback_data']==='custom:noop') { $headings[]=$button['text']; sectionCheck(($button['style']??'')==='primary','caption category header is blue'); }
+        elseif(str_starts_with($button['callback_data'],'custom:item:')) sectionCheck(!isset($button['style']),'individual caption controls are neutral');
+    }
+    foreach(['cover','video','audio'] as $section) sectionCheck(in_array($bot->ui->label('catalog_caption_'.$section),$headings,true),'download caption category is explicit: '.$section);
+    $bot->handle(sectionClick('custom:item:text:video_duration'));
+    sectionCheck(in_array('custom:list:caption:download:0',sectionActions($api),true),'Back from the final video component returns to the same grouped catalog');
+    $bot->handle(sectionClick('custom:list:button:download:0'));
+    foreach(['quality_360','quality_480','quality_720','quality_high'] as $key) sectionCheck(in_array('custom:item:button:'.$key,sectionActions($api),true),'each quality has its own catalog control: '.$key);
+    sectionCheck(!in_array('custom:item:button:quality',sectionActions($api),true),'the obsolete combined 360-to-720 control is hidden');
     $bot->handle(sectionClick('custom:section:cover'));
     foreach(['custom:item:text:quality_prompt','custom:item:text:cover_title','custom:item:text:cover_instruction','custom:item:text:cover_limit','custom:item:button:quality_360','custom:item:button:quality_480','custom:item:button:quality_720','custom:item:button:quality_high','custom:item:button:extract_audio','custom:covermode:parts','custom:covermode:legacy','custom:reorder'] as $action) sectionCheck(in_array($action,sectionActions($api),true),'cover has its own editable control: '.$action);
     $bot->config->maxBytes=1990000000;

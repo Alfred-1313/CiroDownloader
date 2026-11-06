@@ -177,6 +177,13 @@ final class Personalization
             if($kind==='text'&&!empty($item['caption'])) continue;
             $result[$key]=$item;
         }
+        if($group==='download'&&in_array($kind,['caption','button'],true)) {
+            $ordered=[];
+            foreach(['cover','video','audio'] as $section) foreach($this->sectionItems($section) as [$itemKind,$key]) {
+                if(isset($result[$key])&&$itemKind===($kind==='button'?'button':'text')) $ordered[$key]=$result[$key];
+            }
+            $result=$ordered+$result;
+        }
         return $result;
     }
     public function groups(int $chat,string $kind,int $message): void
@@ -191,17 +198,33 @@ final class Personalization
     public function listing(int $chat,string $kind,string $group,int $page,int $message): void
     {
         if(!in_array($kind,['text','caption','button'],true)||!isset(Ui::definitions()['groups'][$group])) return;
-        $ui=$this->bot->ui; $items=$this->entries($kind,$group); $pages=max(1,(int)ceil(count($items)/8));
+        $ui=$this->bot->ui; $items=$this->entries($kind,$group); $size=$this->pageSize($kind,$group); $pages=max(1,(int)ceil(count($items)/$size));
         if(!$items) { $this->groups($chat,$kind,$message); return; }
         $this->bot->store->set('custom.section.'.$chat,'');
         $page=max(0,min($pages-1,$page)); $rows=[[$this->heading($ui->label('group_'.$group))]];
-        foreach(array_slice($items,$page*8,8,true) as $key=>$item) $rows[]=[$ui->button('catalog_item','custom:item:'.($kind==='caption'?'text':$kind).':'.$key,['label'=>$item['label']])];
+        $lastSection='';
+        foreach(array_slice($items,$page*$size,$size,true) as $key=>$item) {
+            if($group==='download'&&in_array($kind,['caption','button'],true)) {
+                foreach(['cover','video','audio'] as $section) {
+                    if(!in_array([$kind==='button'?'button':'text',$key],$this->sectionItems($section),true)) continue;
+                    if($lastSection!==$section) $rows[]=[$this->heading($ui->label('catalog_'.$kind.'_'.$section))];
+                    $lastSection=$section; break;
+                }
+            }
+            $rows[]=[$ui->button('catalog_item','custom:item:'.($kind==='caption'?'text':$kind).':'.$key,['label'=>$item['label']])];
+        }
         $navigation=[];
         if($page>0) $navigation[]=$ui->button('previous',"custom:list:$kind:$group:".($page-1));
         if($page+1<$pages) $navigation[]=$ui->button('next',"custom:list:$kind:$group:".($page+1));
         if($navigation) $rows[]=$navigation;
         $rows[]=[$ui->button('back','custom:groups:'.$kind)];
         $this->send($chat,$ui->text('custom_catalog',['title'=>$ui->label('group_'.$group),'page'=>$page+1,'pages'=>$pages]),$rows,$message);
+    }
+    private function pageSize(string $kind,string $group): int
+    {
+        // Keep each caption's components together instead of splitting video
+        // title, quality and duration across two catalog pages.
+        return $group==='download'&&in_array($kind,['caption','button'],true)?16:8;
     }
     private function samples(): array
     {
@@ -228,7 +251,7 @@ final class Personalization
         $rows[]=[$ui->button('reset',"custom:reset:$kind:$key")];
         $listKind=!empty($definition['caption'])?'caption':$kind;
         $position=array_search($key,array_keys($this->entries($listKind,$definition['group'])),true);
-        $page=$position===false?0:intdiv($position,8);
+        $page=$position===false?0:intdiv($position,$this->pageSize($listKind,$definition['group']));
         $section=$this->bot->store->get('custom.section.'.$chat);
         $back=in_array([$kind,$key],$this->sectionItems($section),true)?'custom:section:'.$section:"custom:list:$listKind:".$definition['group'].':'.$page;
         if($section==='home'&&$kind==='text'&&$key==='admin_only_notice') $back='custom:home';
