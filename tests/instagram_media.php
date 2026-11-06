@@ -9,14 +9,16 @@ $temp=sys_get_temp_dir().'/ciro-ig-media-'.bin2hex(random_bytes(6)); mkdir($temp
 try {
     $storage=$temp.'/data'; mkdir($storage,0700); mkdir($storage.'/downloads',0700);
     $config=new Zero\Config('123:fixture',[42],$storage); $runner=new Zero\Download($config);
-    $photo=$temp.'/photo.jpg'; $clip=$temp.'/clip.mp4';
+    $photo=$temp.'/photo.jpg'; $clip=$temp.'/clip.mp4'; $audioClip=$temp.'/audio-clip.mp4';
     $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=160x120','-frames:v','1','-update','1','-threads','1',$photo],$temp,30);
     $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=320x180:r=1:d=1','-c:v','libx264','-threads','2','-pix_fmt','yuv420p',$clip],$temp,30);
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$clip,'-f','lavfi','-i','sine=frequency=440:duration=1','-c:v','copy','-c:a','aac','-shortest',$audioClip],$temp,30);
     $log=$temp.'/http.jsonl'; file_put_contents($log,''); $fail=$temp.'/fail-upload';
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php '.
         '$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH); $method=basename($path);'.
-        'if($path==="/photo.jpg"||$path==="/clip.mp4") { header("Content-Type: ".($path==="/photo.jpg"?"image/jpeg":"video/mp4")); readfile('.var_export($temp,true).'.$path); return; }'.
+        'if($path==="/photo.jpg"||$path==="/clip.mp4") { header("Content-Type: ".($path==="/photo.jpg"?"image/jpeg":"video/mp4")); $root='.var_export($temp,true).'; readfile($root.($path==="/clip.mp4"&&is_file($root."/with-audio")?"/audio-clip.mp4":$path)); return; }'.
+        'if(isset($_FILES["video"])) copy($_FILES["video"]["tmp_name"],'.var_export($temp.'/delivered.mp4',true).');'.
         '$uploads=[];foreach($_FILES as $key=>$file) $uploads[$key]=["name"=>$file["name"],"mime"=>$file["type"],"hash"=>hash_file("sha256",$file["tmp_name"])];'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         'if($method==="upload") { if(is_file('.var_export($fail,true).')) { http_response_code(503);echo "offline";return; }'.
@@ -29,26 +31,36 @@ try {
     $base='http://'.$address; $mode=$temp.'/mode.json'; $trace=$temp.'/backend.jsonl'; file_put_contents($trace,'');
     $python=getenv('GALLERY_DL_PYTHON')?:(is_executable('/opt/yt/bin/python')?'/opt/yt/bin/python':'/usr/bin/python3');
     $stub=$temp.'/gallery-fixture';
-    // Exercise the actual pinned Instagram items(), CLI, HTTP downloader,
-    // filename formatter and postprocessors; only upstream post extraction is local.
+    // Keep the real Instagram parser, including extra music/audio entries.
+    // Only the upstream API response is replaced by a local raw post.
     file_put_contents($stub,'#!'.$python."\n".
-        "import json,sys,os\nimport gallery_dl\nfrom gallery_dl.extractor.instagram import InstagramPostExtractor\n".
+        "import json,sys,os,runpy\nfrom gallery_dl.extractor.instagram import InstagramPostExtractor\n".
         'mode=json.load(open('.json_encode($mode,JSON_UNESCAPED_SLASHES)."))\n".
         'args=sys.argv[1:];cookie=args[args.index("--cookies")+1] if "--cookies" in args else None'."\n".
         'with open('.json_encode($trace,JSON_UNESCAPED_SLASHES).',"a") as trace:trace.write(json.dumps({"args":args,"cookie_mode":os.stat(cookie).st_mode&0o777 if cookie else None})+"\n")'."\n".
-        'files=[{"num":i+1,"display_url":'.json_encode($base.'/photo.jpg',JSON_UNESCAPED_SLASHES).',"video_url":'.json_encode($base.'/clip.mp4',JSON_UNESCAPED_SLASHES).' if kind=="video" else None} for i,kind in enumerate(mode["kinds"])]'."\n".
-        'post={"description":mode["description"],"post_url":"https://www.instagram.com/p/ABC_def12/","post_shortcode":"ABC_def12","post_id":"123","username":"fixture","_files":files}'."\n".
-        "InstagramPostExtractor.login=lambda self:None\nInstagramPostExtractor.metadata=lambda self:{}\nInstagramPostExtractor.posts=lambda self:[post]\nInstagramPostExtractor._parse_post=lambda self,value:value\ngallery_dl.main()\n");
+        'base='.json_encode($base,JSON_UNESCAPED_SLASHES)."\n".
+        'files=[{"pk":100+i,"code":"ABC_def12","taken_at":1700000000,"image_versions2":{"candidates":[{"url":base+"/photo.jpg","width":160,"height":120}]},"video_versions":[{"url":base+"/clip.mp4","width":320,"height":180}] if kind=="video" else []} for i,kind in enumerate(mode["kinds"])]'."\n".
+        'post={"pk":123,"code":"ABC_def12","caption":{"text":mode["description"]},"user":{"pk":7,"username":"fixture"},"taken_at":1700000000}'."\n".
+        'if len(files)>1:post.update(carousel_media=files,carousel_media_count=len(files))'."\n".
+        'else:post.update(files[0])'."\n".
+        'if mode["music"]:post["clips_metadata"]={"original_sound_info":{"audio_asset_id":456,"original_audio_title":"Fixture sound","duration_in_ms":1000,"progressive_download_url":base+"/sound.m4a"}}'."\n".
+        'if mode["music"] and len(files)>1:post["music_metadata"]={"music_info":post["clips_metadata"]}'."\n".
+        'if mode["missing"]:files[-1].pop("image_versions2")'."\n".
+        "InstagramPostExtractor.posts=lambda self:[post]\n".
+        'runpy.run_path('.json_encode(dirname(__DIR__).'/bin/instagram-download.py',JSON_UNESCAPED_SLASHES).',run_name="__main__")'."\n");
     chmod($stub,0700); $config->galleryDl=$stub; $config->api=$base;
     $store=new Zero\Store($storage); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api);
     $publisher=new Zero\Articles($config,$base,$base.'/upload'); $worker=new Zero\Worker($config,$store,$api,$publisher);
     $description="متن اصلی پست\n<script>alert('fixture')</script> & عکس‌ها";
     $requests=fn()=>array_map(fn($line)=>json_decode($line,true),file($log,FILE_IGNORE_NEW_LINES));
     $counter=0;
-    $process=function(array $kinds,bool $group=false) use(&$counter,$mode,$trace,$description,$bot,$store,$worker,$log): array {
-        $id=++$counter; file_put_contents($mode,json_encode(['kinds'=>$kinds,'description'=>$description])); file_put_contents($log,''); file_put_contents($trace,'');
+    $process=function(array $kinds,bool $group=false,bool $music=true,bool $missing=false,bool $withAudio=false) use(&$counter,$mode,$trace,$description,$bot,$store,$worker,$log,$temp): array {
+        $id=++$counter; file_put_contents($mode,json_encode(['kinds'=>$kinds,'description'=>$description,'music'=>$music,'missing'=>$missing])); file_put_contents($log,''); file_put_contents($trace,'');
+        if(is_file($temp.'/with-audio')) unlink($temp.'/with-audio');
+        if($withAudio) touch($temp.'/with-audio');
         $user=10+$id; $chat=$group?-100123:$user;
-        $bot->handle(['update_id'=>1000+$id,'message'=>['from'=>['id'=>$user],'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$group?321:0,'text'=>'https://instagram.com/p/ABC_def12/?img_index=2']]);
+        $url=$kinds===['video']?'https://www.instagram.com/reel/DfZRdXotNPJ/?utm_source=ig_web_copy_link&obrf=fixture':'https://instagram.com/p/ABC_def12/?img_index=2';
+        $bot->handle(['update_id'=>1000+$id,'message'=>['from'=>['id'=>$user],'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$group?321:0,'text'=>$url]]);
         $job=$store->claim('media'); if(!$job) throw new RuntimeException('Instagram media job was not queued');
         $worker->process($job);
         return $store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
@@ -65,6 +77,10 @@ try {
     $videos=array_values(array_filter($calls,fn($call)=>$call['method']==='sendVideo')); $invocation=json_decode(file($trace)[0],true);
     igMediaCheck(count($videos)===1&&$videos[0]['uploads']['video']['mime']==='video/mp4'&&(int)$videos[0]['params']['chat_id']===-100123&&(int)$videos[0]['params']['message_thread_id']===321,'a silent Instagram video is prepared and delivered to the original group topic');
     igMediaCheck($invocation['cookie_mode']===0600&&file_get_contents($config->instagramCookiePath())===$cookies,'Instagram downloads use private cookie copies without refreshing the shared jar');
+    $job=$process(['video'],music:false,withAudio:true);
+    igMediaCheck($job['status']==='done','Reels without a separate music record still deliver normally');
+    $info=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$temp.'/delivered.mp4'],$temp,30),true);
+    igMediaCheck(in_array('audio',array_column($info['streams'],'codec_type'),true),'the video keeps its own soundtrack when standalone music records are excluded');
     $store->set('text.instagram_article_title','عنوان سفارشی');
     $job=$process(['photo','video','photo']); $calls=$requests();
     if($job['status']!=='done') throw new RuntimeException($store->get('last_job_error'));
@@ -75,6 +91,12 @@ try {
     igMediaCheck($pages[0]['params']['title']==='عنوان سفارشی'&&!str_contains(json_encode($pages),'FAKE_SESSION')&&(fileperms($storage.'/telegraph-account.json')&0777)===0600,'article customization applies and neither cookie values nor the private account are published');
     $last=end($calls); $buttons=json_decode($last['params']['reply_markup'],true)['inline_keyboard'];
     igMediaCheck($last['method']==='editMessageText'&&$buttons[0][0]['url']==='https://telegra.ph/Instagram-11-06'&&$buttons[0][0]['style']==='primary'&&!array_filter($calls,fn($call)=>$call['method']==='deleteMessage'),'the same request status becomes the article link and is retained');
+    igMediaCheck(!array_filter($calls,fn($call)=>$call['method']==='sound.m4a'),'separate music records are not downloaded as extra slides');
+    $job=$process(array_fill(0,20,'photo')); $calls=$requests();
+    igMediaCheck($job['status']==='done'&&count(array_filter($calls,fn($call)=>$call['method']==='upload'))===20,'a full 20-slide carousel with additional music retains every visual slide');
+    $job=$process(['photo','photo'],missing:true); $calls=$requests();
+    igMediaCheck($job['status']==='failed'&&!array_filter($calls,fn($call)=>in_array($call['method'],['upload','createPage','sendPhoto','sendVideo'],true)),'a genuinely missing visual slide still prevents partial delivery or publication');
+    igMediaCheck($store->get('last_job_error_reason')==='process'&&str_contains($store->get('last_job_error'),'expected=2 received=1'),'the adapter preserves gallery-dl failure status and its useful slide-count diagnosis');
     touch($fail); $job=$process(['photo','photo']); $calls=$requests();
     igMediaCheck($job['status']==='failed'&&!array_filter($calls,fn($call)=>$call['method']==='createPage')&&count(array_filter($calls,fn($call)=>$call['method']==='upload'))===1,'a hosting failure stops publication without a fake article link or retry loop');
     igMediaCheck(!array_filter($calls,fn($call)=>$call['method']==='createAccount'),'parallel-safe article account storage is reused across requests');

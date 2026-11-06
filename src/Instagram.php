@@ -50,11 +50,14 @@ final class Instagram
         $url=instagramUrl($url);
         if(!$url) throw new MediaFailure('format','Invalid Instagram post URL');
         $runner=new Download($this->config);
-        $command=[$this->config->galleryDl,'--ignore-config','--no-input','--quiet','--retries','2','--http-timeout','20',
+        $python=dirname($this->config->galleryDl).'/python';
+        $backend=basename($this->config->galleryDl)==='gallery-dl'&&is_executable($python)
+            ?[$python,dirname(__DIR__).'/bin/instagram-download.py']:[$this->config->galleryDl];
+        $command=array_merge($backend,['--ignore-config','--no-input','--quiet','--retries','2','--http-timeout','20',
             '--directory',$folder,'--filename','ig-{num:02d}.{extension}',
             '-o','extractor.instagram.videos=merged','-o','extractor.instagram.previews=false',
             '--range','1-21','--Print','after:CIRO|{num}|{count}|{_path}',
-            '--Print','post:CIRO_META|{description!j}'];
+            '--Print','post:CIRO_META|{description!j}']);
         $path=$this->config->instagramCookiePath();
         if(is_file($path)) {
             if(!is_readable($path)||filesize($path)>1048576) throw new MediaFailure('cookies','Instagram cookie file is unreadable');
@@ -88,7 +91,8 @@ final class Instagram
             $files[$index]=$file; $count=$total;
         }
         ksort($files,SORT_NUMERIC);
-        if(!$files||count($files)!==$count||array_keys($files)!==range(1,$count)) throw new MediaFailure('format','Instagram did not return every slide of the post');
+        if(!$files) throw new MediaFailure('format','Instagram returned no downloadable visual media');
+        if(count($files)!==$count||array_keys($files)!==range(1,$count)) throw new MediaFailure('format','Instagram did not return every slide of the post: expected='.$count.' received='.count($files).' indexes='.implode(',',array_keys($files)));
         $result=[];
         foreach($files as $index=>$file) {
             $work=$folder.'/item-'.$index; mkdir($work,0700);
