@@ -64,7 +64,7 @@ try {
     $before=count($api->calls); $bot->handle(updateGroupCallback('update:changes',$resumed));
     updateGroupCheck(end($api->calls)[0]==='editMessageText'&&end($api->calls)[1]['message_id']===$resumed&&str_contains(end($api->calls)[1]['text'],'Group update fixture'),'the completion changes view edits the same group message');
     $bot->handle(updateGroupCallback('update:back',$resumed));
-    updateGroupCheck(end($api->calls)[0]==='editMessageText'&&$store->get($key)==='0'&&end($api->calls)[1]['reply_markup']['inline_keyboard']===[],'Close clears the group menu in place without opening a private management keyboard');
+    updateGroupCheck(end($api->calls)[0]==='deleteMessage'&&$store->get($key)==='0'&&end($api->calls)[1]['chat_id']===-100123&&end($api->calls)[1]['message_id']===$resumed,'Close deletes the entire update menu message from its group');
     $store->set('groups_enabled','0'); $before=count($api->calls); $bot->handle(updateGroupMessage('/update'));
     updateGroupCheck(count($api->calls)===$before,'the disabled-group setting still gates group commands');
 } finally { Zero\Download::clean($temp); }

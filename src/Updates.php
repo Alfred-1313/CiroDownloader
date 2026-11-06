@@ -22,7 +22,7 @@ final class Updates
     public function close(int $chat,int $user,int $message): void
     {
         if(!$this->ownsMenu($chat,$user,$message)||$this->active()) return;
-        $this->view($chat,$user,$this->ui->text('update_closed'),[],$message);
+        $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]);
         $this->store->set($this->key('menu',$chat,$user),'0');
         $this->store->set($this->key('menu_hash',$chat,$user),'');
     }
