@@ -28,6 +28,7 @@ jobs:
           php tests/cookies.php
           php tests/cookie_manager.php
           php tests/instagram.php
+          php tests/article_transport.php
           php tests/jobs.php
           php tests/customization.php
           php tests/personalization_recovery.php

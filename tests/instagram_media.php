@@ -20,7 +20,7 @@ try {
         'if($path==="/photo.jpg"||$path==="/clip.mp4") { header("Content-Type: ".($path==="/photo.jpg"?"image/jpeg":"video/mp4")); $root='.var_export($temp,true).'; readfile($root.($path==="/clip.mp4"&&is_file($root."/with-audio")?"/audio-clip.mp4":$path)); return; }'.
         'if(isset($_FILES["video"])) copy($_FILES["video"]["tmp_name"],'.var_export($temp.'/delivered.mp4',true).');'.
         '$uploads=[];foreach($_FILES as $key=>$file) $uploads[$key]=["name"=>$file["name"],"mime"=>$file["type"],"hash"=>hash_file("sha256",$file["tmp_name"])];'.
-        'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
+        'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"protocol"=>$_SERVER["SERVER_PROTOCOL"]],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         'if($method==="upload") { if(is_file('.var_export($fail,true).')) { http_response_code(503);echo "offline";return; }'.
         '$file=$_FILES["fileToUpload"]; echo "https://files.catbox.moe/fixture.".($file["type"]==="video/mp4"?"mp4":"jpg");return; }'.
         '$result=match($method) { "createAccount"=>["access_token"=>str_repeat("A",64)],"createPage"=>["url"=>"https://telegra.ph/Instagram-11-06"],default=>["message_id"=>900] };'.
@@ -86,6 +86,7 @@ try {
     if($job['status']!=='done') throw new RuntimeException($store->get('last_job_error'));
     $uploads=array_values(array_filter($calls,fn($call)=>$call['method']==='upload')); $pages=array_values(array_filter($calls,fn($call)=>$call['method']==='createPage'));
     igMediaCheck(count($uploads)===3&&count($pages)===1&&!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)),'mixed carousel slides are uploaded through real multipart requests and produce one confirmed article');
+    igMediaCheck(!array_filter(array_merge($uploads,$pages),fn($call)=>$call['protocol']!=='HTTP/1.1'),'media hosting and article publication use HTTP/1.1 without HTTP/2 stream negotiation');
     $nodes=json_decode($pages[0]['params']['content'],true); $figures=array_values(array_filter($nodes,fn($node)=>$node['tag']==='figure'));
     igMediaCheck(array_map(fn($node)=>$node['children'][0]['tag'],$figures)===['img','video','img']&&$nodes[0]['children'][0]==='متن اصلی پست'&&$nodes[1]['children'][0]==="<script>alert('fixture')</script> & عکس‌ها",'the article preserves slide order and the original caption as text nodes');
     igMediaCheck($pages[0]['params']['title']==='عنوان سفارشی'&&!str_contains(json_encode($pages),'FAKE_SESSION')&&(fileperms($storage.'/telegraph-account.json')&0777)===0600,'article customization applies and neither cookie values nor the private account are published');
@@ -99,6 +100,7 @@ try {
     igMediaCheck($store->get('last_job_error_reason')==='process'&&str_contains($store->get('last_job_error'),'expected=2 received=1'),'the adapter preserves gallery-dl failure status and its useful slide-count diagnosis');
     touch($fail); $job=$process(['photo','photo']); $calls=$requests();
     igMediaCheck($job['status']==='failed'&&!array_filter($calls,fn($call)=>$call['method']==='createPage')&&count(array_filter($calls,fn($call)=>$call['method']==='upload'))===1,'a hosting failure stops publication without a fake article link or retry loop');
+    igMediaCheck(str_contains($store->get('last_job_error'),'provider=catbox operation=upload')&&str_contains($store->get('last_job_error'),'HTTP=503'),'hosting diagnostics identify the service, operation and HTTP response');
     igMediaCheck(!array_filter($calls,fn($call)=>$call['method']==='createAccount'),'parallel-safe article account storage is reused across requests');
     file_put_contents($log,''); $denied=false;
     try { $publisher->publish([
@@ -107,6 +109,14 @@ try {
     ],'https://instagram.com/p/ABC_def12/',$bot->ui,fn()=>false); }
     catch(Zero\MediaFailure $failure) { $denied=$failure->reason==='restricted'; }
     igMediaCheck($denied&&$requests()===[],'revoked access prevents any article-service or media-host request');
+    $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $closed=stream_socket_get_name($socket,false); fclose($socket);
+    $isolated=$temp.'/offline-article'; mkdir($isolated,0700);
+    $offlineConfig=clone $config; $offlineConfig->storage=$isolated; $detail='';
+    try { (new Zero\Articles($offlineConfig,'http://'.$closed,$base.'/upload'))->publish([
+        ['type'=>'photo','path'=>$photo,'index'=>1],['type'=>'photo','path'=>$photo,'index'=>2],
+    ],'https://instagram.com/p/ABC_def12/',$bot->ui,fn()=>true); }
+    catch(Zero\MediaFailure $failure) { $detail=$failure->getMessage(); }
+    igMediaCheck(str_contains($detail,'provider=telegraph operation=createAccount')&&str_contains($detail,'HTTP=0 curl=7')&&!str_contains($detail,'FAKE_SESSION'),'a failed connection keeps its curl cause and service without leaking cookies');
 } finally {
     if(is_resource($server)) { proc_terminate($server); proc_close($server); }
     Zero\Download::clean($temp);

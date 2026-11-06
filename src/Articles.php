@@ -5,17 +5,23 @@ namespace Zero;
 final class Articles
 {
     public function __construct(private Config $config,private string $telegraph='https://api.telegra.ph',private string $mediaHost='https://catbox.moe/user/api.php') {}
-    private function request(string $url,array $params,bool $json=true): mixed
+    private function request(string $provider,string $operation,string $url,array $params,bool $json=true): mixed
     {
+        $context='Article provider='.$provider.' operation='.$operation;
         $handle=curl_init($url);
         curl_setopt_array($handle,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$params,CURLOPT_RETURNTRANSFER=>true,
-            CURLOPT_CONNECTTIMEOUT=>20,CURLOPT_TIMEOUT=>600,CURLOPT_FOLLOWLOCATION=>false]);
-        try { $body=curl_exec($handle); $status=curl_getinfo($handle,CURLINFO_RESPONSE_CODE); }
+            CURLOPT_CONNECTTIMEOUT=>20,CURLOPT_TIMEOUT=>600,CURLOPT_FOLLOWLOCATION=>false,
+            // Catbox can negotiate HTTP/2 and then reset its stream (curl 92).
+            // Select HTTP/1.1 before sending a file; never retry an uncertain POST.
+            CURLOPT_HTTP_VERSION=>CURL_HTTP_VERSION_1_1,CURLOPT_USERAGENT=>'CiroDownloader']);
+        try { $body=curl_exec($handle); $status=curl_getinfo($handle,CURLINFO_RESPONSE_CODE); $error=curl_errno($handle); }
         finally { curl_close($handle); }
-        if($body===false||$status<200||$status>=300) throw new MediaFailure('article','Article service transport failed with HTTP '.$status);
+        if($body===false||$error!==0) throw new MediaFailure('article',$context.' transport failed: HTTP='.$status.' curl='.$error.' '.curl_strerror($error));
+        $data=$json?json_decode($body,true):null;
+        $apiError=is_array($data)&&is_string($data['error']??null)&&preg_match('/^[A-Z][A-Z0-9_]{0,79}$/D',$data['error'])?' api='.$data['error']:'';
+        if($status<200||$status>=300) throw new MediaFailure('article',$context.' rejected request: HTTP='.$status.$apiError);
         if(!$json) return trim($body);
-        $data=json_decode($body,true);
-        if(!is_array($data)||empty($data['ok'])||!is_array($data['result']??null)) throw new MediaFailure('article','Article service did not confirm the operation');
+        if(!is_array($data)||empty($data['ok'])||!is_array($data['result']??null)) throw new MediaFailure('article',$context.' did not confirm operation: HTTP='.$status.$apiError);
         return $data['result'];
     }
     private function token(): string
@@ -29,7 +35,7 @@ final class Articles
             clearstatcache(true,$path);
             if(is_file($path)) $account=json_decode((string)file_get_contents($path),true);
             else {
-                $account=$this->request($this->telegraph.'/createAccount',['short_name'=>'CiroDownloader']);
+                $account=$this->request('telegraph','createAccount',$this->telegraph.'/createAccount',['short_name'=>'CiroDownloader']);
                 if(!is_string($account['access_token']??null)||!preg_match('/^[A-Za-z0-9_-]{20,512}$/D',$account['access_token'])) throw new MediaFailure('article','Article account token is missing');
                 if(file_put_contents($temporary,json_encode(['access_token'=>$account['access_token']],JSON_THROW_ON_ERROR))===false||!chmod($temporary,0600)||!rename($temporary,$path)) throw new MediaFailure('storage','Cannot save article account');
             }
@@ -49,7 +55,7 @@ final class Articles
             if(!$authorized()) throw new MediaFailure('restricted','Article publication no longer authorized');
             if(!is_file($item['path'])||filesize($item['path'])<1||filesize($item['path'])>min($this->config->maxBytes,200000000)) throw new MediaFailure('size','Article media exceeds hosting size limit');
             $video=$item['type']==='video';
-            $url=$this->request($this->mediaHost,['reqtype'=>'fileupload','fileToUpload'=>new \CURLFile($item['path'],$video?'video/mp4':'image/jpeg',$video?'video.mp4':'photo.jpg')],false);
+            $url=$this->request('catbox','upload',$this->mediaHost,['reqtype'=>'fileupload','fileToUpload'=>new \CURLFile($item['path'],$video?'video/mp4':'image/jpeg',$video?'video.mp4':'photo.jpg')],false);
             // Never place an arbitrary service response or a credential URL in a page.
             if(!is_string($url)||!preg_match('~^https://files\.catbox\.moe/[A-Za-z0-9_-]+\.(?:jpg|jpeg|png|mp4)$~D',$url)) throw new MediaFailure('article','Media host did not return a supported public file URL');
             $label=html_entity_decode(strip_tags($ui->text('instagram_article_slide',['index'=>$item['index'],'count'=>count($items)])),ENT_QUOTES|ENT_HTML5,'UTF-8');
@@ -61,7 +67,7 @@ final class Articles
         $content=json_encode($nodes,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
         if(strlen($content)>64000) throw new MediaFailure('format','Article content is too long');
         if(!$authorized()) throw new MediaFailure('restricted','Article publication no longer authorized');
-        $page=$this->request($this->telegraph.'/createPage',['access_token'=>$token,'title'=>mb_substr($ui->plain('instagram_article_title'),0,256),
+        $page=$this->request('telegraph','createPage',$this->telegraph.'/createPage',['access_token'=>$token,'title'=>mb_substr($ui->plain('instagram_article_title'),0,256),
             'author_name'=>mb_substr($ui->plain('instagram_article_author'),0,128),'content'=>$content,'return_content'=>'false']);
         $url=$page['url']??'';
         if(!is_string($url)||!preg_match('~^https://telegra\.ph/[^\s<>?#]+$~uD',$url)) throw new MediaFailure('article','Article service did not return a confirmed page URL');
