@@ -13,12 +13,18 @@ final class CookieApi implements Zero\FileApi {
     public bool $missingPanel=false;
     public int $nextMessage=1000;
     public ?int $reportedSize=null;
+    public array $replyMessages=[];
     public function call(string $method,array $params=[]): mixed {
         $this->calls[]=[$method,$params];
+        if(str_starts_with($method,'edit')&&isset($this->replyMessages[$params['message_id']??0])) throw new RuntimeException('Cannot edit a reply-keyboard message',400);
         if($method==='getFile') return ['file_path'=>'documents/export.txt','file_size'=>$this->reportedSize??strlen($this->content)];
         if($method==='deleteMessage'&&$this->failDelete) throw new RuntimeException('Simulated deletion failure');
         if($method==='editMessageText'&&$this->missingPanel) { $this->missingPanel=false; throw new RuntimeException('Missing panel',404); }
-        if($method==='sendMessage') return ['message_id'=>++$this->nextMessage];
+        if($method==='sendMessage') {
+            $id=++$this->nextMessage;
+            if(isset($params['reply_markup']['keyboard'])) $this->replyMessages[$id]=true;
+            return ['message_id'=>$id];
+        }
         return true;
     }
     public function downloadFile(string $filePath,int $maxBytes): string {
@@ -63,10 +69,10 @@ try {
     expect($api->downloads===0&&file_get_contents($config->cookiePath())===$old,'non-admin document cannot replace cookies');
     $bot->handle(document(42));
     expect($api->downloads===0,'admin must explicitly enter cookie import flow');
-    $bot->handle(callback(42,'cookies'));
+    $bot->handle(callback(42,'cookies:import'));
     expect($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='cookie.upload'&&(int)$store->query('SELECT expires FROM states WHERE user_id=42')->fetchColumn()===0,'admin import waits without an expiry');
     $screen=end($api->calls)[1];
-    expect(end($api->calls)[0]==='editMessageText'&&$screen['message_id']===900&&count($screen['reply_markup']['inline_keyboard'])===1,'import edits the same panel and offers only Back');
+    expect(end($api->calls)[0]==='sendMessage'&&!isset($screen['reply_markup']),'import uses an editable prompt while the service reply keyboard remains visible');
     expect(!str_contains($screen['text'],'10 دقیقه')&&!str_contains($screen['text'],'/cancel')&&!str_contains($screen['text'],'youtube-cookies.txt'),'import instructions have no deadline, cancel hint or required filename');
     $bot->handle(document(42,'export.json'));
     $bot->handle(document(42,'export.txt',1048577));
@@ -96,33 +102,33 @@ try {
     expect((fileperms($config->cookiePath())&0077)===0,'replacement cookie file is private');
     expect(!$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'successful import ends upload session');
     expect(count(array_filter($api->calls,fn($c)=>$c[0]==='deleteMessage'))>0,'uploaded cookie message deletion is attempted');
-    $bot->handle(callback(42,'cookies'));
+    $bot->handle(callback(42,'cookies:import'));
     $store->query('UPDATE states SET expires=1 WHERE user_id=42');
     $api->content=$old;
     $bot=new Zero\Bot($config,new Zero\Store($temp),$api);
     $bot->handle(document(42));
     expect(file_get_contents($config->cookiePath())===$old,'waiting for a cookie survives a long delay and a process restart');
-    $bot->handle(callback(42,'cookies'));
+    $bot->handle(callback(42,'cookies:import'));
     $bot->handle(callback(42,'admin'));
     expect(end($api->calls)[0]==='sendMessage'&&isset(end($api->calls)[1]['reply_markup']['keyboard'])&&!$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'Back cancels import and restores the reply administration keyboard');
-    $bot->handle(callback(42,'cookies')); $count=$api->downloads;
+    $bot->handle(callback(42,'cookies:import')); $count=$api->downloads;
     $bot->handle(['message'=>['from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/cancel']]);
     $bot->handle(document(42));
     expect($api->downloads===$count,'cancel prevents subsequent upload from being imported');
     $store->set('enabled','0');
-    $bot->handle(callback(42,'cookies'));
+    $bot->handle(callback(42,'cookies:import'));
     $api->content=$new; $api->failDelete=true;
     $bot->handle(document(42));
     expect(file_get_contents($config->cookiePath())===$new,'admin import works during maintenance and tolerates message deletion failure');
     expect(str_contains((string)end($api->calls)[1]['text'],'حذف خودکار'),'administrator warned when message deletion fails');
     $api->failDelete=false;
-    $bot->handle(callback(42,'cookies'));
+    $bot->handle(callback(42,'cookies:import'));
     $api->reportedSize=1048577;
     $count=$api->downloads;
     $bot->handle(document(42));
     expect($api->downloads===$count&&file_get_contents($config->cookiePath())===$new,'getFile metadata size cannot bypass the import limit');
     $api->reportedSize=null; $api->content=$old;
-    $bot->handle(callback(42,'cookies')); $api->missingPanel=true; $before=count($api->calls);
+    $bot->handle(callback(42,'cookies:import')); $api->missingPanel=true; $before=count($api->calls);
     $bot->handle(document(42,'deleted-panel.txt'));
     $replacement=(int)$store->get('cookie_menu.42');
     expect($replacement>1000&&file_get_contents($config->cookiePath())===$old,'a deleted persistent import panel is recreated and the cookie is still verified and saved');

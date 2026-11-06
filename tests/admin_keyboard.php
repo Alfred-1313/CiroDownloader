@@ -42,6 +42,10 @@ try {
     $bot->handle(adminMessage($bot->label('health')));
     adminCheck(str_contains(end($api->calls)[1]['text'],'کاربران ثبت‌شده'),'the status reply control opens the private statistics');
     $bot->handle(adminMessage($bot->label('cookies')));
+    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_back_admin')],'the renamed cookie control opens the service reply keyboard');
+    $bot->handle(adminMessage($bot->label('cookie_youtube')));
+    adminCheck(in_array($bot->label('cookie_view'),adminLabels($api),true)&&in_array($bot->label('cookie_remove'),adminLabels($api),true),'the YouTube service exposes separate import, view and delete controls');
+    $bot->handle(adminMessage($bot->label('cookie_upload')));
     adminCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='cookie.upload','the cookie reply control starts import');
     $bot->handle(adminMessage($bot->label('update')));
     adminCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()&&str_contains(end($api->calls)[1]['text'],'مدیریت به‌روزرسانی')&&(int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'the update reply control leaves cookie import and opens the update menu without starting an update');

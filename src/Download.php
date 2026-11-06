@@ -88,12 +88,12 @@ final class Download
         }
         return file_get_contents($stdout)?:'';
     }
-    private function access(string $folder): array
+    private function access(string $folder,bool $withCookies): array
     {
         $access=[]; $snapshot=null;
         $cookies=$this->config->cookiePath();
         clearstatcache(true,$cookies);
-        if(is_file($cookies)) {
+        if($withCookies&&is_file($cookies)) {
             if(!is_readable($cookies)||filesize($cookies)>1048576) throw new MediaFailure('cookies','YouTube cookie file is unreadable or too large');
             $content=(string)file_get_contents($cookies);
             try { validateYouTubeCookies($content); }
@@ -104,11 +104,27 @@ final class Download
             chmod($private,0600);
             $access=['--cookies',$private];
             $snapshot=['path'=>$private,'hash'=>hash('sha256',$content)];
-        } elseif($this->config->youtubeCookies!=='') {
+        } elseif($withCookies) {
             throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
         }
         if($this->config->youtubeProxy!=='') $access=array_merge($access,['--proxy',$this->config->youtubeProxy]);
         return ['args'=>$access,'snapshot'=>$snapshot];
+    }
+    private function youtube(string $url,array $options,string $folder,int $seconds,?string $prefix=null,bool $forceCookies=false): string
+    {
+        $access=$this->access($folder,$forceCookies);
+        try {
+            $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
+        } catch(MediaFailure $failure) {
+            if($forceCookies||!in_array($failure->reason,['blocked','restricted','format','network','process','cookies'],true)||!is_file($this->config->cookiePath())) throw $failure;
+            // Never resume an anonymous partial with a different login session.
+            if($prefix!==null) foreach(glob($folder.'/'.$prefix.'.*')?:[] as $file) if(is_file($file)) unlink($file);
+            $access=$this->access($folder,true);
+            error_log('YouTube anonymous request failed; retrying once with saved cookies');
+            $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
+        }
+        $this->refresh($access);
+        return $result;
     }
     private function refresh(array $access): void
     {
@@ -155,13 +171,11 @@ final class Download
         ]<=>[($a['vcodec']??'none')==='none'?1:0,(float)($a['abr']??$a['tbr']??0)]);
         return array_map(fn($format)=>['id'=>(string)$format['format_id']],array_slice($formats,0,8));
     }
-    public function inspect(string $url,string $folder): array
+    public function inspect(string $url,string $folder,bool $forceCookies=false): array
     {
         $canonical=youtubeUrl($url);
         if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        $access=$this->access($folder);
-        $json=$this->run(array_merge($this->base(),['--dump-single-json','--skip-download'],$access['args'],['--',$canonical]),$folder,min(120,$this->config->timeout));
-        $this->refresh($access);
+        $json=$this->youtube($canonical,['--dump-single-json','--skip-download'],$folder,min(120,$this->config->timeout),null,$forceCookies);
         try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
         catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
@@ -197,7 +211,9 @@ final class Download
         $candidate=clone $this->config; $candidate->youtubeCookies=$folder.'/candidate.txt'; $candidate->timeout=30;
         if(file_put_contents($candidate->youtubeCookies,$content)!==strlen($content)) throw new \RuntimeException('Cannot write private candidate cookie file');
         chmod($candidate->youtubeCookies,0600);
-        (new self($candidate))->inspect($url,$folder);
+        // Verification must exercise the uploaded session even if this server
+        // can access a public video anonymously.
+        (new self($candidate))->inspect($url,$folder,true);
         return (string)file_get_contents($candidate->youtubeCookies);
     }
     public function fetchAudio(string $url,string $folder,array $formats): array
@@ -210,14 +226,12 @@ final class Download
             $selector[]=$format['id'];
         }
         if(!$selector) throw new MediaFailure('format','No saved audio formats are available');
-        $access=$this->access($folder);
-        $title=$this->run(array_merge($this->base(),[
+        $title=$this->youtube($canonical,[
             '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject','-f',implode('/',$selector),
             '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],
-            $access['args'],['--',$canonical]),$folder,$this->config->timeout);
-        $this->refresh($access);
+            $folder,$this->config->timeout,'source');
         $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>
             in_array(strtolower(pathinfo($file,PATHINFO_EXTENSION)),['m4a','webm','mp4','mkv','opus','ogg','mp3','aac','wav','flac'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete audio source');
@@ -247,16 +261,14 @@ final class Download
             $selector[]=$format['id'].(!empty($format['audio'])?'':'+ba');
         }
         if($quality!==null&&!$selector) throw new MediaFailure('format','The selected quality has no saved formats');
-        $access=$this->access($folder);
-        $title=$this->run(array_merge($this->base(),[
+        $title=$this->youtube($canonical,[
             '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',
             // Explicit IDs prevent silently substituting a different quality.
             '-f',$selector?implode('/',$selector):'bv*+ba/b','-S','res:'.$target.',vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
-            '-o',$folder.'/video.%(ext)s'],$access['args'],['--',$canonical]),$folder,$this->config->timeout);
-        $this->refresh($access);
+            '-o',$folder.'/video.%(ext)s'],$folder,$this->config->timeout,'video');
         $files=array_values(array_filter(glob($folder.'/video.*')?:[],
             fn($file)=>in_array(pathinfo($file,PATHINFO_EXTENSION),['mp4','mkv','webm','mov'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete video');

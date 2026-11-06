@@ -29,7 +29,7 @@ try {
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
         audioCheck($arguments[array_search('--concurrent-fragments',$arguments,true)+1]==='4',"$extension uses bounded parallel fragment downloads");
         audioCheck($arguments[array_search('-f',$arguments,true)+1]==='140/251',"$extension uses only offered audio formats");
-        audioCheck($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt'&&file_get_contents($config->cookiePath())===$cookies,"$extension uses an isolated cookie copy");
+        audioCheck(!in_array('--cookies',$arguments,true)&&file_get_contents($config->cookiePath())===$cookies,"$extension first downloads anonymously and preserves saved cookies");
         audioCheck($arguments[array_search('--proxy',$arguments,true)+1]===$config->youtubeProxy,"$extension uses the configured YouTube proxy");
         audioCheck($arguments[array_search('--match-filter',$arguments,true)+1]==='!is_live',"$extension does not impose a 20-minute filter");
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$media['path']],$work,10),true);

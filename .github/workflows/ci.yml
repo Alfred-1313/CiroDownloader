@@ -26,6 +26,7 @@ jobs:
         run: |
           php tests/run.php
           php tests/cookies.php
+          php tests/cookie_manager.php
           php tests/jobs.php
           php tests/customization.php
           php tests/personalization_recovery.php
@@ -46,6 +47,7 @@ jobs:
           php tests/parallel_worker.php
           php tests/parallel_worker.php --group
           php tests/media.php
+          php tests/downloader_fallback.php
           php tests/quality_worker.php
           php tests/quality_worker.php --audio
           php tests/quality_worker.php --custom-parts

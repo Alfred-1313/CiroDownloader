@@ -4,6 +4,7 @@ namespace Zero;
 require_once __DIR__.'/Updates.php';
 require_once __DIR__.'/Personalization.php';
 require_once __DIR__.'/GroupSupport.php';
+require_once __DIR__.'/Cookies.php';
 
 final class Bot
 {
@@ -169,16 +170,17 @@ final class Bot
     }
     public function beginCookieImport(int $chat,int $user,int $message=0): void
     {
-        $message=$this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(is_readable($this->config->cookiePath())?'cookie_present':'cookie_missing')]),[
-            [$this->button('back','admin')],
-        ],$message);
+        if($chat!==$user||!$this->admin($user)) return;
+        // Keep the service reply keyboard visible. A separate message without
+        // reply markup remains editable throughout verification and success.
+        $message=$this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(is_readable($this->config->cookiePath())?'cookie_present':'cookie_missing')]));
         $this->store->set('cookie_menu.'.$user,(string)$message);
         $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,0)',[$user,'cookie.upload']);
     }
     private function cookieNotice(int $chat,int $user,string $text): void
     {
         $message=(int)$this->store->get('cookie_menu.'.$user,'0');
-        $rows=[[$this->button('back','admin')]];
+        $rows=[];
         try { $message=$this->send($chat,$text,$rows,$message); }
         catch(\RuntimeException $e) {
             if($e->getCode()!==404||$message<1) throw $e;
@@ -276,7 +278,12 @@ final class Bot
             elseif($action==='download') $this->send($chat,$this->text('prompt'));
             elseif($action==='admin') $this->panel($chat,$menu);
             elseif($action==='health') $this->health($chat);
-            elseif(in_array($action,['cookies','cookies:info'],true)) $this->beginCookieImport($chat,$user,$menu);
+            elseif($action==='cookies') (new Cookies($this))->handle($chat,$user,'cookies');
+            elseif(in_array($action,['cookies:info','cookies:import'],true)) {
+                (new Cookies($this))->handle($chat,$user,'cookie_youtube');
+                $this->beginCookieImport($chat,$user);
+            }
+            elseif($action==='cookies:youtube') (new Cookies($this))->handle($chat,$user,'cookie_youtube');
             elseif(in_array($action,['update:menu','update:run','update:open'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,$menu,'',$action!=='update:menu');
             elseif($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',$menu);
             elseif($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,$menu);
@@ -305,12 +312,14 @@ final class Bot
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
+        $previousState=$reply==='cookie_delete_confirm'?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
         if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
             if($text==='/health'||$reply==='health') { $this->health($chat); return; }
-            if($text==='/cookies'||$reply==='cookies') { $this->beginCookieImport($chat,$user); return; }
+            if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
+            if($reply!==null&&(new Cookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($text==='/update'||$reply==='update') { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
             if($text==='/customize'||$reply==='customize') { $custom->home($chat); return; }
             if($reply==='on'||$reply==='off') { $this->store->set('enabled',$reply==='on'?'1':'0'); $this->panel($chat); return; }

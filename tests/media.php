@@ -42,7 +42,7 @@ try {
         file_put_contents($stub,"#!/usr/bin/env php\n<?php\n".
             '$template=$argv[array_search("-o",$argv,true)+1];'."\n".
             'file_put_contents(dirname($template)."/arguments.json",json_encode($argv));'."\n".
-            '$cookie=$argv[array_search("--cookies",$argv,true)+1]; file_put_contents($cookie,"# modified by downloader");'."\n".
+            'if(in_array("--cookies",$argv,true)) { $cookie=$argv[array_search("--cookies",$argv,true)+1]; file_put_contents($cookie,"# modified by downloader"); }'."\n".
             'copy('.var_export($source,true).',str_replace("%(ext)s",'.var_export($ext,true).',$template));'."\n".
             'echo json_encode("Test <title> & audio").PHP_EOL;');
         chmod($stub,0700);
@@ -51,7 +51,7 @@ try {
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
         verify($arguments[array_search('--concurrent-fragments',$arguments,true)+1]==='4',"$name uses bounded parallel fragment downloads");
         verify($arguments[array_search('--match-filter',$arguments,true)+1]==='!is_live',"$name has no maximum video duration filter");
-        verify($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt',"$name uses a private cookie copy");
+        verify(!in_array('--cookies',$arguments,true),"$name succeeds anonymously without reading saved cookies");
         verify(file_get_contents($config->cookiePath())===$cookieExport,"$name preserves shared cookies during download");
         verify($arguments[array_search('--proxy',$arguments,true)+1]===$config->youtubeProxy,"$name passes the configured YouTube proxy");
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$media['path']],$work,10),true);
@@ -76,9 +76,9 @@ try {
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php '.
         'if(str_starts_with($_SERVER["REQUEST_URI"],"/file/")) { echo '.var_export($cookieExport,true).'; return; }'.
-        '$v=$_FILES["video"]??null;'.
-        '$valid=$v&&$v["error"]===UPLOAD_ERR_OK&&($v["type"]??"")==="video/mp4";'.
-        'if($valid) file_put_contents('.var_export($temp.'/upload.json',true).',json_encode(["hash"=>hash_file("sha256",$v["tmp_name"]),"chat"=>$_POST["chat_id"]??null]));'.
+        '$document=basename(parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH))==="sendDocument"; $v=$_FILES[$document?"document":"video"]??null;'.
+        '$valid=$v&&$v["error"]===UPLOAD_ERR_OK&&($v["type"]??"")===($document?"text/plain":"video/mp4");'.
+        'if($valid) file_put_contents('.var_export($temp.'/upload.json',true).',json_encode(["hash"=>hash_file("sha256",$v["tmp_name"]),"chat"=>$_POST["chat_id"]??null,"name"=>$v["name"],"protected"=>$_POST["protect_content"]??null]));'.
         'header("Content-Type: application/json"); echo json_encode(["ok"=>(bool)$valid,"result"=>["message_id"=>123],"error_code"=>400]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr);
     if(!$socket) throw new RuntimeException($errstr);
@@ -103,6 +103,9 @@ try {
     verify(($result['message_id']??0)===123&&($received['hash']??'')===hash_file('sha256',$media['path']),
         'sendVideo uploads the actual MP4 bytes as multipart video');
     verify(($received['chat']??'')==='42','video delivered to requested chat');
+    (new Zero\Telegram($config))->call('sendDocument',['chat_id'=>42,'document'=>new CURLStringFile($cookieExport,'youtube-cookies.txt','text/plain'),'protect_content'=>true]);
+    $received=json_decode((string)file_get_contents($temp.'/upload.json'),true);
+    verify($received['hash']===hash('sha256',$cookieExport)&&$received['name']==='youtube-cookies.txt'&&$received['protected']==='1','in-memory cookie exports reach the API as the exact protected multipart document');
     $transport=new Zero\Telegram($config);
     verify($transport->downloadFile('documents/export.txt',1048576)===$cookieExport,'Telegram file transport reads complete cookie bytes');
     $oversized=false;

@@ -104,6 +104,20 @@ function saveYouTubeCookies(Config $config, string $content, ?string $expectedHa
     }
 }
 
+function deleteYouTubeCookies(Config $config,string $expectedHash): bool
+{
+    $path=$config->cookiePath(); $lock=fopen($path.'.lock','c');
+    if(!$lock) throw new \RuntimeException('Cannot lock cookie file');
+    chmod($path.'.lock',0600);
+    try {
+        if(!flock($lock,LOCK_EX)) throw new \RuntimeException('Cannot lock cookie file');
+        clearstatcache(true,$path);
+        if(!is_file($path)||!hash_equals($expectedHash,hash_file('sha256',$path))) return false;
+        if(!unlink($path)) throw new \RuntimeException('Cannot delete cookie file');
+        return true;
+    } finally { flock($lock,LOCK_UN); fclose($lock); }
+}
+
 interface Api { public function call(string $method, array $params = []): mixed; }
 interface FileApi extends Api { public function downloadFile(string $filePath, int $maxBytes): string; }
 
@@ -220,6 +234,11 @@ final class Store
             $this->db->exec("CREATE INDEX IF NOT EXISTS one_active ON jobs(user_id,chat_id) WHERE status IN ('queued','running','confirming')");
             $this->query("UPDATE jobs SET status='waiting_quality',expires=0 WHERE status='choosing'");
             $this->query("UPDATE states SET expires=0 WHERE key='cookie.upload'");
+            if($this->get('ui_cookie_panel_v1','0')!=='1') {
+                $saved=$this->get('button.cookies');
+                if(in_array($saved,['🍪 ایمپورت کوکی یوتیوب','ایمپورت کوکی یوتیوب','واردکردن کوکی یوتیوب','🍪 واردکردن کوکی یوتیوب'],true)) $this->query('DELETE FROM settings WHERE key=?',['button.cookies']);
+                $this->set('ui_cookie_panel_v1','1');
+            }
             if($this->get('ui_html_version','0')!=='1') {
                 // Captions in older releases were sent as plaintext, even if they
                 // contained angle brackets. Preserve that appearance when enabling HTML.
