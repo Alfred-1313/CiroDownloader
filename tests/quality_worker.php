@@ -11,6 +11,7 @@ $audio=in_array('--audio',$argv,true);
 $shorts=in_array('--shorts',$argv,true);
 $legacy=in_array('--legacy-caption',$argv,true);
 $customParts=in_array('--custom-parts',$argv,true);
+$cleanupFailure=in_array('--cleanup-failure',$argv,true);
 $group=in_array('--group',$argv,true); $disabled=$group&&in_array('--disabled',$argv,true);
 $chat=$group?-1001234567890:7; $thread=$group?321:0;
 try {
@@ -44,6 +45,7 @@ try {
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"video_hash"=>$file?hash_file("sha256",$file["tmp_name"]):null,"mime"=>$file["type"]??null],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$kindFile='.var_export($temp.'/message-kind',true).';$kind=is_file($kindFile)?file_get_contents($kindFile):"text";'.
         '$valid=!(($method==="editMessageText"&&$kind==="photo")||($method==="editMessageCaption"&&$kind!=="photo"));'.
+        'if($method==="deleteMessage"&&'.($cleanupFailure?'true':'false').') $valid=false;'.
         'if($method==="editMessageMedia") file_put_contents($kindFile,"photo");'.
         'header("Content-Type: application/json");echo json_encode(["ok"=>$valid,"error_code"=>400,"result"=>["message_id"=>(int)($_POST["message_id"]??501)]]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$errstr); if(!$socket) throw new RuntimeException($errstr);
@@ -112,7 +114,7 @@ try {
         $records=recorded($log);
         $status=$store->query('SELECT status FROM jobs WHERE update_id=1')->fetchColumn();
         $last=end($records);
-        if($status==='done'&&$last['method']==='editMessageCaption'&&$last['params']['caption']==='') { $done=true;break; }
+        if($status==='done'&&$last['method']==='deleteMessage') { $done=true;break; }
         usleep(100000);
     } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
     qualityCheck($done,'selected quality completes real probing, MP4 preparation and upload');
@@ -150,7 +152,12 @@ try {
     qualityCheck($sourceButton['style']===($customParts?'danger':'primary')&&$sourceButton['url']==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&!isset($sourceButton['callback_data']),'the delivered file has the configured URL button linking to the original YouTube video');
     if($customParts) qualityCheck($sourceButton['text']==='CUSTOM SOURCE','the delivered media uses its independently configured source button');
     qualityCheck(count(array_filter($records,fn($record)=>$record['method']==='sendMessage'))===1,'inspection, choices, download and completion keep one status message');
-    qualityCheck(end($records)['params']['caption']===''&&json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']===[],'the old poster caption is cleared only after a successful file upload');
+    $cleanup=end($records);
+    qualityCheck($cleanup['method']==='deleteMessage'&&(int)$cleanup['params']['chat_id']===$chat&&(int)$cleanup['params']['message_id']===501,'the entire poster is deleted from the original chat after successful file upload');
+    $uploadPosition=array_search($audio?'sendAudio':'sendVideo',array_column($records,'method'),true);
+    $deletePositions=array_keys(array_column($records,'method'),'deleteMessage',true);
+    qualityCheck(count($deletePositions)===1&&$deletePositions[0]>$uploadPosition,'the cover stays through processing and is only removed after delivery');
+    if($cleanupFailure) qualityCheck($status==='done'&&str_contains($workerLog,'Media delivered; status cleanup unavailable'),'a rejected cleanup leaves delivery successful without sending the file again');
     foreach($records as $record) if(str_starts_with($record['method'],'editMessage')) qualityCheck((int)$record['params']['message_id']===501,'all text, media and caption edits keep the original message ID');
 } finally {
     foreach([$worker,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); }

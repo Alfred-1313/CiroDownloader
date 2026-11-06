@@ -89,7 +89,7 @@ while(true) {
             $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
             try { $bot->finishJob($job); }
-            catch(Throwable) { error_log('Media delivered; final status edit unavailable'); }
+            catch(Throwable) { error_log('Media delivered; status cleanup unavailable'); }
         } catch(Throwable $e) {
             $detail=Zero\diagnosticMessage($e->getMessage());
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);

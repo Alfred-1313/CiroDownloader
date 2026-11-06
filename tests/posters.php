@@ -31,7 +31,7 @@ try {
     $api->deleted=true; $reopened->jobMessage($job,'Retry status');
     posterCheck(end($api->calls)[0]==='sendPhoto','a user-deleted poster is replaced with one photo status');
     $reopened->finishJob($job);
-    posterCheck(end($api->calls)[0]==='editMessageCaption'&&end($api->calls)[1]['caption']==='','successful delivery clears the poster caption without a new success message');
+    posterCheck(end($api->calls)[0]==='deleteMessage'&&end($api->calls)[1]===['chat_id'=>7,'message_id'=>501],'successful delivery deletes the entire poster message from its original chat');
     $store->query("UPDATE jobs SET message_kind='text',poster='' WHERE id=?",[$job['id']]); $api->reject=true;
     $bot->qualityMenu($job,$media);
     posterCheck(end($api->calls)[0]==='editMessageText'&&!empty(end($api->calls)[1]['reply_markup']['inline_keyboard']),'a rejected poster still offers working quality buttons in the existing text message');

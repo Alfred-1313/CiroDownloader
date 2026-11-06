@@ -74,11 +74,10 @@ final class Bot
     }
     public function finishJob(array $job): void
     {
-        $saved=$this->store->query('SELECT message_id,message_kind FROM jobs WHERE id=?',[$job['id']])->fetch();
-        if((int)$saved['message_id']<1) return;
+        $saved=$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetch();
+        if(!$saved||(int)$saved['message_id']<1) return;
         $params=['chat_id'=>(int)$job['chat_id'],'message_id'=>(int)$saved['message_id']];
-        if($saved['message_kind']==='photo') $this->api->call('editMessageCaption',$params+['caption'=>'','reply_markup'=>['inline_keyboard'=>[]]]);
-        else $this->api->call('deleteMessage',$params);
+        $this->api->call('deleteMessage',$params);
     }
     public function home(int $chat,int $user): void
     {

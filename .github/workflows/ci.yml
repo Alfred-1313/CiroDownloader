@@ -50,6 +50,7 @@ jobs:
           php tests/quality_worker.php --audio --custom-parts
           php tests/quality_worker.php --shorts
           php tests/quality_worker.php --legacy-caption
+          php tests/quality_worker.php --cleanup-failure
           php tests/quality_worker.php --group
           php tests/quality_worker.php --group --audio
           php tests/quality_worker.php --group --audio --custom-parts
