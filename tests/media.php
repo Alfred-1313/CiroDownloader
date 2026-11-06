@@ -26,6 +26,8 @@ try {
         ['long','32x32','libx264','aac','mp4',1202,null],
         ['selected1080','1920x1080','libx264','aac','mp4',1,1080],
         ['selected720','1280x720','libvpx-vp9','libopus','webm',1,720],
+        ['audio-only-conversion','1280x720','libx264','libopus','mkv',2,720],
+        ['video-only-conversion','1280x720','libvpx-vp9','aac','mkv',2,720],
     ] as [$name,$size,$videoCodec,$audioCodec,$ext,$seconds,$quality]) {
         $work=$temp.'/'.$name;
         mkdir($work,0700);
@@ -47,6 +49,7 @@ try {
         $config->ytDlp=$stub;
         $media=$runner->fetch('https://www.youtube.com/watch?v=ybNMMK5Q318',$work,$quality,$quality!==null?[['id'=>'chosen','audio'=>true]]:[]);
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
+        verify($arguments[array_search('--concurrent-fragments',$arguments,true)+1]==='4',"$name uses bounded parallel fragment downloads");
         verify($arguments[array_search('--match-filter',$arguments,true)+1]==='!is_live',"$name has no maximum video duration filter");
         verify($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt',"$name uses a private cookie copy");
         verify(file_get_contents($config->cookiePath())===$cookieExport,"$name preserves shared cookies during download");
@@ -54,6 +57,12 @@ try {
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$media['path']],$work,10),true);
         $streams=array_column($probe['streams'],'codec_name','codec_type');
         verify(($streams['video']??'')==='h264'&&($streams['audio']??'')==='aac',"$name produces H.264 video and AAC audio");
+        if(in_array($name,['audio-only-conversion','video-only-conversion'],true)) {
+            $stream=$name==='audio-only-conversion'?'v':'a'; $hashes=[];
+            foreach([$source,$media['path']] as $path) $hashes[]=trim($runner->run(['ffmpeg','-hide_banner','-loglevel','error','-i',$path,'-map','0:'.$stream.':0','-c','copy','-f','hash','-hash','sha256','-'],$work,10));
+            verify($hashes[0]===$hashes[1],"$name copies the compatible stream byte for byte instead of re-encoding it");
+            verify($media['duration']>=2,"$name retains the full video duration");
+        }
         verify(min($media['width'],$media['height'])<=($quality??480),"$name respects the requested resolution");
         if($quality!==null) {
             verify(min($media['width'],$media['height'])===$quality,"$name is delivered without a silent downgrade to 480p");

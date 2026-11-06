@@ -27,6 +27,16 @@ try {
     expectJob($job!==null&&$job['message_id']===null,'old queued jobs survive the additive database migration');
     $store->query("UPDATE jobs SET status='done'");
 
+    foreach([[100,'inspect',time()],[101,'download',time()],[102,'audio',time()]] as [$update,$phase,$created]) {
+        $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(?,?,?, ?,?,501,?)",[$update,$update,$update,'https://youtu.be/ybNMMK5Q318',$created,$phase]);
+    }
+    expectJob((int)$store->claim()['update_id']===101&&(int)$store->claim()['update_id']===102,'chosen video and audio start before fresh link inspections and retain FIFO order');
+    $store->query("UPDATE jobs SET status='done' WHERE update_id IN (101,102)");
+    $store->query("UPDATE jobs SET created=? WHERE update_id=100",[time()-31]);
+    $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(103,103,103,'https://youtu.be/ybNMMK5Q318',?,501,'download')",[time()]);
+    expectJob((int)$store->claim()['update_id']===100,'an older inspection is promoted so continuous selected downloads cannot starve it');
+    $store->query("UPDATE jobs SET status='done'");
+
     $log=$temp.'/requests.jsonl'; file_put_contents($log,'');
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php '.

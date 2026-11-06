@@ -27,6 +27,7 @@ try {
         chmod($stub,0700); $config->ytDlp=$stub;
         $media=$runner->fetchAudio('https://youtu.be/ybNMMK5Q318',$work,[['id'=>'140'],['id'=>'251']]);
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
+        audioCheck($arguments[array_search('--concurrent-fragments',$arguments,true)+1]==='4',"$extension uses bounded parallel fragment downloads");
         audioCheck($arguments[array_search('-f',$arguments,true)+1]==='140/251',"$extension uses only offered audio formats");
         audioCheck($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt'&&file_get_contents($config->cookiePath())===$cookies,"$extension uses an isolated cookie copy");
         audioCheck($arguments[array_search('--proxy',$arguments,true)+1]===$config->youtubeProxy,"$extension uses the configured YouTube proxy");

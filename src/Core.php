@@ -275,7 +275,9 @@ final class Store
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
-            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0) ORDER BY id LIMIT 1")->fetch();
+            // Serve chosen media before fresh inspections, but promote an
+            // inspection after 30 seconds so a busy download queue cannot starve it.
+            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0) ORDER BY CASE WHEN phase<>'inspect' OR created<=? THEN 0 ELSE 1 END,id LIMIT 1",[time()-30])->fetch();
             if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }

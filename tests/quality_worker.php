@@ -116,6 +116,18 @@ try {
         usleep(100000);
     } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
     qualityCheck($done,'selected quality completes real probing, MP4 preparation and upload');
+    $timingFound=false;
+    for($attempt=0;$attempt<20;$attempt++) {
+        $workerLog=(string)file_get_contents($temp.'/worker-error.log');
+        preg_match_all('/Job '.(int)$job['id'].' timings (\{[^\n]+\})/',$workerLog,$timing);
+        foreach($timing[1] as $entry) {
+            $values=json_decode($entry,true);
+            if(isset($values['prepare_ms'],$values['upload_ms'],$values['total_ms'])) { $timingFound=true; break; }
+        }
+        if($timingFound) break;
+        usleep(50000);
+    }
+    qualityCheck($timingFound&&$values['total_ms']+1>=$values['prepare_ms']+$values['upload_ms'],'the real worker logs separate preparation and upload timings for diagnosing delivery latency');
     $invocations=recorded($trace); $arguments=$invocations[1]??[];
     qualityCheck(count($invocations)===2&&$arguments[array_search('-f',$arguments,true)+1]===($audio?'140/22/18':'18'),'download uses only saved formats for the selected media');
     $uploads=array_values(array_filter($records,fn($record)=>$record['method']===($audio?'sendAudio':'sendVideo')));

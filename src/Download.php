@@ -57,15 +57,21 @@ final class Download
             ['PATH'=>getenv('PATH')?:'/usr/local/bin:/usr/bin:/bin','HOME'=>$folder,'LANG'=>'C.UTF-8']);
         if (!is_resource($proc)) throw new \RuntimeException('Cannot start downloader');
         $exit=-1;
+        $nextStorageCheck=0.0;
         try {
             do {
                 $status=proc_get_status($proc);
                 if (!$status['running']) { $exit=$status['exitcode']; break; }
-                self::ensureSpace($folder);
-                $bytes=0;
-                foreach (glob($folder.'/*')?:[] as $p) { clearstatcache(true,$p); if(is_file($p)) $bytes+=filesize($p); }
-                if ($bytes>$this->config->maxBytes*3) throw new MediaFailure('size','Temporary size limit exceeded');
-                usleep(250000);
+                if(microtime(true)>=$nextStorageCheck) {
+                    self::ensureSpace($folder);
+                    $bytes=0;
+                    foreach (glob($folder.'/*')?:[] as $p) { clearstatcache(true,$p); if(is_file($p)) $bytes+=filesize($p); }
+                    if ($bytes>$this->config->maxBytes*3) throw new MediaFailure('size','Temporary size limit exceeded');
+                    $nextStorageCheck=microtime(true)+0.25;
+                }
+                // Notice finished probes/remuxes promptly without scanning the
+                // disk more often while a long download or encode is running.
+                usleep(50000);
             } while (true);
         } finally {
             if (proc_get_status($proc)['running']) {
@@ -206,6 +212,7 @@ final class Download
         if(!$selector) throw new MediaFailure('format','No saved audio formats are available');
         $access=$this->access($folder);
         $title=$this->run(array_merge($this->base(),[
+            '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject','-f',implode('/',$selector),
             '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],
@@ -242,6 +249,7 @@ final class Download
         if($quality!==null&&!$selector) throw new MediaFailure('format','The selected quality has no saved formats');
         $access=$this->access($folder);
         $title=$this->run(array_merge($this->base(),[
+            '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',
             // Explicit IDs prevent silently substituting a different quality.
@@ -266,15 +274,19 @@ final class Download
 
         // Telegram clients need H.264/AAC MP4; accept other source codecs and convert them.
         $ready=$folder.'/ready.mp4';
-        $compatible=($video['codec_name']??'')==='h264'&&($audio['codec_name']??'')==='aac'
+        $copyVideo=($video['codec_name']??'')==='h264'&&($video['pix_fmt']??'')==='yuv420p'
             &&min((int)$video['width'],(int)$video['height'])<=$target;
+        $copyAudio=($audio['codec_name']??'')==='aac';
         $args=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$file,'-map','0:v:0','-map','0:a:0'];
-        if($compatible) {
-            $args=array_merge($args,['-c','copy']);
+        // A non-AAC soundtrack must not force re-encoding an already suitable
+        // H.264 picture. Likewise preserve AAC when only video needs conversion.
+        if($copyVideo) {
+            $args=array_merge($args,['-c:v','copy']);
         } else {
             $args=array_merge($args,['-vf',"scale='if(gte(iw,ih),-2,min($target,iw))':'if(gte(iw,ih),min($target,ih),-2)'",
-                '-c:v','libx264','-preset','veryfast','-crf','25','-threads','2','-pix_fmt','yuv420p','-c:a','aac','-b:a','96k']);
+                '-c:v','libx264','-preset','veryfast','-crf','25','-threads','2','-pix_fmt','yuv420p']);
         }
+        $args=array_merge($args,$copyAudio?['-c:a','copy']:['-c:a','aac','-b:a','96k']);
         $this->run(array_merge($args,['-movflags','+faststart',$ready]),$folder,$this->config->timeout);
         clearstatcache(true,$ready);
         if(!is_file($ready)||filesize($ready)<1) throw new MediaFailure('format','Prepared MP4 is missing');
