@@ -260,9 +260,10 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
-            $isPage=preg_match('/^igpage:(\d+):([2-9]|1\d|20)$/D',$action,$page)===1;
+            $isPage=preg_match('/^igpage:(\d+):([1-9]|1\d|20)(?::(\d+))?$/D',$action,$page)===1;
+            $pageCounter=$action==='igpage:noop';
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back'],true);
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
@@ -284,9 +285,10 @@ final class Bot
                 return;
             }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
+            if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }
             if($isPage) {
-                $notice=(new InstagramPages($this->config,$this->store,$this->api))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$thread,(int)$page[2]);
-                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$notice===''?'':$this->ui->plain($notice),'show_alert'=>$notice!=='','cache_time'=>0]);
+                $notice=(new InstagramPages($this->config,$this->store,$this->api))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$thread,(int)$page[2],isset($page[3])?(int)$page[3]:null);
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?'instagram_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);

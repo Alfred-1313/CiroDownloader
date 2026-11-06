@@ -16,20 +16,20 @@ try {
     $log=$temp.'/http.jsonl'; file_put_contents($log,''); $fail=$temp.'/fail-upload';
     $reject=$temp.'/reject-catbox'; $failFallback=$temp.'/fail-fallback'; $invalidFallback=$temp.'/invalid-fallback'; $failTelegram=$temp.'/fail-telegram';
     $router=$temp.'/router.php';
-    file_put_contents($router,'<?php '.
+    file_put_contents($router,'<?php require '.var_export(__DIR__.'/fixtures/instagram_telegram.php',true).';'.
         '$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH); $method=basename($path);'.
         'if($path==="/photo.jpg"||$path==="/clip.mp4") { header("Content-Type: ".($path==="/photo.jpg"?"image/jpeg":"video/mp4")); $root='.var_export($temp,true).'; readfile($root.($path==="/clip.mp4"&&is_file($root."/with-audio")?"/audio-clip.mp4":$path)); return; }'.
         'if(isset($_FILES["video"])) copy($_FILES["video"]["tmp_name"],'.var_export($temp.'/delivered.mp4',true).');'.
         '$uploads=[];foreach($_FILES as $key=>$file) { if(is_array($file["tmp_name"])) $file=array_map(fn($field)=>$field[0],$file);$uploads[$key]=["name"=>$file["name"],"mime"=>$file["type"],"hash"=>hash_file("sha256",$file["tmp_name"])]; }'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"protocol"=>$_SERVER["SERVER_PROTOCOL"]],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
-        'if(in_array($method,["sendPhoto","sendVideo"],true)&&is_file('.var_export($failTelegram,true).')) { http_response_code(503);echo "connection interrupted";return; }'.
+        'if(in_array($method,["sendPhoto","sendVideo","editMessageMedia"],true)&&is_file('.var_export($failTelegram,true).')) { http_response_code(503);echo "connection interrupted";return; }'.
         'if($method==="upload") { if(is_file('.var_export($reject,true).')) { http_response_code(412);echo "rejected";return; } if(is_file('.var_export($fail,true).')) { http_response_code(503);echo "offline";return; }'.
         '$file=$_FILES["fileToUpload"]; echo "https://files.catbox.moe/fixture.".($file["type"]==="video/mp4"?"mp4":"jpg");return; }'.
         'if($method==="fallback") { if(is_file('.var_export($failFallback,true).')) { http_response_code(503);echo "offline";return; }'.
         '$url=is_file('.var_export($invalidFallback,true).')?"https://invalid.example/file.jpg":"https://qu.ax/fixture.".($_FILES["files"]["type"][0]==="video/mp4"?"mp4":"jpg");'.
         'header("Content-Type: application/json");echo json_encode(["success"=>true,"files"=>[["url"=>$url]]]);return; }'.
         '$counter='.var_export($temp.'/message-counter',true).';$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
-        '$result=match($method) { "createAccount"=>["access_token"=>str_repeat("A",64)],"createPage"=>["url"=>"https://telegra.ph/Instagram-11-06"],default=>["message_id"=>900+$next] };'.
+        '$result=instagramTelegramFixture($method,$_POST,$_FILES,'.var_export($temp,true).',900+$next)??match($method) { "createAccount"=>["access_token"=>str_repeat("A",64)],"createPage"=>["url"=>"https://telegra.ph/Instagram-11-06"],default=>["message_id"=>900+$next] };'.
         'header("Content-Type: application/json");echo json_encode(["ok"=>true,"result"=>$result]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
     $server=proc_open([PHP_BINARY,'-S',$address,$router],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-error.log','w']],$pipes);
@@ -91,16 +91,16 @@ try {
     $slides=array_values(array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)));
     $state=json_decode($job['options'],true)['pages']; $firstMessage=$state['message']; $cache=$storage.'/instagram-pages/'.$state['folder'];
     $markup=json_decode($slides[0]['params']['reply_markup'],true)['inline_keyboard'];
-    igMediaCheck($job['status']==='done'&&count($slides)===1&&$slides[0]['method']==='sendPhoto'&&$markup[0][0]['callback_data']==='igpage:'.$job['id'].':2','the default carousel sends only its first slide with a counted Next button');
+    igMediaCheck($job['status']==='done'&&count($slides)===1&&$slides[0]['method']==='sendPhoto'&&$markup[0][0]['callback_data']==='igpage:noop'&&$markup[0][0]['style']==='primary'&&$markup[0][1]['callback_data']==='igpage:'.$job['id'].':2:1'&&!isset($markup[0][1]['style']),'the first slide has a blue counter, a neutral Next button and no Previous button');
     igMediaCheck(str_contains($slides[0]['params']['caption'],'متن اصلی پست')&&str_contains($slides[0]['params']['caption'],'&lt;script&gt;')&&!array_filter($calls,fn($call)=>in_array($call['method'],['upload','fallback','createAccount','createPage'],true)),'native pages include an escaped original caption and never contact an external host');
     igMediaCheck(count(glob($cache.'/*'))===3&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'only the prepared private media files survive initial-job cleanup');
     // A new poller/store instance must use the durable cursor, not process memory.
     $pageBot=new Zero\Bot($config,new Zero\Store($storage),$api);
-    $turn=function(array $saved,int $page,?int $user=null,?int $message=null,?int $thread=null) use($pageBot): void {
+    $turn=function(array $saved,int $page,?int $user=null,?int $message=null,?int $thread=null,?int $revision=null,bool $legacy=false) use($pageBot): void {
         $state=json_decode($saved['options'],true)['pages'];
         $pageBot->handle(['callback_query'=>['id'=>'page-fixture','from'=>['id'=>$user??(int)$saved['user_id']],
             'message'=>['message_id'=>$message??$state['message'],'chat'=>['id'=>(int)$saved['chat_id'],'type'=>$saved['chat_id']<0?'supergroup':'private'],'message_thread_id'=>$thread??(int)$saved['thread_id']],
-            'data'=>'igpage:'.$saved['id'].':'.$page]]);
+            'data'=>'igpage:'.$saved['id'].':'.$page.($legacy?'':':'.($revision??$state['revision']))]]);
     };
     foreach([['user'=>999],['thread'=>999],['message'=>999]] as $wrong) $turn($job,2,...$wrong);
     igMediaCheck($store->claim('media')===null,'another sender, topic or message cannot advance the carousel');
@@ -113,19 +113,34 @@ try {
     $turn($job,2); igMediaCheck($store->claim('media')===null,'next-page requests respect the configured per-user processing limit');
     $store->query('DELETE FROM jobs WHERE update_id=80000'); $store->set('processing_limit.group','0');
     file_put_contents($log,''); $turn($job,2); $turn($job,2); $calls=$requests();
-    igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true))&&$store->claim('inspect')===null,'callbacks enqueue media without blocking the poller or the inspection lane');
+    igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','editMessageMedia'],true))&&$store->claim('inspect')===null,'callbacks enqueue media without blocking the poller or the inspection lane');
     $next=$store->claim('media'); igMediaCheck($next&&$next['phase']==='instagram_page'&&$store->claim('media')===null,'repeated clicks reserve exactly one page in the bounded media lane');
     $worker->recover($job);
     igMediaCheck($store->query('SELECT status FROM jobs WHERE id=?',[$next['id']])->fetchColumn()==='running'&&is_dir($cache),'reaping the previous page worker cannot fail or erase a newly claimed page');
     $worker->process($next); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $calls=$requests();
-    $slides=array_values(array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true))); $state=json_decode($job['options'],true)['pages'];
-    igMediaCheck(count($slides)===1&&$slides[0]['method']==='sendVideo'&&(int)$slides[0]['params']['message_thread_id']===321&&$state['message']!==$firstMessage&&count(file($trace))===1,'the next slide is a new video message in its original topic without downloading the post again');
-    $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageReplyMarkup'));
-    igMediaCheck(count($edits)===1&&(int)$edits[0]['params']['message_id']===$firstMessage&&count(json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'])===1,'the previous slide loses only its Next button after successful delivery');
-    $turn($job,3,message:$firstMessage); igMediaCheck($store->claim('media')===null,'an old page button cannot advance or duplicate a later slide');
-    file_put_contents($log,''); $turn($job,3); $worker->process($store->claim('media')); $calls=$requests();
-    $slides=array_values(array_filter($calls,fn($call)=>$call['method']==='sendPhoto')); $lastButtons=json_decode($slides[0]['params']['reply_markup'],true)['inline_keyboard'];
-    igMediaCheck(count($slides)===1&&count($lastButtons)===1&&!is_dir($cache),'the last slide has no Next button and releases all cached files');
+    $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia')); $state=json_decode($job['options'],true)['pages'];
+    $shown=json_decode(file_get_contents($temp.'/telegram-media.json'),true)['messages'][$job['chat_id'].'.'.$firstMessage];
+    igMediaCheck(count($edits)===1&&json_decode($edits[0]['params']['media'],true)['type']==='video'&&$edits[0]['uploads']['slide']['mime']==='video/mp4'&&$shown['thread']===321&&$state['message']===$firstMessage&&count(file($trace))===1,'the next slide replaces the first photo with a real multipart video in the same message and topic');
+    igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','sendMessage','deleteMessage'],true)),'navigation leaves only one media message and sends no extra status or replacement messages');
+    $buttons=json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'][0];
+    igMediaCheck(count($buttons)===3&&$buttons[0]['callback_data']==='igpage:'.$job['id'].':1:2'&&$buttons[1]['text']==='2 / 3'&&$buttons[2]['callback_data']==='igpage:'.$job['id'].':3:2'&&str_contains($shown['caption'],'متن اصلی پست'),'the middle slide keeps the post caption and shows Previous, counter and Next together');
+    file_put_contents($log,''); $turn($job,3); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia')); $lastButtons=json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'][0];
+    igMediaCheck(count($edits)===1&&count($lastButtons)===2&&$lastButtons[0]['callback_data']==='igpage:'.$job['id'].':2:3'&&is_dir($cache),'the last slide hides Next and retains the files so Previous still works');
+    file_put_contents($log,''); $turn($job,2); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia'));
+    igMediaCheck(count($edits)===1&&$edits[0]['uploads']===[]&&str_starts_with(json_decode($edits[0]['params']['media'],true)['media'],'fixture_video_'),'Previous restores the video through its confirmed Telegram file ID without uploading it again');
+    $turn($job,1,revision:2); igMediaCheck($store->claim('media')===null,'a delayed button from an earlier visit cannot navigate again after returning to the same slide');
+    file_put_contents($log,''); $turn($job,1); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia')); $shown=json_decode(file_get_contents($temp.'/telegram-media.json'),true)['messages'][$job['chat_id'].'.'.$firstMessage];
+    igMediaCheck(count($edits)===1&&$edits[0]['uploads']===[]&&$shown['type']==='photo'&&json_decode($job['options'],true)['pages']['message']===$firstMessage,'returning to the first photo replaces the video and keeps the original message ID');
+    $store->query('INSERT OR REPLACE INTO states VALUES(?,?,?)',[42,'pending-private-input',time()+600]);
+    $pageBot->handle(['callback_query'=>['id'=>'counter','from'=>['id'=>42],'message'=>['message_id'=>999,'chat'=>['id'=>42,'type'=>'private']],'data'=>'igpage:noop']]);
+    igMediaCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='pending-private-input'&&$store->claim('media')===null,'the display-only counter never queues a page or cancels pending private input');
+    $job=$process(['photo','photo']); $legacy=json_decode($job['options'],true)['pages']; unset($legacy['current'],$legacy['target'],$legacy['revision']); $legacy['next']=2;
+    $job['options']=json_encode(['pages'=>$legacy]); $store->query('UPDATE jobs SET options=? WHERE id=?',[$job['options'],$job['id']]);
+    $turn($job,2,legacy:true); $worker->process($store->claim('media'));
+    igMediaCheck(json_decode($store->query('SELECT options FROM jobs WHERE id=?',[$job['id']])->fetchColumn(),true)['pages']['current']===2,'a still-cached carousel from the previous release can use its old Next button once');
     $job=$process(['photo','photo']); $state=json_decode($job['options'],true)['pages']; $cache=$storage.'/instagram-pages/'.$state['folder'];
     $state['expires']=time()-1; $job['options']=json_encode(['pages'=>$state]); $store->query('UPDATE jobs SET options=? WHERE id=?',[$job['options'],$job['id']]);
     $turn($job,2); igMediaCheck($store->claim('media')===null,'expired buttons never download or send another page');
@@ -135,7 +150,7 @@ try {
     $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $turn($job,2);
     igMediaCheck($job['status']==='failed'&&$store->claim('media')===null,'an uncertain page upload is terminal and never resent by a repeated callback');
     $job=$process(['photo','photo']); $turn($job,2); $next=$store->claim('media'); $store->set('admins_only','1'); file_put_contents($log,''); $worker->process($next); $store->set('admins_only','0');
-    igMediaCheck(!array_filter($requests(),fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)),'the worker rechecks access after a page was queued');
+    igMediaCheck(!array_filter($requests(),fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','editMessageMedia'],true)),'the worker rechecks access after a page was queued');
     $job=$process(['photo','photo']); $state=json_decode($job['options'],true)['pages']; $cache=$storage.'/instagram-pages/'.$state['folder'];
     $turn($job,2); $next=$store->claim('media'); $worker->recover($next); $turn($job,2);
     igMediaCheck(!is_dir($cache)&&$store->claim('media')===null&&$store->query('SELECT status FROM jobs WHERE id=?',[$next['id']])->fetchColumn()==='failed','recovering an interrupted page releases its files and never replays an uncertain upload');
