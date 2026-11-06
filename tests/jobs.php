@@ -11,7 +11,6 @@ function expectJob(bool $ok,string $message): void {
 function calls(string $path): array {
     return array_map(fn($line)=>json_decode($line,true),file($path,FILE_IGNORE_NEW_LINES)?:[]);
 }
-$yoinks=in_array('--yoinks',$argv,true);
 $temp=sys_get_temp_dir().'/ciro-jobs-'.bin2hex(random_bytes(6));
 mkdir($temp,0700);
 $server=null; $worker=null;
@@ -62,7 +61,7 @@ try {
     }
     $config=new Zero\Config('123:fake-test-token',[42],$storage,'http://'.$address);
     $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
-    if(!$yoinks) Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_COOKIE\n");
+    Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_COOKIE\n");
     $url='https://youtu.be/ybNMMK5Q318';
     expectJob($store->enqueue(2,42,42,$url)==='queued'&&$store->claim()===null,
         'worker waits until the initial Telegram message ID is stored');

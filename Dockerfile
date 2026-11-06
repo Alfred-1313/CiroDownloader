@@ -1,6 +1,4 @@
 FROM node:22-bookworm-slim AS node
-COPY third_party/yoinks/ /opt/yoinks/
-RUN node /opt/yoinks/build.mjs && chmod -R u=rwX,go=rX /opt/yoinks
 FROM php:8.3-cli-bookworm
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -10,7 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && /opt/yt/bin/pip install --no-cache-dir 'yt-dlp[default]==2026.10.26' \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 10001 -m zero
-COPY --from=node /opt/yoinks/ /opt/yoinks/
 WORKDIR /app
 COPY src/ src/
 COPY bin/ bin/

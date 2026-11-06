@@ -1,9 +1,0 @@
-{
-  "project": "https://github.com/pablostanley/yoinks",
-  "commit": "6f03720813c22f907d3fb9ba98567f2169446b82",
-  "version": "0.3.1",
-  "files": {
-    "format.ts": "15d2c5e91f26c538c148777f4144565e737ae8b0d8951114a16b458a246437e3",
-    "ytdlp.ts": "bb819c5196248a2bddf512248f2945d96291d6ddaa09d8a30e9074e850d4e4b3"
-  }
-}

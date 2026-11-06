@@ -48,13 +48,13 @@ final class Download
         $free=@disk_free_space($folder);
         if($free===false||$free<$required) throw new MediaFailure('storage','Insufficient free disk space');
     }
-    public function run(array $command, string $folder, int $seconds,array $environment=[]): string
+    public function run(array $command, string $folder, int $seconds): string
     {
         $stdout=$folder.'/stdout.log'; $stderr=$folder.'/stderr.log';
         // GNU timeout manages the child process group. No URL is interpreted by a shell.
         $command=array_merge(['timeout','--signal=TERM','--kill-after=5',(string)$seconds],$command);
         $proc=proc_open($command,[0=>['file','/dev/null','r'],1=>['file',$stdout,'w'],2=>['file',$stderr,'w']],$pipes,$folder,
-            array_merge(['PATH'=>getenv('PATH')?:'/usr/local/bin:/usr/bin:/bin','HOME'=>$folder,'LANG'=>'C.UTF-8'],$environment));
+            ['PATH'=>getenv('PATH')?:'/usr/local/bin:/usr/bin:/bin','HOME'=>$folder,'LANG'=>'C.UTF-8']);
         if (!is_resource($proc)) throw new \RuntimeException('Cannot start downloader');
         $exit=-1;
         $nextStorageCheck=0.0;
@@ -110,37 +110,15 @@ final class Download
         if($this->config->youtubeProxy!=='') $access=array_merge($access,['--proxy',$this->config->youtubeProxy]);
         return ['args'=>$access,'snapshot'=>$snapshot];
     }
-    private function youtube(string $url,array $options,string $folder,int $seconds,?string $prefix=null,bool $forceCookies=false): string
+    private function youtube(string $url,array $options,string $folder,int $seconds,bool $forceCookies=false): string
     {
-        $primary=null;
+        $withCookies=$forceCookies||is_file($this->config->cookiePath());
+        $access=$this->access($folder,$withCookies);
         $context=preg_match('/^job-(\d+)-/',basename($folder),$match)?' job='.$match[1]:'';
-        if($forceCookies||is_file($this->config->cookiePath())) {
-            try {
-                $access=$this->access($folder,true);
-                error_log('YouTube provider=yt-dlp cookies=yes'.$context);
-                $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
-                $this->refresh($access);
-                return $result;
-            } catch(MediaFailure $failure) {
-                if($forceCookies||!in_array($failure->reason,['blocked','restricted','format','network','process','cookies'],true)) throw $failure;
-                $primary=$failure;
-            }
-        }
-        if($prefix!==null) foreach(glob($folder.'/'.$prefix.'.*')?:[] as $file) if(is_file($file)) unlink($file);
-        error_log('YouTube provider=yoinks cookies=no'.$context.($primary?' primary_reason='.$primary->reason:''));
-        $request=$folder.'/yoinks-request.json';
-        if(file_put_contents($request,json_encode(['url'=>$url,'folder'=>$folder,'options'=>$options,'prefix'=>$prefix],JSON_THROW_ON_ERROR))===false) throw new MediaFailure('storage','Cannot prepare Yoinks request');
-        chmod($request,0600);
-        try {
-            return $this->run(['node',dirname(__DIR__).'/bin/yoinks-adapter.mjs',$request],$folder,$seconds,
-                ['CIRO_YTDLP_BIN'=>$this->config->ytDlp,'CIRO_YOUTUBE_PROXY'=>$this->config->youtubeProxy]);
-        } catch(MediaFailure $failure) {
-            error_log('YouTube provider=yoinks failed'.$context.': '.$failure->getMessage());
-            // Upstream can reduce an unstructured stderr failure to a generic
-            // exit error. Preserve the actionable primary diagnosis in that case.
-            if($failure->reason==='process'&&$primary) throw $primary;
-            throw $failure;
-        } finally { if(is_file($request)) unlink($request); }
+        error_log('YouTube provider=yt-dlp cookies='.($withCookies?'yes':'no').$context);
+        $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
+        $this->refresh($access);
+        return $result;
     }
     private function refresh(array $access): void
     {
@@ -191,7 +169,7 @@ final class Download
     {
         $canonical=youtubeUrl($url);
         if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        $json=$this->youtube($canonical,['--dump-single-json','--skip-download'],$folder,min(120,$this->config->timeout),null,$forceCookies);
+        $json=$this->youtube($canonical,['--dump-single-json','--skip-download'],$folder,min(120,$this->config->timeout),$forceCookies);
         try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
         catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
@@ -247,7 +225,7 @@ final class Download
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject','-f',implode('/',$selector),
             '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],
-            $folder,$this->config->timeout,'source');
+            $folder,$this->config->timeout);
         $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>
             in_array(strtolower(pathinfo($file,PATHINFO_EXTENSION)),['m4a','webm','mp4','mkv','opus','ogg','mp3','aac','wav','flac'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete audio source');
@@ -284,7 +262,7 @@ final class Download
             // Explicit IDs prevent silently substituting a different quality.
             '-f',$selector?implode('/',$selector):'bv*+ba/b','-S','res:'.$target.',vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
-            '-o',$folder.'/video.%(ext)s'],$folder,$this->config->timeout,'video');
+            '-o',$folder.'/video.%(ext)s'],$folder,$this->config->timeout);
         $files=array_values(array_filter(glob($folder.'/video.*')?:[],
             fn($file)=>in_array(pathinfo($file,PATHINFO_EXTENSION),['mp4','mkv','webm','mov'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete video');

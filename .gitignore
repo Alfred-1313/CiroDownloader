@@ -7,5 +7,4 @@ storage/
 *cookies*.txt
 tests/.manager-test-*/
 __pycache__/
-third_party/yoinks/lib/
 *.py[cod]
