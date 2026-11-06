@@ -2,14 +2,14 @@
 
 # Ciro Downloader
 
-Simple YouTube video downloads through Telegram.
+YouTube and Instagram media through Telegram.
 
 ![PHP 8.3](https://img.shields.io/badge/PHP-8.3-777BB4?style=flat-square&logo=php&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)
 
 </div>
 
-Download YouTube videos and Shorts as MP4 files up to 480p with audio.
+Download YouTube videos and Shorts with a quality or MP3 choice. Instagram photos, videos and Reels arrive directly; multi-slide posts become linked articles. See [Instagram setup and privacy](docs/instagram.md).
 
 ## Install
 

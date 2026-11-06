@@ -42,7 +42,7 @@ try {
     $bot->handle(adminMessage($bot->label('health')));
     adminCheck(str_contains(end($api->calls)[1]['text'],'کاربران ثبت‌شده'),'the status reply control opens the private statistics');
     $bot->handle(adminMessage($bot->label('cookies')));
-    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_back_admin')],'the renamed cookie control opens the service reply keyboard');
+    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
     $bot->handle(adminMessage($bot->label('cookie_youtube')));
     adminCheck(in_array($bot->label('cookie_view'),adminLabels($api),true)&&in_array($bot->label('cookie_remove'),adminLabels($api),true),'the YouTube service exposes separate import, view and delete controls');
     $bot->handle(adminMessage($bot->label('cookie_upload')));

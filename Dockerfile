@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg python3 python3-venv libcurl4-openssl-dev libsqlite3-dev libonig-dev ca-certificates coreutils \
     && docker-php-ext-install curl pdo_sqlite mbstring pcntl \
     && python3 -m venv /opt/yt \
-    && /opt/yt/bin/pip install --no-cache-dir 'yt-dlp[default]==2026.10.26' \
+    && /opt/yt/bin/pip install --no-cache-dir 'yt-dlp[default]==2026.10.26' 'gallery-dl==1.32.19' \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 10001 -m zero
 WORKDIR /app

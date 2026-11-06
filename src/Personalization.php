@@ -45,6 +45,8 @@ final class Personalization
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
             [$this->heading($ui->label('processing_limits'))],
             [$ui->button('processing_limits','custom:limits')],
+            [$this->heading($ui->label('section_instagram'))],
+            [$ui->button('section_instagram','custom:section:instagram')],
             [$ui->button('back_admin','custom:back')],
         ],$message);
     }
@@ -75,6 +77,7 @@ final class Personalization
     private function sectionItems(string $section): array
     {
         $screens=[
+            'instagram'=>[['text','instagram_queued'],['text','instagram_downloading'],['text','instagram_uploading'],['text','instagram_caption'],['button','source_instagram'],['button','open_instagram_article']],
             'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
@@ -87,12 +90,13 @@ final class Personalization
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
         if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
+        if($section==='instagram') foreach($this->entries('text','instagram') as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
         return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
     }
     private function sections(int $chat,int $message): void
     {
         $ui=$this->bot->ui; $rows=[[$this->heading($ui->label('sections'))]];
-        foreach(['cover','video','audio','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
+        foreach(['cover','video','audio','instagram','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
         $rows[]=[$ui->button('back_custom','custom:home')];
         $this->send($chat,$ui->text('section_info',['title'=>$ui->label('sections')]),$rows,$message);
     }
@@ -228,7 +232,7 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        return ['page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }

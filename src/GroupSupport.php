@@ -87,7 +87,7 @@ final class GroupSupport
             else $this->bot->send($chat,$this->bot->denial($chat),[],0,$thread);
             return;
         }
-        $url=youtubeUrl($command==='download'?$argument:$text);
+        $url=mediaUrl($command==='download'?$argument:$text);
         if(!$url) {
             if($command==='download') $this->bot->send($chat,$this->bot->text('invalid'),[],0,$thread);
             return;

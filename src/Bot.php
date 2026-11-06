@@ -5,6 +5,7 @@ require_once __DIR__.'/Updates.php';
 require_once __DIR__.'/Personalization.php';
 require_once __DIR__.'/GroupSupport.php';
 require_once __DIR__.'/Cookies.php';
+require_once __DIR__.'/InstagramCookies.php';
 
 final class Bot
 {
@@ -128,7 +129,7 @@ final class Bot
             require_once __DIR__.'/Download.php';
             $reason=MediaFailure::process(1,$detail)->reason;
         }
-        $key='error_'.$reason;
+        $key=($this->store->get('last_job_service')==='instagram'?'instagram_':'').'error_'.$reason;
         return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed');
     }
     public function qualityMenu(array $job,array $media): void
@@ -237,7 +238,7 @@ final class Bot
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
-            try { $this->jobMessage($job,$this->text('queued')); }
+            try { $this->jobMessage($job,$this->text(instagramUrl($url)?'instagram_queued':'queued')); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
         } elseif($result!=='duplicate') $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
     }
@@ -312,13 +313,14 @@ final class Bot
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
-        $previousState=$reply==='cookie_delete_confirm'?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
+        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
         if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
             if($text==='/health'||$reply==='health') { $this->health($chat); return; }
             if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
+            if($reply!==null&&(new InstagramCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new Cookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($text==='/update'||$reply==='update') { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
             if($text==='/customize'||$reply==='customize') { $custom->home($chat); return; }
@@ -332,10 +334,15 @@ final class Bot
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
-        if(isset($message['document'])) { $this->cookieDocument($chat,$user,$message); return; }
+        if(isset($message['document'])) {
+            if($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
+            else $this->cookieDocument($chat,$user,$message);
+            return;
+        }
         if($text==='') return;
         if($state==='cookie.upload'&&$this->admin($user)) { $this->cookieNotice($chat,$user,$this->text('cookie_waiting')); return; }
-        $url=youtubeUrl($text);
+        if($state==='ig_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('ig_cookie_waiting')); return; }
+        $url=mediaUrl($text);
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url);
     }

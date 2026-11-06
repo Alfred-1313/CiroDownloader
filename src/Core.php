@@ -13,6 +13,7 @@ final class Config
         public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
         public string $ytDlp = '/opt/yt/bin/yt-dlp', public int $timeout = 600,
         public string $youtubeCookies = '', public string $youtubeProxy = '', public int $workerConcurrency = 3,
+        public string $galleryDl = '/opt/yt/bin/gallery-dl', public string $instagramCookies = '',
     ) {}
 
     public static function load(): self
@@ -47,10 +48,12 @@ final class Config
         return new self($token, array_map('intval', explode(',', $ids)),
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
-            getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency);
+            getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
+            getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'');
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
+    public function instagramCookiePath(): string { return $this->instagramCookies!==''?$this->instagramCookies:$this->storage.'/instagram-cookies.txt'; }
 }
 
 // Validate the export without including session contents in errors or logs.
@@ -142,7 +145,7 @@ final class Telegram implements FileApi
         $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => in_array($method,['sendVideo','sendAudio'],true) ? 3600 : 45]);
+            CURLOPT_TIMEOUT => in_array($method,['sendVideo','sendAudio','sendPhoto'],true) ? 3600 : 45]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         curl_close($ch);
@@ -286,7 +289,7 @@ final class Store
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,'inspect',?)", [$update,$user,$chat,$url,time(),$chat<0?max(0,$thread):0]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),instagramUrl($url)?'instagram':'inspect',$chat<0?max(0,$thread):0]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -351,6 +354,21 @@ function youtubeUrl(string $input): ?string
     }
     return is_string($id) && preg_match('/^[A-Za-z0-9_-]{11}$/D', $id) ? 'https://www.youtube.com/watch?v='.$id : null;
 }
+
+function instagramUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?instagram\.com/~i',$input)) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)
+        ||!in_array(strtolower($parts['host']??''),['instagram.com','www.instagram.com'],true)
+        ||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])
+        ||!preg_match('~^/(p|reel|reels|tv)/([A-Za-z0-9_-]{5,64})/?$~D',$parts['path']??'',$match)) return null;
+    return 'https://www.instagram.com/'.($match[1]==='reels'?'reel':$match[1]).'/'.$match[2].'/';
+}
+
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input); }
 
 function lockProcess(string $path): mixed
 {

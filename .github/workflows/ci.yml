@@ -27,6 +27,7 @@ jobs:
           php tests/run.php
           php tests/cookies.php
           php tests/cookie_manager.php
+          php tests/instagram.php
           php tests/jobs.php
           php tests/customization.php
           php tests/personalization_recovery.php
@@ -41,6 +42,12 @@ jobs:
 
       - name: Install FFmpeg for media regression tests
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Verify Instagram extraction and article publishing
+        run: |
+          python3 -m venv /tmp/ciro-gallery-tests
+          /tmp/ciro-gallery-tests/bin/pip install 'gallery-dl==1.32.19'
+          GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_media.php
 
       - name: Verify portrait video conversion and multipart upload
         run: |

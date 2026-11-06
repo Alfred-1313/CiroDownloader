@@ -12,7 +12,7 @@ final class Cookies
     }
     private function services(int $chat): void
     {
-        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services'),$this->keyboard([['cookie_youtube'],['cookie_back_admin']]));
+        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services'),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_back_admin']]));
     }
     private function youtube(int $chat,string $notice=''): void
     {

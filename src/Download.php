@@ -48,7 +48,7 @@ final class Download
         $free=@disk_free_space($folder);
         if($free===false||$free<$required) throw new MediaFailure('storage','Insufficient free disk space');
     }
-    public function run(array $command, string $folder, int $seconds): string
+    public function run(array $command, string $folder, int $seconds,?int $maxTemporaryBytes=null,?int $maxFileBytes=null): string
     {
         $stdout=$folder.'/stdout.log'; $stderr=$folder.'/stderr.log';
         // GNU timeout manages the child process group. No URL is interpreted by a shell.
@@ -65,8 +65,14 @@ final class Download
                 if(microtime(true)>=$nextStorageCheck) {
                     self::ensureSpace($folder);
                     $bytes=0;
-                    foreach (glob($folder.'/*')?:[] as $p) { clearstatcache(true,$p); if(is_file($p)) $bytes+=filesize($p); }
-                    if ($bytes>$this->config->maxBytes*3) throw new MediaFailure('size','Temporary size limit exceeded');
+                    foreach (glob($folder.'/*')?:[] as $p) {
+                        clearstatcache(true,$p);
+                        if(is_file($p)) {
+                            $size=filesize($p); $bytes+=$size;
+                            if($maxFileBytes!==null&&$size>$maxFileBytes) throw new MediaFailure('size','Downloaded file exceeds size limit');
+                        }
+                    }
+                    if ($bytes>($maxTemporaryBytes??$this->config->maxBytes*3)) throw new MediaFailure('size','Temporary size limit exceeded');
                     $nextStorageCheck=microtime(true)+0.25;
                 }
                 // Notice finished probes/remuxes promptly without scanning the
