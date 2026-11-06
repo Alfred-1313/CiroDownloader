@@ -96,14 +96,20 @@ try {
     igMediaCheck(count(glob($cache.'/*'))===3&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'only the prepared private media files survive initial-job cleanup');
     // A new poller/store instance must use the durable cursor, not process memory.
     $pageBot=new Zero\Bot($config,new Zero\Store($storage),$api);
-    $turn=function(array $saved,int $page,?int $user=null,?int $message=null,?int $thread=null,?int $revision=null,bool $legacy=false) use($pageBot): void {
+    $turn=function(array $saved,int $page,?int $user=null,?int $message=null,?int $thread=null,?int $revision=null,bool $legacy=false,bool $omitThread=false,?int $chat=null) use($pageBot): void {
         $state=json_decode($saved['options'],true)['pages'];
+        $destination=$chat??(int)$saved['chat_id'];
+        $caption=['message_id'=>$message??$state['message'],'from'=>['id'=>123,'is_bot'=>true],
+            'chat'=>['id'=>$destination,'type'=>$destination<0?'supergroup':'private']];
+        if(!$omitThread) $caption['message_thread_id']=$thread??(int)$saved['thread_id'];
         $pageBot->handle(['callback_query'=>['id'=>'page-fixture','from'=>['id'=>$user??(int)$saved['user_id']],
-            'message'=>['message_id'=>$message??$state['message'],'chat'=>['id'=>(int)$saved['chat_id'],'type'=>$saved['chat_id']<0?'supergroup':'private'],'message_thread_id'=>$thread??(int)$saved['thread_id']],
+            'message'=>$caption,
             'data'=>'igpage:'.$saved['id'].':'.$page.($legacy?'':':'.($revision??$state['revision']))]]);
     };
-    foreach([['user'=>999],['thread'=>999],['message'=>999]] as $wrong) $turn($job,2,...$wrong);
+    foreach([['user'=>999],['user'=>42],['thread'=>999],['message'=>999],['message'=>999,'omitThread'=>true],['chat'=>-100456,'omitThread'=>true]] as $wrong) $turn($job,2,...$wrong);
     igMediaCheck($store->claim('media')===null,'another sender, topic or message cannot advance the carousel');
+    $turn($job,2,user:999,omitThread:true); $calls=$requests(); $answer=end($calls)['params'];
+    igMediaCheck(($answer['text']??'')===$bot->ui->plain('instagram_page_owner')&&$store->claim('media')===null,'another user receives an owner-only notice even when topic metadata is absent');
     $store->set('groups_enabled','0'); $turn($job,2); $store->set('groups_enabled','1');
     igMediaCheck($store->claim('media')===null,'disabled group access prevents page callbacks');
     $store->set('admins_only','1'); $turn($job,2); $store->set('admins_only','0');
@@ -112,9 +118,9 @@ try {
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,status) VALUES(?,?,?,?,?,1,'running')",[80000,$job['user_id'],$job['chat_id'],$job['url'],time()]);
     $turn($job,2); igMediaCheck($store->claim('media')===null,'next-page requests respect the configured per-user processing limit');
     $store->query('DELETE FROM jobs WHERE update_id=80000'); $store->set('processing_limit.group','0');
-    file_put_contents($log,''); $turn($job,2); $turn($job,2); $calls=$requests();
+    file_put_contents($log,''); $turn($job,2,omitThread:true); $turn($job,2,omitThread:true); $calls=$requests();
     igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','editMessageMedia'],true))&&$store->claim('inspect')===null,'callbacks enqueue media without blocking the poller or the inspection lane');
-    $next=$store->claim('media'); igMediaCheck($next&&$next['phase']==='instagram_page'&&$store->claim('media')===null,'repeated clicks reserve exactly one page in the bounded media lane');
+    $next=$store->claim('media'); igMediaCheck($next&&$next['phase']==='instagram_page'&&(int)$next['thread_id']===321&&$store->claim('media')===null,'the non-admin sender can use the caption buttons without topic metadata while preserving the stored topic');
     $worker->recover($job);
     igMediaCheck($store->query('SELECT status FROM jobs WHERE id=?',[$next['id']])->fetchColumn()==='running'&&is_dir($cache),'reaping the previous page worker cannot fail or erase a newly claimed page');
     $worker->process($next); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $calls=$requests();
@@ -165,6 +171,10 @@ try {
         igMediaCheck($job['status']==='done'&&json_decode($sent[0]['params']['reply_markup'],true)['inline_keyboard']===[],'the disabled source button is absent from a single Instagram '.$kind[0]);
     }
     $toggleSource();
+    $job=$process(['photo','photo']); $state=json_decode($job['options'],true)['pages']; $message=$state['message'];
+    $turn($job,2,omitThread:true); $worker->process($store->claim('media'));
+    $saved=json_decode($store->query('SELECT options FROM jobs WHERE id=?',[$job['id']])->fetchColumn(),true)['pages'];
+    igMediaCheck(!$bot->admin((int)$job['user_id'])&&$saved['current']===2&&$saved['message']===$message,'a regular user in private chat can navigate the caption on a bot-authored message');
     $pageBot->handle(['callback_query'=>['id'=>'custom-mode','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igmode:article']]);
     igMediaCheck($store->get('instagram.carousel_mode')==='article','Personalization can select the retained article output for future requests');
     $calls=$requests(); $rows=json_decode(end($calls)['params']['reply_markup'],true)['inline_keyboard'];

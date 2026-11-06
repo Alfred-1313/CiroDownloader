@@ -41,14 +41,18 @@ final class InstagramPages
         }
         return $state;
     }
-    public function queue(int $id,int $user,int $chat,int $message,int $thread,int $page,?int $revision=null): string
+    public function queue(int $id,int $user,int $chat,int $message,?int $thread,int $page,?int $revision=null): string
     {
         $this->store->db->exec('BEGIN IMMEDIATE');
         try {
-            $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND thread_id=? AND phase='instagram_page'",[$id,$user,$chat,$thread])->fetch();
+            $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND chat_id=? AND phase='instagram_page'",[$id,$chat])->fetch();
             $state=$job?$this->state($job):null;
             if(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice='instagram_page_expired';
-            elseif((int)$state['message']!==$message||$page<1||$page>count($state['items'])||abs($page-(int)$state['current'])!==1
+            elseif((int)$state['message']!==$message) $notice='instagram_page_stale';
+            elseif((int)$job['user_id']!==$user) $notice='instagram_page_owner';
+            // Optional Telegram topic metadata must not reject the authenticated
+            // sender. The worker retains the saved topic; explicit mismatches fail.
+            elseif(($thread!==null&&(int)$job['thread_id']!==$thread)||$page<1||$page>count($state['items'])||abs($page-(int)$state['current'])!==1
                 ||($revision===null?(int)$state['revision']!==0:$revision!==(int)$state['revision'])) $notice='instagram_page_stale';
             elseif(in_array($job['status'],['queued','running'],true)) $notice='instagram_page_busy';
             elseif($job['status']!=='done') $notice='instagram_page_expired';

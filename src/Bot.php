@@ -287,7 +287,8 @@ final class Bot
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }
             if($isPage) {
-                $notice=(new InstagramPages($this->config,$this->store,$this->api))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$thread,(int)$page[2],isset($page[3])?(int)$page[3]:null);
+                $topic=$group&&!isset($message['message_thread_id'])?null:$thread;
+                $notice=(new InstagramPages($this->config,$this->store,$this->api))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$topic,(int)$page[2],isset($page[3])?(int)$page[3]:null);
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?'instagram_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }
