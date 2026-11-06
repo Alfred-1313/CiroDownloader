@@ -13,10 +13,14 @@ final class Worker
 
     public function recover(array $job): void
     {
-        $changed=$this->store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='running'",[$job['id']])->rowCount();
+        // A completed page can be queued again before its old child is reaped.
+        // Recovery belongs only to the exact claim that child was processing.
+        $changed=$this->store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='running' AND run_token=?",[$job['id'],(int)($job['run_token']??0)])->rowCount();
+        if(!$changed&&(int)$this->store->query('SELECT run_token FROM jobs WHERE id=?',[$job['id']])->fetchColumn()!==(int)($job['run_token']??0)) return;
         if($changed) {
             $bot=new Bot($this->config,$this->store,$this->api);
             try { $bot->jobMessage($job,$bot->text('restarted')); } catch(Throwable) {}
+            if(instagramUrl($job['url'])) (new InstagramPages($this->config,$this->store,$this->api))->clean($job);
         }
         foreach(glob($this->config->storage.'/downloads/job-'.(int)$job['id'].'-*')?:[] as $folder) Download::clean($folder);
     }
@@ -34,21 +38,35 @@ final class Worker
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+                if($instagram) (new InstagramPages($config,$store,$api))->clean($job);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
             if($instagram) {
+                $pages=new InstagramPages($config,$store,$api);
+                if($job['phase']==='instagram_page') {
+                    $stage='upload'; $uploadStarted=hrtime(true);
+                    $pages->deliver($job,$bot);
+                    $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+                    return;
+                }
                 $bot->jobMessage($job,$bot->text('instagram_downloading'));
                 $inspectionStarted=hrtime(true);
                 $media=(new Instagram($config))->fetch($job['url'],$folder);
                 $timings['prepare_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
                 $stage='upload'; $uploadStarted=hrtime(true);
-                if(count($media)>1) {
+                if(count($media)>1&&$store->get('instagram.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text('instagram_article_building'));
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
                     $button=$bot->ui->button('open_instagram_article'); $button['url']=$url;
                     $bot->jobMessage($job,$bot->text('instagram_article_ready',['count'=>count($media),'page_url'=>$url,'url'=>$job['url']]),[[$button]]);
                     $store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['article_url'=>$url],JSON_THROW_ON_ERROR),$job['id']]);
                     $timings['publish_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+                    return;
+                }
+                if(count($media)>1) {
+                    $job=$pages->prepare($job,$media);
+                    $pages->deliver($job,$bot);
+                    $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
                     return;
                 }
                 $this->instagramDelivery($job,$media,$bot);
@@ -108,6 +126,7 @@ final class Worker
         } catch(WorkerStopped $e) {
             throw $e;
         } catch(Throwable $e) {
+            if($instagram) (new InstagramPages($config,$store,$api))->clean($job);
             $detail=diagnosticMessage($e->getMessage());
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);

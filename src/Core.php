@@ -225,7 +225,7 @@ final class Store
         try {
             $columns=array_column($this->query('PRAGMA table_info(jobs)')->fetchAll(),'name');
             if(!in_array('message_id',$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN message_id INTEGER');
-            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''",'thread_id'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
+            foreach(['phase'=>"TEXT NOT NULL DEFAULT 'download'",'quality'=>'INTEGER','options'=>"TEXT NOT NULL DEFAULT '{}'",'title'=>"TEXT NOT NULL DEFAULT ''",'expires'=>'INTEGER NOT NULL DEFAULT 0','message_kind'=>"TEXT NOT NULL DEFAULT 'text'",'poster'=>"TEXT NOT NULL DEFAULT ''",'thread_id'=>'INTEGER NOT NULL DEFAULT 0','run_token'=>'INTEGER NOT NULL DEFAULT 0'] as $column=>$type) {
                 if(!in_array($column,$columns,true)) $this->db->exec('ALTER TABLE jobs ADD COLUMN '.$column.' '.$type);
             }
             // Limits are configurable and checked under BEGIN IMMEDIATE. A unique
@@ -305,7 +305,10 @@ final class Store
             // inspection after 30 seconds so a busy download queue cannot starve it.
             $filter=$lane==='inspect'?" AND phase='inspect'":($lane==='media'?" AND phase<>'inspect'":'');
             $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0)".$filter." ORDER BY CASE WHEN phase<>'inspect' OR created<=? THEN 0 ELSE 1 END,id LIMIT 1",[time()-30])->fetch();
-            if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
+            if ($job) {
+                $job['run_token']=(int)$job['run_token']+1;
+                $this->query("UPDATE jobs SET status='running',run_token=? WHERE id=?",[$job['run_token'],$job['id']]);
+            }
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }

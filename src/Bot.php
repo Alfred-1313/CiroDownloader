@@ -6,6 +6,7 @@ require_once __DIR__.'/Personalization.php';
 require_once __DIR__.'/GroupSupport.php';
 require_once __DIR__.'/Cookies.php';
 require_once __DIR__.'/InstagramCookies.php';
+require_once __DIR__.'/InstagramPages.php';
 
 final class Bot
 {
@@ -259,7 +260,8 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality;
+            $isPage=preg_match('/^igpage:(\d+):([2-9]|1\d|20)$/D',$action,$page)===1;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage;
             if($privileged&&($group||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
@@ -268,6 +270,11 @@ final class Bot
                 $this->send($chat,$this->denial($chat),[],0,$thread); return;
             }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
+            if($isPage) {
+                $notice=(new InstagramPages($this->config,$this->store,$this->api))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$thread,(int)$page[2]);
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$notice===''?'':$this->ui->plain($notice),'show_alert'=>$notice!=='','cache_time'=>0]);
+                return;
+            }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
             if($action==='custom:noop') return;
             if(!$group) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);

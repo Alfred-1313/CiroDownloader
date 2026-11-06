@@ -33,6 +33,9 @@ try {
                 }
             }
             if(time()-$lastHeartbeat>=10) {
+                if(!isset($lastPageCleanup)||time()-$lastPageCleanup>=60) {
+                    (new Zero\InstagramPages($config,$store,new Zero\Telegram($config)))->prune(); $lastPageCleanup=time();
+                }
                 $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();
                 $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
                 foreach($store->query("SELECT * FROM jobs WHERE status='confirming' AND expires>0 AND expires<?",[time()])->fetchAll() as $old) {
