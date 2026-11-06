@@ -11,6 +11,7 @@ function expectJob(bool $ok,string $message): void {
 function calls(string $path): array {
     return array_map(fn($line)=>json_decode($line,true),file($path,FILE_IGNORE_NEW_LINES)?:[]);
 }
+$yoinks=in_array('--yoinks',$argv,true);
 $temp=sys_get_temp_dir().'/ciro-jobs-'.bin2hex(random_bytes(6));
 mkdir($temp,0700);
 $server=null; $worker=null;
@@ -61,6 +62,7 @@ try {
     }
     $config=new Zero\Config('123:fake-test-token',[42],$storage,'http://'.$address);
     $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
+    if(!$yoinks) Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_COOKIE\n");
     $url='https://youtu.be/ybNMMK5Q318';
     expectJob($store->enqueue(2,42,42,$url)==='queued'&&$store->claim()===null,
         'worker waits until the initial Telegram message ID is stored');
@@ -81,7 +83,7 @@ try {
     // Exercise the real worker failure path with a local downloader and API.
     file_put_contents($log,'');
     $stub=$temp.'/failed-download';
-    file_put_contents($stub,"#!/usr/bin/env php\n<?php fwrite(STDERR, 'The provided YouTube account cookies are no longer valid. Sign in to confirm you are not a bot.');exit(1);");
+    file_put_contents($stub,"#!/usr/bin/env php\n<?php fwrite(STDERR, 'ERROR: The provided YouTube account cookies are no longer valid. Sign in to confirm you are not a bot.');exit(1);");
     chmod($stub,0700);
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created,message_id,phase,expires) VALUES(4,88,88,?,'choosing',?,700,'inspect',?)",[$url,time()-31*86400,time()-30*86400]);
     $bot->handle(['update_id'=>3,'message'=>['from'=>['id'=>99],'chat'=>['id'=>99,'type'=>'private'],'text'=>$url]]);

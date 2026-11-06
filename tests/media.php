@@ -51,7 +51,7 @@ try {
         $arguments=json_decode((string)file_get_contents($work.'/arguments.json'),true);
         verify($arguments[array_search('--concurrent-fragments',$arguments,true)+1]==='4',"$name uses bounded parallel fragment downloads");
         verify($arguments[array_search('--match-filter',$arguments,true)+1]==='!is_live',"$name has no maximum video duration filter");
-        verify(!in_array('--cookies',$arguments,true),"$name succeeds anonymously without reading saved cookies");
+        verify($arguments[array_search('--cookies',$arguments,true)+1]===$work.'/cookies.txt',"$name uses a private cookie copy on the primary provider");
         verify(file_get_contents($config->cookiePath())===$cookieExport,"$name preserves shared cookies during download");
         verify($arguments[array_search('--proxy',$arguments,true)+1]===$config->youtubeProxy,"$name passes the configured YouTube proxy");
         $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$media['path']],$work,10),true);

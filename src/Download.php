@@ -48,13 +48,13 @@ final class Download
         $free=@disk_free_space($folder);
         if($free===false||$free<$required) throw new MediaFailure('storage','Insufficient free disk space');
     }
-    public function run(array $command, string $folder, int $seconds): string
+    public function run(array $command, string $folder, int $seconds,array $environment=[]): string
     {
         $stdout=$folder.'/stdout.log'; $stderr=$folder.'/stderr.log';
         // GNU timeout manages the child process group. No URL is interpreted by a shell.
         $command=array_merge(['timeout','--signal=TERM','--kill-after=5',(string)$seconds],$command);
         $proc=proc_open($command,[0=>['file','/dev/null','r'],1=>['file',$stdout,'w'],2=>['file',$stderr,'w']],$pipes,$folder,
-            ['PATH'=>getenv('PATH')?:'/usr/local/bin:/usr/bin:/bin','HOME'=>$folder,'LANG'=>'C.UTF-8']);
+            array_merge(['PATH'=>getenv('PATH')?:'/usr/local/bin:/usr/bin:/bin','HOME'=>$folder,'LANG'=>'C.UTF-8'],$environment));
         if (!is_resource($proc)) throw new \RuntimeException('Cannot start downloader');
         $exit=-1;
         $nextStorageCheck=0.0;
@@ -112,19 +112,35 @@ final class Download
     }
     private function youtube(string $url,array $options,string $folder,int $seconds,?string $prefix=null,bool $forceCookies=false): string
     {
-        $access=$this->access($folder,$forceCookies);
-        try {
-            $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
-        } catch(MediaFailure $failure) {
-            if($forceCookies||!in_array($failure->reason,['blocked','restricted','format','network','process','cookies'],true)||!is_file($this->config->cookiePath())) throw $failure;
-            // Never resume an anonymous partial with a different login session.
-            if($prefix!==null) foreach(glob($folder.'/'.$prefix.'.*')?:[] as $file) if(is_file($file)) unlink($file);
-            $access=$this->access($folder,true);
-            error_log('YouTube anonymous request failed; retrying once with saved cookies');
-            $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
+        $primary=null;
+        $context=preg_match('/^job-(\d+)-/',basename($folder),$match)?' job='.$match[1]:'';
+        if($forceCookies||is_file($this->config->cookiePath())) {
+            try {
+                $access=$this->access($folder,true);
+                error_log('YouTube provider=yt-dlp cookies=yes'.$context);
+                $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
+                $this->refresh($access);
+                return $result;
+            } catch(MediaFailure $failure) {
+                if($forceCookies||!in_array($failure->reason,['blocked','restricted','format','network','process','cookies'],true)) throw $failure;
+                $primary=$failure;
+            }
         }
-        $this->refresh($access);
-        return $result;
+        if($prefix!==null) foreach(glob($folder.'/'.$prefix.'.*')?:[] as $file) if(is_file($file)) unlink($file);
+        error_log('YouTube provider=yoinks cookies=no'.$context.($primary?' primary_reason='.$primary->reason:''));
+        $request=$folder.'/yoinks-request.json';
+        if(file_put_contents($request,json_encode(['url'=>$url,'folder'=>$folder,'options'=>$options,'prefix'=>$prefix],JSON_THROW_ON_ERROR))===false) throw new MediaFailure('storage','Cannot prepare Yoinks request');
+        chmod($request,0600);
+        try {
+            return $this->run(['node',dirname(__DIR__).'/bin/yoinks-adapter.mjs',$request],$folder,$seconds,
+                ['CIRO_YTDLP_BIN'=>$this->config->ytDlp,'CIRO_YOUTUBE_PROXY'=>$this->config->youtubeProxy]);
+        } catch(MediaFailure $failure) {
+            error_log('YouTube provider=yoinks failed'.$context.': '.$failure->getMessage());
+            // Upstream can reduce an unstructured stderr failure to a generic
+            // exit error. Preserve the actionable primary diagnosis in that case.
+            if($failure->reason==='process'&&$primary) throw $primary;
+            throw $failure;
+        } finally { if(is_file($request)) unlink($request); }
     }
     private function refresh(array $access): void
     {

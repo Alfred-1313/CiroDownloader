@@ -22,12 +22,19 @@ jobs:
           extensions: curl, mbstring, pdo_sqlite, pcntl, posix
           coverage: none
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build verified Yoinks core
+        run: node third_party/yoinks/build.mjs
+
       - name: Run PHP tests
         run: |
           php tests/run.php
           php tests/cookies.php
           php tests/cookie_manager.php
           php tests/jobs.php
+          php tests/jobs.php --yoinks
           php tests/customization.php
           php tests/personalization_recovery.php
           php tests/personalization_sections.php
@@ -48,6 +55,10 @@ jobs:
           php tests/parallel_worker.php --group
           php tests/media.php
           php tests/downloader_fallback.php
+          php tests/quality_worker.php --yoinks
+          php tests/quality_worker.php --yoinks --audio
+          php tests/quality_worker.php --yoinks --group
+          php tests/parallel_worker.php --yoinks
           php tests/quality_worker.php
           php tests/quality_worker.php --audio
           php tests/quality_worker.php --custom-parts

@@ -11,6 +11,7 @@ function waitParallel(callable $condition,string $message,int $seconds=15): void
 }
 $temp=sys_get_temp_dir().'/ciro-parallel-'.bin2hex(random_bytes(6)); mkdir($temp,0700);
 $worker=null; $server=null; $serverPid=null;
+$yoinks=in_array('--yoinks',$argv,true);
 $group=in_array('--group',$argv,true); $chat=$group?-100123:7; $thread=$group?321:0;
 try {
     $storage=$temp.'/data'; mkdir($storage,0700);
@@ -19,11 +20,11 @@ try {
     $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=1920x1080:r=1:d=1','-f','lavfi','-i','anullsrc=r=8000:cl=mono','-shortest','-c:v','libx264','-threads','2','-pix_fmt','yuv420p','-c:a','aac',$source],$temp,30);
     $stub=$temp.'/downloader';
     file_put_contents($stub,"#!/usr/bin/env php\n<?php\n".
-        '$url=$argv[count($argv)-1]; parse_str(parse_url($url,PHP_URL_QUERY),$q); $title=$q["v"];'.
-        'if(in_array("--dump-single-json",$argv,true)) { echo json_encode(["title"=>$title,"formats"=>[["format_id"=>"137","width"=>1920,"height"=>1080,"vcodec"=>"avc1","acodec"=>"aac"]]]); exit; }'.
+        '$url=$argv[count($argv)-1]; if(in_array("--load-info-json",$argv,true)) { $info=json_decode(file_get_contents($argv[array_search("--load-info-json",$argv,true)+1]),true); $title=$info["title"]; } else { parse_str(parse_url($url,PHP_URL_QUERY),$q); $title=$q["v"]; }'.
+        'if(in_array("--dump-single-json",$argv,true)||in_array("-J",$argv,true)) { echo json_encode(["title"=>$title,"formats"=>[["format_id"=>"137","width"=>1920,"height"=>1080,"vcodec"=>"avc1","acodec"=>"aac"]]]); exit; }'.
         '$template=$argv[array_search("-o",$argv,true)+1];'.
-        'preg_match("/^PPid:\\s+(\\d+)/m",file_get_contents("/proc/".posix_getppid()."/status"),$parent); file_put_contents(dirname($template)."/worker.pid",$parent[1]);'.
-        'copy('.var_export($source,true).',str_replace("%(ext)s","mp4",$template)); echo json_encode($title);');
+        '$pid=posix_getppid(); for($depth=0;$depth<8;$depth++) { if(str_contains(file_get_contents("/proc/".$pid."/cmdline"),"/bin/worker.php")) break; preg_match("/^PPid:\\s+(\\d+)/m",file_get_contents("/proc/".$pid."/status"),$parent); $pid=(int)$parent[1]; } file_put_contents(dirname($template)."/worker.pid",$pid);'.
+        '$output=str_replace(["%(title).60s","%(ext)s"],[$title,"mp4"],$template);copy('.var_export($source,true).',$output); echo (getenv("CIRO_YTDLP_BIN")?$output:json_encode($title)).PHP_EOL;');
     chmod($stub,0700);
     $log=$temp.'/api.jsonl'; file_put_contents($log,'');
     $router=$temp.'/router.php';
@@ -43,6 +44,7 @@ try {
     $serverPid=proc_get_status($server)['pid'];
     waitParallel(function() use($address) { $connection=@stream_socket_client('tcp://'.$address,$errno,$error,0.05); if(!$connection) return false; fclose($connection); return true; },'concurrent local API starts');
     $config=new Zero\Config('123:fixture',[42],$storage,'http://'.$address,49000000,$stub);
+    if(!$yoinks) Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_COOKIE\n");
     $store=new Zero\Store($storage); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
     $store->set('text.video_caption','{title}');
     $ids=['firstVideo1','secondVideo','thirdVideo3','fourthVideo','fifthVideo5','sixthVideo6'];

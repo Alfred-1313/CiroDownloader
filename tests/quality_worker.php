@@ -12,6 +12,7 @@ $shorts=in_array('--shorts',$argv,true);
 $legacy=in_array('--legacy-caption',$argv,true);
 $customParts=in_array('--custom-parts',$argv,true);
 $cleanupFailure=in_array('--cleanup-failure',$argv,true);
+$yoinks=in_array('--yoinks',$argv,true);
 $group=in_array('--group',$argv,true); $disabled=$group&&in_array('--disabled',$argv,true);
 $chat=$group?-1001234567890:7; $thread=$group?321:0;
 try {
@@ -32,10 +33,10 @@ try {
     $stub=$temp.'/yt-test';
     file_put_contents($stub,"#!/usr/bin/env php\n<?php\n".
         'file_put_contents('.var_export($trace,true).',json_encode($argv).PHP_EOL,FILE_APPEND);'.
-        'if(in_array("--dump-single-json",$argv,true)) {echo '.var_export(json_encode($info),true).';exit;}'.
+        'if(in_array("--dump-single-json",$argv,true)||in_array("-J",$argv,true)) {echo '.var_export(json_encode($info),true).';exit;}'.
         '$template=$argv[array_search("-o",$argv,true)+1];$audio=$argv[array_search("-f",$argv,true)+1]==="140/22/18";'.
-        'copy($audio?'.var_export($sound,true).':'.var_export($source,true).',str_replace("%(ext)s",$audio?"m4a":"mp4",$template));'.
-        'echo json_encode("<title> & audio").PHP_EOL;');
+        '$output=str_replace(["%(title).60s","%(ext)s"],["Fixture",$audio?"m4a":"mp4"],$template);copy($audio?'.var_export($sound,true).':'.var_export($source,true).',$output);'.
+        'echo (getenv("CIRO_YTDLP_BIN")?$output:json_encode("<title> & audio")).PHP_EOL;');
     chmod($stub,0700);
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php '.
@@ -53,6 +54,7 @@ try {
     $server=proc_open([PHP_BINARY,'-S',$address,$router],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-error.log','w']],$pipes);
     for($i=0;$i<40;$i++) { $connection=@stream_socket_client('tcp://'.$address,$errno,$errstr,0.05); if($connection) {fclose($connection);break;} usleep(50000); }
     $config=new Zero\Config('123:fake-token',[42],$storage,'http://'.$address,49000000,$stub);
+    if(!$yoinks) Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_COOKIE\n");
     if($legacy) {
         $database=new PDO('sqlite:'.$storage.'/zero.sqlite');
         $database->exec('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
@@ -101,7 +103,7 @@ try {
     qualityCheck($records[2]['method']==='editMessageMedia'&&$poster['type']==='photo'&&$poster['media']===$info['thumbnail'],'the same status message becomes the actual video poster');
     qualityCheck(str_contains($poster['caption'],'&lt;title&gt; &amp; audio')&&$poster['parse_mode']==='HTML'&&!str_contains($poster['caption'],'<blockquote>'),'the poster caption escapes the title and stays simple before delivery');
     $invocations=recorded($trace);
-    qualityCheck(count($invocations)===1&&in_array('--dump-single-json',$invocations[0],true),'no video is downloaded before the user chooses a quality');
+    qualityCheck(count($invocations)===1&&in_array($yoinks?'-J':'--dump-single-json',$invocations[0],true),'no video is downloaded before the user chooses a quality');
     $keyboard=json_decode($records[2]['params']['reply_markup'],true)['inline_keyboard'];
     qualityCheck($keyboard[0][0]['text']==='🎬 360p (⌛)'&&$keyboard[0][1]['text']==='🎬 720p (⌛)'&&$keyboard[1][0]['text']==='🎬 1080p','only available quality buttons are shown under the status message');
     qualityCheck(count($keyboard[2])===1&&$keyboard[2][0]['text']==='🎶 Audio'&&$keyboard[2][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
@@ -130,8 +132,8 @@ try {
         usleep(50000);
     }
     qualityCheck($timingFound&&$values['total_ms']+1>=$values['prepare_ms']+$values['upload_ms'],'the real worker logs separate preparation and upload timings for diagnosing delivery latency');
-    $invocations=recorded($trace); $arguments=$invocations[1]??[];
-    qualityCheck(count($invocations)===2&&$arguments[array_search('-f',$arguments,true)+1]===($audio?'140/22/18':'18'),'download uses only saved formats for the selected media');
+    $invocations=recorded($trace); $arguments=$invocations[$yoinks?2:1]??[];
+    qualityCheck(count($invocations)===($yoinks?3:2)&&$arguments[array_search('-f',$arguments,true)+1]===($audio?'140/22/18':'18'),'download uses only saved formats for the selected media');
     $uploads=array_values(array_filter($records,fn($record)=>$record['method']===($audio?'sendAudio':'sendVideo')));
     qualityCheck(count($uploads)===1&&!empty($uploads[0]['video_hash']),'the actual media bytes are uploaded once');
     if($group) qualityCheck((int)$records[0]['params']['chat_id']===$chat&&(int)$records[0]['params']['message_thread_id']===$thread&&(int)$uploads[0]['params']['chat_id']===$chat&&(int)$uploads[0]['params']['message_thread_id']===$thread,'group progress and the real uploaded media stay in the original forum topic');

@@ -2,5 +2,6 @@
 .env.*
 storage
 .git
+third_party/yoinks/lib
 *.log
 *cookies*.txt
