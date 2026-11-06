@@ -36,6 +36,10 @@ try {
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(103,103,103,'https://youtu.be/ybNMMK5Q318',?,501,'download')",[time()]);
     expectJob((int)$store->claim()['update_id']===100,'an older inspection is promoted so continuous selected downloads cannot starve it');
     $store->query("UPDATE jobs SET status='done'");
+    $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase) VALUES(104,104,104,'https://youtu.be/ybNMMK5Q318',?,501,'inspect')",[time()]);
+    expectJob($store->claim('media')===null,'media slots cannot consume inspection work');
+    expectJob((int)$store->claim('inspect')['update_id']===104&&$store->claim('inspect')===null,'the reserved inspection lane claims only one copy of an inspection');
+    $store->query("UPDATE jobs SET status='done'");
 
     $log=$temp.'/requests.jsonl'; file_put_contents($log,'');
     $router=$temp.'/router.php';
@@ -98,6 +102,20 @@ try {
         'Persian cookie failure is shown in the original status message');
     expectJob($store->query('SELECT status FROM jobs WHERE update_id=3')->fetchColumn()==='failed','worker records the failed job');
     expectJob($store->query('SELECT status FROM jobs WHERE update_id=4')->fetchColumn()==='waiting_quality','the real worker leaves an old unchosen menu unchanged without sending an expiry notice');
+    $pidFile=$temp.'/slow-downloader.pid';
+    file_put_contents($stub,"#!/usr/bin/env php\n<?php file_put_contents(".var_export($pidFile,true).",getmypid().PHP_EOL,FILE_APPEND); sleep(30); exit(1);");
+    $bot->handle(['update_id'=>5,'message'=>['from'=>['id'=>97],'chat'=>['id'=>97,'type'=>'private'],'text'=>$url]]);
+    $deadline=microtime(true)+8;
+    while(!is_file($pidFile)&&microtime(true)<$deadline) usleep(50000);
+    expectJob(is_file($pidFile),'a real downloader subprocess is running before shutdown');
+    $downloaderPid=(int)trim((string)file_get_contents($pidFile));
+    proc_terminate($worker); proc_close($worker); $worker=null;
+    expectJob(!posix_kill($downloaderPid,0),'stopping the supervisor also terminates the active downloader process group');
+    $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],
+        [0=>['file','/dev/null','r'],1=>['file',$temp.'/restart.log','w'],2=>['file',$temp.'/restart-error.log','w']],$pipes,dirname(__DIR__),$environment);
+    $deadline=microtime(true)+8;
+    while($store->query('SELECT status FROM jobs WHERE update_id=5')->fetchColumn()!=='failed'&&microtime(true)<$deadline) usleep(50000);
+    expectJob($store->query('SELECT status FROM jobs WHERE update_id=5')->fetchColumn()==='failed'&&count(file($pidFile))===1,'restart recovers the interrupted inspection without relaunching its downloader');
 } finally {
     foreach([$worker,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); }
     Zero\Download::clean($temp);

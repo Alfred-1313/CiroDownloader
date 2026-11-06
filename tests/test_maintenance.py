@@ -55,6 +55,14 @@ class FakeDocker(maintenance.Maintenance):
 
 
 class MaintenanceTests(unittest.TestCase):
+    def test_parallel_worker_capacity_survives_environment_validation(self):
+        for value in ('', '1', '3', '8'):
+            content = ENV.decode() + f'WORKER_CONCURRENCY={value}\n'
+            self.assertEqual(maintenance.environment(content)['WORKER_CONCURRENCY'], value)
+        for value in ('0', '9', '-1', '2.5', '3; echo bad'):
+            with self.assertRaises(maintenance.MaintenanceError):
+                maintenance.environment(ENV.decode() + f'WORKER_CONCURRENCY={value}\n')
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)

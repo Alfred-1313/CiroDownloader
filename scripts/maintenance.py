@@ -20,7 +20,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 BACKUPS = Path('/var/backups/ciro-downloader')
 MAX_BYTES = 512 * 1024 * 1024
 FIELDS = {'BOT_TOKEN', 'ADMIN_IDS', 'YOUTUBE_PROXY'}
-ENV_KEYS = FIELDS | {'BOT_API_URL', 'MAX_FILE_BYTES', 'STORAGE_DIR', 'YT_DLP_BIN', 'YOUTUBE_COOKIES_FILE'}
+ENV_KEYS = FIELDS | {'BOT_API_URL', 'MAX_FILE_BYTES', 'STORAGE_DIR', 'YT_DLP_BIN', 'YOUTUBE_COOKIES_FILE', 'WORKER_CONCURRENCY'}
 
 
 class MaintenanceError(RuntimeError):
@@ -39,6 +39,8 @@ def environment(content):
     validate('BOT_TOKEN', values.get('BOT_TOKEN', ''))
     validate('ADMIN_IDS', values.get('ADMIN_IDS', ''))
     validate('YOUTUBE_PROXY', values.get('YOUTUBE_PROXY', ''))
+    if not re.fullmatch(r'[1-8]', values.get('WORKER_CONCURRENCY') or '3'):
+        raise MaintenanceError('WORKER_CONCURRENCY must be between 1 and 8.')
     if values.get('STORAGE_DIR', '/app/storage') != '/app/storage':
         raise MaintenanceError('Backups require the managed /app/storage volume.')
     try:

@@ -12,7 +12,7 @@ final class Config
         public string $token, public array $admins, public string $storage,
         public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
         public string $ytDlp = '/opt/yt/bin/yt-dlp', public int $timeout = 600,
-        public string $youtubeCookies = '', public string $youtubeProxy = '',
+        public string $youtubeCookies = '', public string $youtubeProxy = '', public int $workerConcurrency = 3,
     ) {}
 
     public static function load(): self
@@ -35,6 +35,9 @@ final class Config
             throw new \RuntimeException('Invalid file limit for configured Bot API');
         }
         $proxy=getenv('YOUTUBE_PROXY')?:'';
+        $concurrency=getenv('WORKER_CONCURRENCY');
+        if($concurrency===false||$concurrency==='') $concurrency='3';
+        if(!preg_match('/^[1-8]$/D',$concurrency)) throw new \RuntimeException('WORKER_CONCURRENCY must be between 1 and 8');
         if($proxy!=='') {
             $parts=parse_url($proxy);
             if(!$parts||empty($parts['host'])||!in_array($parts['scheme']??'', ['http','https','socks5','socks5h'],true)) {
@@ -44,7 +47,7 @@ final class Config
         return new self($token, array_map('intval', explode(',', $ids)),
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
-            getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy);
+            getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency);
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
@@ -271,13 +274,15 @@ final class Store
             $this->db->exec('COMMIT'); return $result;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
-    public function claim(): ?array
+    public function claim(?string $lane=null): ?array
     {
+        if(!in_array($lane,[null,'inspect','media'],true)) throw new \InvalidArgumentException('Unknown worker lane');
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             // Serve chosen media before fresh inspections, but promote an
             // inspection after 30 seconds so a busy download queue cannot starve it.
-            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0) ORDER BY CASE WHEN phase<>'inspect' OR created<=? THEN 0 ELSE 1 END,id LIMIT 1",[time()-30])->fetch();
+            $filter=$lane==='inspect'?" AND phase='inspect'":($lane==='media'?" AND phase<>'inspect'":'');
+            $job = $this->get('update_in_progress','0')==='1'?false:$this->query("SELECT * FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0)".$filter." ORDER BY CASE WHEN phase<>'inspect' OR created<=? THEN 0 ELSE 1 END,id LIMIT 1",[time()-30])->fetch();
             if ($job) $this->query("UPDATE jobs SET status='running' WHERE id=?", [$job['id']]);
             $this->db->exec('COMMIT'); return $job ?: null;
         } catch (\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }

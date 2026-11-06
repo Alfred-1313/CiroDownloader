@@ -19,7 +19,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: curl, mbstring, pdo_sqlite
+          extensions: curl, mbstring, pdo_sqlite, pcntl, posix
           coverage: none
 
       - name: Run PHP tests
@@ -43,6 +43,8 @@ jobs:
 
       - name: Verify portrait video conversion and multipart upload
         run: |
+          php tests/parallel_worker.php
+          php tests/parallel_worker.php --group
           php tests/media.php
           php tests/quality_worker.php
           php tests/quality_worker.php --audio
@@ -82,7 +84,8 @@ jobs:
         run: |
           test "$(docker run --rm --entrypoint id ciro-downloader:ci -u)" = 10001
           docker run --rm --read-only --entrypoint php ciro-downloader:ci -r '
-            foreach (["Core.php", "Bot.php", "Download.php"] as $file) require "/app/src/".$file;
+            foreach (["Core.php", "Bot.php", "Download.php", "Worker.php"] as $file) require "/app/src/".$file;
+            if (!extension_loaded("pcntl") || !extension_loaded("posix")) throw new RuntimeException("Worker process extensions are missing");
             foreach (glob("/app/bin/*.php") as $file) {
               if (!is_readable($file)) throw new RuntimeException("Unreadable entrypoint: ".$file);
             }
