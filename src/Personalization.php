@@ -45,6 +45,8 @@ final class Personalization
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
             [$this->heading($ui->label('processing_limits'))],
             [$ui->button('processing_limits','custom:limits')],
+            [$this->heading($ui->label('reaction_heading'))],
+            [$ui->button('reaction_settings','custom:reaction')],
             [$this->heading($ui->label('section_instagram'))],
             [$ui->button('section_instagram','custom:section:instagram')],
             [$ui->button('back_admin','custom:back')],
@@ -64,6 +66,26 @@ final class Personalization
         }
         $rows[]=[$ui->button('back_custom','custom:home')];
         $this->send($chat,$ui->text('processing_limits_info').($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    private function reactions(int $chat,int $message): void
+    {
+        $ui=$this->bot->ui; $current=Reactions::selected($this->bot->store);
+        $rows=[[$this->heading($ui->label('reaction_heading'))]];
+        foreach(array_chunk(Reactions::PRESETS,4,true) as $choices) {
+            $row=[];
+            foreach($choices as $index=>$emoji) $row[]=$ui->button('reaction_choice','custom:reaction:'.$index,['emoji'=>$emoji]);
+            $rows[]=$row;
+        }
+        $rows[]=[$ui->button('reaction_custom','custom:reaction:input')];
+        $rows[]=[$ui->button('reaction_off','custom:reaction:off')];
+        $rows[]=[$ui->button('back_custom','custom:home')];
+        $this->send($chat,$ui->text('reaction_info',['reaction'=>$current!==''?$current:$ui->plain('state_off')]),$rows,$message);
+    }
+    private function beginReaction(int $chat,int $user,int $message): void
+    {
+        $ui=$this->bot->ui;
+        $message=$this->send($chat,$ui->text('reaction_prompt'),[[$ui->button('back','custom:reaction')]],$message);
+        $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>'reaction','key'=>'link','message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
     }
     private function beginLimit(int $chat,int $user,string $scope,int $message): void
     {
@@ -349,6 +371,16 @@ final class Personalization
     public function receive(int $chat,int $user,array $message,array $state): void
     {
         $ui=$this->bot->ui; ['kind'=>$kind,'key'=>$key,'message'=>$menu]=$state;
+        if($kind==='reaction'&&$key==='link') {
+            $custom=array_filter($message['entities']??[],fn($entity)=>($entity['type']??'')==='custom_emoji');
+            $emoji=$custom?null:Reactions::normalize((string)($message['text']??''));
+            if($emoji===null) {
+                $this->send($chat,$ui->text('reaction_invalid'),[[$ui->button('back','custom:reaction')]],(int)$menu); return;
+            }
+            $this->bot->store->set('link_reaction',$emoji);
+            $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $this->reactions($chat,(int)$menu); return;
+        }
         if($kind==='limit'&&in_array($key,['private','group'],true)) {
             $value=strtr(trim((string)($message['text']??'')),array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',-1,PREG_SPLIT_NO_EMPTY),str_split('01234567890123456789')));
             if(!preg_match('/^(?:[0-9]|1[0-9]|20)$/D',$value)) {
@@ -401,6 +433,14 @@ final class Personalization
         };
         if($target&&!$ui->customizable($target[0],$target[1])) { $this->home($chat,$message); return true; }
         if($op==='home') $this->home($chat,$message);
+        elseif($op==='reaction') {
+            if($kind==='input') $this->beginReaction($chat,$user,$message);
+            else {
+                if($kind==='off') $this->bot->store->set('link_reaction','');
+                elseif(ctype_digit($kind)&&isset(Reactions::PRESETS[(int)$kind])) $this->bot->store->set('link_reaction',Reactions::PRESETS[(int)$kind]);
+                $this->reactions($chat,$message);
+            }
+        }
         elseif($op==='limits') $this->limits($chat,$message);
         elseif($op==='limit'&&in_array($kind,['private','group'],true)) $this->beginLimit($chat,$user,$kind,$message);
         elseif($op==='limitoff'&&in_array($kind,['private','group'],true)) {

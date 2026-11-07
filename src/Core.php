@@ -144,8 +144,8 @@ final class Telegram implements FileApi
         unset($value);
         $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
         curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 15,
-            CURLOPT_TIMEOUT => in_array($method,['sendVideo','sendAudio','sendPhoto'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45]);
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
+            CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         curl_close($ch);

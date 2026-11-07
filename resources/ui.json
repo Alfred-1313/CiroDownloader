@@ -184,7 +184,10 @@
     "admin_add_unavailable":{"audience":"admin","label":"خطای بررسی حساب ادمین","group":"admin","value":"بررسی حساب انجام نشد و ادمینی اضافه نشد. کاربر در پی‌وی ربات <code>/start</code> کند و دوباره تلاش کن."},
     "admin_add_changed":{"audience":"admin","label":"تغییر نام‌کاربری ادمین","group":"admin","value":"نام‌کاربری این حساب تغییر کرده است. نام فعلی را از کاربر بگیر و دوباره بفرست."},
     "admin_add_success":{"audience":"admin","label":"ادمین افزوده شد","group":"admin","value":"<blockquote><b>✅ ادمین افزوده شد</b></blockquote>\n\n{username} به ادمین‌های ربات اضافه شد.","variables":["username"]},
-    "admin_add_exists":{"audience":"admin","label":"ادمین تکراری","group":"admin","value":"{username} از قبل ادمین ربات است.","variables":["username"]}
+    "admin_add_exists":{"audience":"admin","label":"ادمین تکراری","group":"admin","value":"{username} از قبل ادمین ربات است.","variables":["username"]},
+    "reaction_info":{"audience":"admin","label":"تنظیم ری‌اکشن لینک","group":"custom","value":"<blockquote><b>👾 ری‌اکشن روی پیام لینک</b></blockquote>\n\nری‌اکشن فعلی: {reaction}\n\nپس از ثبت لینک یوتیوب یا اینستاگرام، ربات روی همان پیام کاربر ری‌اکشن می‌گذارد؛ پیش‌فرض 👾 است.\n\nیک گزینه انتخاب کن یا ایموجی دیگری بفرست. محدودیت ری‌اکشن گروه ممکن است جلوی نمایش آن را بگیرد؛ دانلود ادامه پیدا می‌کند.","variables":["reaction"]},
+    "reaction_prompt":{"audience":"admin","label":"ورود ایموجی ری‌اکشن","group":"custom","value":"یک ایموجی ری‌اکشن معمول تلگرام به‌تنهایی بفرست؛ مثلاً 👾، 👍، ❤️ یا 🔥.\n\nایموجی سفارشی پشتیبانی نمی‌شود. برای لغو، بازگشت را بزن."},
+    "reaction_invalid":{"audience":"admin","label":"ری‌اکشن نامعتبر","group":"custom","value":"یک ایموجی از ری‌اکشن‌های معمول تلگرام بفرست؛ مثلاً 👾 یا 👍. متن، چند ایموجی و ایموجی سفارشی پذیرفته نمی‌شوند."}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},
@@ -299,6 +302,11 @@
     "instagram_mode_pages":{"audience":"admin","label":"ارسال صفحه‌به‌صفحه","group":"custom","value":"📑 صفحه‌به‌صفحه در تلگرام"},
     "instagram_mode_article":{"audience":"admin","label":"ارسال مقاله","group":"custom","value":"📝 لینک مقاله"},
     "close_update":{"audience":"admin","label":"بستن منوی به‌روزرسانی","group":"updates","value":"بستن"},
-    "add_admin":{"audience":"admin","label":"افزودن ادمین","group":"admin","value":"➕ افزودن ادمین"}
+    "add_admin":{"audience":"admin","label":"افزودن ادمین","group":"admin","value":"➕ افزودن ادمین"},
+    "reaction_heading":{"audience":"admin","label":"ری‌اکشن لینک کاربران","group":"custom","value":"ری‌اکشن روی لینک کاربران"},
+    "reaction_settings":{"audience":"admin","label":"تنظیم ری‌اکشن لینک","group":"custom","value":"👾 تنظیم ری‌اکشن لینک"},
+    "reaction_choice":{"audience":"admin","label":"گزینهٔ ری‌اکشن","group":"custom","value":"{emoji}"},
+    "reaction_custom":{"audience":"admin","label":"انتخاب ایموجی دیگر","group":"custom","value":"ایموجی دیگر ✏️"},
+    "reaction_off":{"audience":"admin","label":"خاموش‌کردن ری‌اکشن لینک","group":"custom","value":"خاموش‌کردن ری‌اکشن"}
   }
 }

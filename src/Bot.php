@@ -8,6 +8,7 @@ require_once __DIR__.'/Cookies.php';
 require_once __DIR__.'/InstagramCookies.php';
 require_once __DIR__.'/InstagramPages.php';
 require_once __DIR__.'/Administrators.php';
+require_once __DIR__.'/Reactions.php';
 
 final class Bot
 {
@@ -234,7 +235,7 @@ final class Bot
         }
     }
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
-    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0): void
+    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0): void
     {
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return; }
@@ -243,6 +244,7 @@ final class Bot
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
             try { $this->jobMessage($job,$this->text(instagramUrl($url)?'instagram_queued':'queued')); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
+            Reactions::apply($this->store,$this->api,$chat,$sourceMessage);
         } elseif($result!=='duplicate') $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
     }
     public function handle(array $update): void
@@ -376,7 +378,7 @@ final class Bot
         if($state==='ig_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('ig_cookie_waiting')); return; }
         $url=mediaUrl($text);
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
-        $this->requestVideo((int)$update['update_id'],$user,$chat,$url);
+        $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));
     }
 }
 

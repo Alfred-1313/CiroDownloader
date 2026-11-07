@@ -96,6 +96,6 @@ final class GroupSupport
             if($command==='download') $this->bot->send($chat,$this->bot->text('invalid'),[],0,$thread);
             return;
         }
-        $this->bot->requestVideo((int)$update['update_id'],$user,$chat,$url,$thread);
+        $this->bot->requestVideo((int)$update['update_id'],$user,$chat,$url,$thread,(int)($message['message_id']??0));
     }
 }
