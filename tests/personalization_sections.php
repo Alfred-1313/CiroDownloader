@@ -24,11 +24,19 @@ try {
     foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','help','group','access','progress','errors'] as $section) sectionCheck(in_array('custom:section:'.$section,sectionActions($api),true),'screen is available: '.$section);
     $seen=[];
     foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','help','group','access','progress','errors'] as $section) {
-        $bot->handle(sectionClick('custom:section:'.$section));
-        foreach(sectionActions($api) as $action) if(preg_match('/^custom:item:(text|button):(.+)$/D',$action,$m)) {
-            sectionCheck($bot->ui->customizable($m[1],$m[2]),'screen contains only user-facing active fields: '.$action);
-            $seen[$m[1]][$m[2]]=true;
+        // Long screens are paged; follow the Next links to see every item.
+        $queue=['custom:section:'.$section]; $visited=[];
+        while($queue) {
+            $address=array_shift($queue); if(isset($visited[$address])) continue; $visited[$address]=true;
+            $bot->handle(sectionClick($address));
+            foreach(sectionActions($api) as $action) {
+                if(preg_match('/^custom:item:(text|button):(.+)$/D',$action,$m)) {
+                    sectionCheck($bot->ui->customizable($m[1],$m[2]),'screen contains only user-facing active fields: '.$action);
+                    $seen[$m[1]][$m[2]]=true;
+                } elseif(preg_match('/^custom:section:'.$section.':\d+$/D',$action)) $queue[]=$action;
+            }
         }
+        sectionCheck(count($visited)>=1&&count($visited)<=4,'screen is paged into a few short pages: '.$section);
     }
     foreach(['text','button'] as $kind) foreach($bot->catalog($kind) as $key=>$definition) {
         sectionCheck(isset($seen[$kind][$key]),'user-facing field belongs to a screen: '.$kind.'.'.$key);
@@ -39,7 +47,7 @@ try {
     sectionCheck($captionActions===array_map(fn($key)=>'custom:item:text:'.$key,$captionKeys),'download captions are ordered by cover, video and audio, with every component separate on one page');
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $headings=[];
     foreach($rows as $row) foreach($row as $button) {
-        if($button['callback_data']==='custom:noop') { $headings[]=$button['text']; sectionCheck(($button['style']??'')==='primary','caption category header is blue'); }
+        if($button['callback_data']==='custom:noop') { $headings[]=$button['text']; sectionCheck(!isset($button['style']),'caption category header is a white title'); }
         elseif(str_starts_with($button['callback_data'],'custom:item:')) sectionCheck(!isset($button['style']),'individual caption controls are neutral');
     }
     foreach(['cover','video','audio'] as $section) sectionCheck(in_array($bot->ui->label('catalog_caption_'.$section),$headings,true),'download caption category is explicit: '.$section);

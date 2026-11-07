@@ -35,6 +35,7 @@ jobs:
           php tests/customization.php
           php tests/personalization_recovery.php
           php tests/personalization_sections.php
+          php tests/personalization_ui.php
           php tests/personalization_scope.php
           php tests/admin_keyboard.php
           php tests/administrators.php

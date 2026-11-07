@@ -51,19 +51,16 @@ try {
     $custom=new Zero\Personalization($bot); $custom->home(42);
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
-        if($button['text']===$bot->label('section_instagram')&&($button['callback_data']??'')==='custom:noop') $header=($button['style']??'')==='primary';
-        if(($button['callback_data']??'')==='custom:section:instagram') $control=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:hint:home_social') $header=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:section:instagram') $control=true;
     }
-    igCheck($header&&$control,'Personalization adds a blue Instagram heading followed by a neutral feature control');
+    igCheck($header&&$control,'Personalization lists Instagram under a white social-networks title');
     $toggle=fn(int $user=42)=>$bot->handle(['callback_query'=>['id'=>'ig-source','from'=>['id'=>$user],'message'=>['message_id'=>700,'chat'=>['id'=>$user,'type'=>'private']],'data'=>'custom:igsource']]);
     $toggle(7);
     igCheck(!$bot->ui->instagramSourceEnabled(),'the Instagram source button defaults off and ordinary users cannot enable it');
-    $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
-    foreach($rows as $row) foreach($row as $button) {
-        if($button['text']===$bot->label('instagram_source_heading')&&($button['callback_data']??'')==='custom:noop') $header=($button['style']??'')==='primary';
-        if(($button['callback_data']??'')==='custom:igsource') $control=!isset($button['style']);
-    }
-    igCheck($header&&$control&&(new Zero\Ui(new Zero\Store($temp)))->instagramSourceEnabled(),'the source toggle has a blue heading, a neutral control and a persistent enabled setting');
+    $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $state='';
+    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:igsource') $state=$button['style']??'';
+    igCheck($state==='success'&&(new Zero\Ui(new Zero\Store($temp)))->instagramSourceEnabled(),'the source switch turns green and its enabled setting persists');
     $toggle();
     igCheck(!$bot->ui->instagramSourceEnabled(),'the administrator can disable the Instagram source button again');
     igCheck(!isset($bot->catalog('button')['instagram_page_counter']),'the removed counter is absent from Personalization');

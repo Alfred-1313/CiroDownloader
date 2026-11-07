@@ -36,7 +36,7 @@ try {
     foreach(['customize','health','cookies','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
 
     $bot->handle(adminMessage($bot->label('customize')));
-    adminCheck(str_contains(json_encode(end($api->calls)[1]['reply_markup']),'custom:groups:text'),'the Personalization reply control opens the existing user-only editor');
+    adminCheck(str_contains(json_encode(end($api->calls)[1]['reply_markup']),'custom:section:cover'),'the Personalization reply control opens the grouped user-only editor');
     $bot->handle(adminCallback('custom:back'));
     adminCheck(adminLabels($api)===$expected,'returning from Personalization restores the administration keyboard');
     $bot->handle(adminMessage($bot->label('health')));

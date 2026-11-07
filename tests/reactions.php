@@ -37,20 +37,20 @@ try {
     reactionCheck((int)$reaction['chat_id']===-100123&&(int)$reaction['message_id']===88&&!isset($reaction['message_thread_id']),'an Instagram group reaction uses the user message in its original chat and topic');
     $submit(9,99,'/download@CiroDownloaderBot '.$youtube,-100123,18); $records=$reacts();
     reactionCheck((int)end($records)['params']['message_id']===99,'an addressed group download reacts to the command message containing the link');
-    $click('custom:home'); $records=$calls(); $rows=json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']; $heading=false; $control=false;
+    $click('custom:features'); $records=$calls(); $rows=json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']; $heading=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
-        if(($button['text']??'')===$bot->label('reaction_heading')&&($button['callback_data']??'')==='custom:noop') $heading=($button['style']??'')==='primary';
+        if(($button['callback_data']??'')==='custom:hint:feat_reaction') $heading=!isset($button['style']);
         if(($button['callback_data']??'')==='custom:reaction') $control=!isset($button['style']);
     }
-    reactionCheck($heading&&$control,'Personalization exposes a blue reaction heading followed by a neutral settings button');
+    reactionCheck($heading&&$control,'Personalization exposes a white reaction title followed by a settings button');
     $click('custom:reaction:off'); $before=count($reacts()); $submit(10,101,$youtube);
     reactionCheck(count($reacts())===$before&&Zero\Reactions::selected(new Zero\Store($config->storage))==='','disabling reactions persists across stores and still accepts downloads');
     $click('custom:reaction:0',11,11); $click('custom:reaction:0',42,-100123);
     reactionCheck(Zero\Reactions::selected($store)==='','ordinary users and group callbacks cannot change reaction settings');
     $click('custom:reaction:input'); $submit(42,420,'✅');
     reactionCheck(Zero\Reactions::selected($store)===''&&$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'an unsupported emoji preserves the previous setting and pending input');
-    $state=$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(); $click('custom:noop');
-    reactionCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()===$state,'the display-only blue heading does not cancel reaction input');
+    $state=$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(); $click('custom:hint:feat_reaction');
+    reactionCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()===$state,'the white title explains itself without cancelling reaction input');
     $submit(42,421,'❤️');
     reactionCheck(Zero\Reactions::selected($store)==='❤'&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'a supported emoji is normalized to its Telegram reaction identifier and saved');
     $submit(12,122,$youtube); $records=$reacts();

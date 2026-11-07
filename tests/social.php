@@ -56,10 +56,10 @@ try {
         $click($prefix.'_cookie_remove'); $click($prefix.'_cookie_confirm'); socialCheck(!is_file($path)&&file_get_contents($config->instagramCookiePath())===$original,'confirmed deletion preserves other services: '.$service);
         $callback('custom:section:'.$service); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $heading=false;$control=false;
         foreach($rows as $row) foreach($row as $button) {
-            if(($button['callback_data']??'')==='custom:noop'&&$button['text']===$bot->label('section_'.$service)) $heading=($button['style']??'')==='primary';
-            if(($button['callback_data']??'')==='custom:'.$prefix.'source') $control=!isset($button['style']);
+            if(($button['callback_data']??'')==='custom:hint:sec_settings') $heading=!isset($button['style']);
+            if(($button['callback_data']??'')==='custom:'.$prefix.'source') $control=($button['style']??'')==='danger';
         }
-        socialCheck($heading&&$control&&!$bot->ui->gallerySourceEnabled($service),'Personalization uses a blue heading, neutral controls and a default-off source: '.$service);
+        socialCheck($heading&&$control&&!$bot->ui->gallerySourceEnabled($service),'Personalization shows a white settings title and a red default-off source switch: '.$service);
         $callback('custom:'.$prefix.'source',7,7); socialCheck(!$bot->ui->gallerySourceEnabled($service),'ordinary users cannot change the source setting: '.$service);
         $callback('custom:'.$prefix.'source'); socialCheck((new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled($service)&&!$bot->ui->gallerySourceEnabled('instagram'),'source setting persists independently: '.$service);
         foreach(['_caption','_page_caption','_error_format'] as $suffix) socialCheck(isset($bot->catalog('text')[$service.$suffix]),'user-facing fields are customizable: '.$service.$suffix);

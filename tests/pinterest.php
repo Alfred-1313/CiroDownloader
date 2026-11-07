@@ -53,19 +53,16 @@ try {
     $custom=new Zero\Personalization($bot); $custom->home(42);
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
-        if($button['text']===$bot->label('section_pinterest')&&($button['callback_data']??'')==='custom:noop') $header=($button['style']??'')==='primary';
-        if(($button['callback_data']??'')==='custom:section:pinterest') $control=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:hint:home_social') $header=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:section:pinterest') $control=true;
     }
-    pinCheck($header&&$control,'Personalization adds a blue Pinterest heading followed by a neutral feature control');
+    pinCheck($header&&$control,'Personalization lists Pinterest under a white social-networks title');
     $toggle=fn(int $user=42)=>$bot->handle(['callback_query'=>['id'=>'pin-source','from'=>['id'=>$user],'message'=>['message_id'=>700,'chat'=>['id'=>$user,'type'=>'private']],'data'=>'custom:pinsource']]);
     $toggle(7);
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the Pinterest source button defaults off and ordinary users cannot enable it');
-    $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
-    foreach($rows as $row) foreach($row as $button) {
-        if($button['text']===$bot->label('pinterest_source_heading')&&($button['callback_data']??'')==='custom:noop') $header=($button['style']??'')==='primary';
-        if(($button['callback_data']??'')==='custom:pinsource') $control=!isset($button['style']);
-    }
-    pinCheck($header&&$control&&(new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled('pinterest'),'the source toggle has a blue heading, a neutral control and a persistent enabled setting');
+    $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $state='';
+    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:pinsource') $state=$button['style']??'';
+    pinCheck($state==='success'&&(new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled('pinterest'),'the source switch turns green and its enabled setting persists');
     $toggle();
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the administrator can disable the Pinterest source button again');
     pinCheck(!isset($bot->catalog('button')['pinterest_page_counter']),'the removed counter is absent from Personalization');

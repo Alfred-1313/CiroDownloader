@@ -182,9 +182,10 @@ try {
     $pageBot->handle(['callback_query'=>['id'=>'custom-mode','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igmode:article']]);
     igMediaCheck($store->get('instagram.carousel_mode')==='article','Personalization can select the retained article output for future requests');
     $calls=$requests(); $rows=json_decode(end($calls)['params']['reply_markup'],true)['inline_keyboard'];
-    $headings=array_filter(array_merge(...$rows),fn($button)=>($button['callback_data']??'')==='custom:noop'&&($button['style']??'')==='primary');
-    $modes=array_filter(array_merge(...$rows),fn($button)=>str_starts_with($button['callback_data']??'','custom:igmode:')&&!isset($button['style']));
-    igMediaCheck(count($headings)>=1&&count($modes)===2,'the output feature uses a blue display heading and neutral mode controls');
+    $headings=array_filter(array_merge(...$rows),fn($button)=>($button['callback_data']??'')==='custom:hint:sec_settings'&&!isset($button['style']));
+    $modes=array_filter(array_merge(...$rows),fn($button)=>str_starts_with($button['callback_data']??'','custom:igmode:'));
+    $chosen=array_filter($modes,fn($button)=>($button['style']??'')==='success'&&str_starts_with($button['text'],'✅'));
+    igMediaCheck(count($headings)===1&&count($modes)===2&&count($chosen)===1&&array_values($chosen)[0]['callback_data']==='custom:igmode:article','the output feature has a white settings title and ticks the chosen mode');
     $store->set('text.instagram_article_title','عنوان سفارشی');
     $job=$process(['photo','video','photo']); $calls=$requests();
     if($job['status']!=='done') throw new RuntimeException($store->get('last_job_error'));

@@ -9,6 +9,8 @@ final class Ui
     private array $preview=[];
     public function __construct(private Store $store) {}
     public function preview(array $values): void { $this->preview=$values; }
+    /** A setting as it would be shown now, including a pending preview. */
+    public function setting(string $key,string $default=''): string { return $this->get($key,$default); }
     private function get(string $key,string $default=''): string { return array_key_exists($key,$this->preview)?$this->preview[$key]:$this->store->get($key,$default); }
     public static function definitions(): array
     {

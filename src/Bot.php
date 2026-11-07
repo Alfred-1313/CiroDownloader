@@ -303,6 +303,11 @@ final class Bot
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pageService.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }
+            if(str_starts_with($action,'custom:hint:')) {
+                // White title buttons explain themselves; they never cancel a pending edit.
+                $hint=$custom->hint(substr($action,12));
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$hint,'show_alert'=>$hint!=='','cache_time'=>0]); return;
+            }
             if(preg_match('/^ck(?:rm|ex):/',$action)) { (new CookieJars($this))->callback($cb,$chat,$user,(int)($message['message_id']??0)); return; }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
             if($action==='custom:noop') return;
