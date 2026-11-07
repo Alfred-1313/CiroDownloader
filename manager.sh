@@ -247,10 +247,10 @@ edit_setting() {
   case "$field" in
     BOT_TOKEN) ui_note 'Input is hidden. A running bot is checked before the new token is applied.'; ui_prompt 'New bot token (Enter to go back): '; read -rs value || return 0; printf '\n' ;;
     ADMIN_IDS) ui_prompt 'Administrator IDs, separated by commas (Enter to go back): '; read -r value || return 0 ;;
-    YOUTUBE_PROXY) ui_note 'Input is hidden. Use http(s)://host:port or socks5(h)://host:port.'; ui_note 'Type clear to disable the proxy.'; ui_prompt 'Proxy (Enter to go back): '; read -rs value || return 0; printf '\n' ;;
+    YOUTUBE_PROXY|GALLERY_PROXY) ui_note 'Input is hidden. Use http(s)://host:port or socks5(h)://host:port.'; ui_note 'Type clear to disable the proxy.'; ui_prompt 'Proxy (Enter to go back): '; read -rs value || return 0; printf '\n' ;;
   esac
   [[ -n $value ]] || return 0
-  [[ $field != YOUTUBE_PROXY || $value != clear ]] || value=''
+  [[ $field != *_PROXY || $value != clear ]] || value=''
   SECRET_TMP="$(mktemp)" || return
   printf '%s' "$value" >"$SECRET_TMP"; unset value
   ui_plan 1
@@ -397,9 +397,10 @@ settings_menu() {
     ui_row 2 Administrators 'Telegram IDs separated by commas'
     ui_row 3 'YouTube proxy' 'set, change or disable'
     ui_row 4 'Large uploads' 'enable a private local Telegram Bot API'
+    ui_row 5 'Social media proxy' 'Instagram, Pinterest, TikTok and X'
     ui_row 0 Back; ui_rule
-    ui_read_choice 4 choice || return 0
-    case "$choice" in 1) with_lock edit_setting BOT_TOKEN || true ;; 2) with_lock edit_setting ADMIN_IDS || true ;; 3) with_lock edit_setting YOUTUBE_PROXY || true ;; 4) with_lock enable_large_uploads || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
+    ui_read_choice 5 choice || return 0
+    case "$choice" in 1) with_lock edit_setting BOT_TOKEN || true ;; 2) with_lock edit_setting ADMIN_IDS || true ;; 3) with_lock edit_setting YOUTUBE_PROXY || true ;; 4) with_lock enable_large_uploads || true ;; 5) with_lock edit_setting GALLERY_PROXY || true ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
     ui_pause
   done
 }

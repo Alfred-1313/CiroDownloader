@@ -37,6 +37,16 @@ try {
                     foreach(Zero\galleryServices() as $service) (new Zero\GalleryPages($config,$store,new Zero\Telegram($config),$service))->prune(); $lastPageCleanup=time();
                 }
                 $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();
+                // Expired jars are dropped and administrators are warned once per situation.
+                // A separate short-lived process keeps a slow Telegram call from delaying downloads.
+                if(isset($healthPid)&&pcntl_waitpid($healthPid,$healthStatus,WNOHANG)!==0) unset($healthPid);
+                if(!isset($healthPid)&&(new Zero\CookieHealth($config,$store,new Zero\Telegram($config)))->due()) {
+                    $pid=pcntl_fork();
+                    if($pid===0) {
+                        try { (new Zero\CookieHealth($config,new Zero\Store($config->storage),new Zero\Telegram($config)))->sweep(); exit(0); }
+                        catch(Throwable $e) { error_log('Cookie health pass failed: '.get_class($e)); exit(1); }
+                    } elseif($pid>0) $healthPid=$pid;
+                }
                 $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
                 foreach($store->query("SELECT * FROM jobs WHERE status='confirming' AND expires>0 AND expires<?",[time()])->fetchAll() as $old) {
                     if($store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='confirming' AND expires<?",[$old['id'],time()])->rowCount()) {

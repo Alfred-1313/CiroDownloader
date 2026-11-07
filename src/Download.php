@@ -114,6 +114,8 @@ final class Download
             $snapshot=['path'=>$private,'hash'=>hash('sha256',$content),'jar'=>$jar];
         }
         if($this->config->youtubeProxy!=='') $access=array_merge($access,['--proxy',$this->config->youtubeProxy]);
+        // Only with the optional provider container: yt-dlp then asks it for a PO Token.
+        if($this->config->youtubePotUrl!=='') $access=array_merge($access,['--extractor-args','youtubepot-bgutilhttp:base_url='.$this->config->youtubePotUrl]);
         return ['args'=>$access,'snapshot'=>$snapshot];
     }
     private function youtube(string $url,array $options,string $folder,int $seconds,bool $forceCookies=false): string

@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -u 10001 -m zero
 WORKDIR /app
+# Optional: lets yt-dlp ask a separate provider container for YouTube PO Tokens.
+ARG YOUTUBE_POT_PLUGIN=0
+RUN if [ "$YOUTUBE_POT_PLUGIN" = 1 ]; then /opt/yt/bin/pip install --no-cache-dir 'bgutil-ytdlp-pot-provider==2.0.2'; fi
 COPY src/ src/
 COPY bin/ bin/
 COPY resources/ resources/

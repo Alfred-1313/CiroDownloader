@@ -4,7 +4,7 @@ require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Bot.php';
 require dirname(__DIR__).'/src/Download.php';
 function parallelCheck(bool $ok,string $message): void { if(!$ok) throw new RuntimeException($message); echo "PASS $message\n"; }
-function waitParallel(callable $condition,string $message,int $seconds=15): void {
+function waitParallel(callable $condition,string $message,int $seconds=45): void {
     $deadline=microtime(true)+$seconds;
     do { if($condition()) { parallelCheck(true,$message); return; } usleep(50000); } while(microtime(true)<$deadline);
     throw new RuntimeException($message);

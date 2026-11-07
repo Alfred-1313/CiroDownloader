@@ -1,6 +1,9 @@
 name: ciro-downloader
 x-common: &common
-  build: .
+  build:
+    context: .
+    args:
+      YOUTUBE_POT_PLUGIN: ${YOUTUBE_POT_PLUGIN:-0}
   image: ciro-downloader:local
   env_file: .env
   restart: unless-stopped
@@ -29,6 +32,22 @@ services:
   worker:
     <<: *common
     command: [php, bin/worker.php]
+  # Optional PO Token provider for YouTube. Start it with: docker compose --profile pot up -d
+  # and set YOUTUBE_POT_PLUGIN=1 and YOUTUBE_POT_URL=http://pot:4416 in .env. No port is published.
+  pot:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.2-deno
+    profiles: [pot]
+    restart: unless-stopped
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    pids_limit: 128
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
 volumes:
   data:
   telegram-api-data:

@@ -18,7 +18,7 @@ final class CookiePool
     private $validate;
     /** @var callable(string):string */
     private $identity;
-    public function __construct(private string $primary,callable $validate,callable $identity,private string $domain='')
+    public function __construct(private string $primary,callable $validate,callable $identity,private string $domain='',private array $sessionNames=[])
     {
         $this->validate=$validate; $this->identity=$identity;
     }
@@ -96,8 +96,8 @@ final class CookiePool
             foreach($jars as $jar) {
                 if($jar['identity']!==$identity) continue;
                 // The same account exported again replaces its older jar.
-                if(hash_equals($jar['hash'],hash('sha256',$content))) { $this->forget($jar['id']); return ['status'=>'unchanged','id'=>$jar['id']]; }
-                $this->writeAtomic($jar['path'],$content); $this->forget($jar['id']);
+                if(hash_equals($jar['hash'],hash('sha256',$content))) { $this->clearFailure($jar['id']); return ['status'=>'unchanged','id'=>$jar['id']]; }
+                $this->writeAtomic($jar['path'],$content); $this->clearFailure($jar['id']);
                 return ['status'=>'replaced','id'=>$jar['id']];
             }
             if(count($jars)>=self::MAX_JARS) {
@@ -142,17 +142,27 @@ final class CookiePool
     {
         $saved=is_file($this->statePath())?json_decode((string)file_get_contents($this->statePath()),true):null;
         $saved=is_array($saved)?$saved:[];
-        $failed=is_array($saved['failed']??null)?array_filter($saved['failed'],'is_int'):[];
-        return ['rr'=>max(0,(int)($saved['rr']??0)),'failed'=>$failed];
+        $map=fn(string $key,callable $keep)=>is_array($saved[$key]??null)?array_filter($saved[$key],$keep):[];
+        return ['rr'=>max(0,(int)($saved['rr']??0)),'failed'=>$map('failed','is_int'),'ok'=>$map('ok','is_int'),'fail'=>$map('fail','is_int'),
+            'labels'=>$map('labels','is_string'),'warned'=>$map('warned','is_int')];
     }
     private function save(array $state): void
     {
         $this->writeAtomic($this->statePath(),json_encode($state,JSON_THROW_ON_ERROR));
     }
+    /** A removed jar leaves no trace in the state. */
     private function forget(string $id): void
     {
+        $state=$this->state(); $changed=false;
+        foreach(['failed','ok','fail','labels'] as $key) if(isset($state[$key][$id])) { unset($state[$key][$id]); $changed=true; }
+        foreach(array_keys($state['warned']) as $key) if(str_ends_with($key,':'.$id)) { unset($state['warned'][$key]); $changed=true; }
+        if($changed) $this->save($state);
+    }
+    /** A refreshed export of the same account clears its failure but keeps its name and history. */
+    private function clearFailure(string $id): void
+    {
         $state=$this->state();
-        if(isset($state['failed'][$id])) { unset($state['failed'][$id]); $this->save($state); }
+        if(isset($state['failed'][$id])||isset($state['fail'][$id])) { unset($state['failed'][$id],$state['fail'][$id]); $this->save($state); }
     }
     /**
      * Jars to try for one request: healthy ones in rotation order, then recent
@@ -172,11 +182,72 @@ final class CookiePool
     }
     public function markFailed(string $id): void
     {
-        $this->locked(function() use ($id): void { $state=$this->state(); $state['failed'][$id]=time()+self::FAILURE_SECONDS; $this->save($state); });
+        $this->locked(function() use ($id): void { $state=$this->state(); $state['failed'][$id]=time()+self::FAILURE_SECONDS; $state['fail'][$id]=time(); $this->save($state); });
     }
     public function markWorking(string $id): void
     {
-        $this->locked(function() use ($id): void { $this->forget($id); });
+        $this->locked(function() use ($id): void {
+            $state=$this->state(); unset($state['failed'][$id],$state['fail'][$id],$state['warned']['fail:'.$id]); $state['ok'][$id]=time(); $this->save($state);
+        });
+    }
+    /** Names are shown in lists and alerts, so keep them short, single-line text. */
+    public function setLabel(string $id,string $label): bool
+    {
+        $label=trim(preg_replace('/\s+/u',' ',$label)??'');
+        if($label===''||mb_strlen($label)>24||preg_match('/[\x00-\x1F\x7F]/',$label)) return false;
+        return $this->locked(function() use ($id,$label): bool {
+            if(!array_filter($this->scan(),fn($jar)=>$jar['id']===$id)) return false;
+            $state=$this->state(); $state['labels'][$id]=$label; $this->save($state); return true;
+        });
+    }
+    public function clearLabel(string $id): void
+    {
+        $this->locked(function() use ($id): void { $state=$this->state(); unset($state['labels'][$id]); $this->save($state); });
+    }
+    /** An alert is sent once per episode: the key changes when the situation does. */
+    public function warned(string $key): int { return $this->locked(fn()=>$this->state()['warned'][$key]??0,LOCK_SH); }
+    public function markWarned(string $key,int $value): void
+    {
+        $this->locked(function() use ($key,$value): void { $state=$this->state(); $state['warned'][$key]=$value; $this->save($state); });
+    }
+    /**
+     * Stated expiry of the cookies that identify the account: seconds since epoch,
+     * 0 when they are only session cookies, null when none is present. The earliest
+     * date is shown to the administrator; $latest gives the last one, so a jar is
+     * only called dead when every identifying cookie has run out.
+     */
+    public static function sessionExpiry(string $content,array $names,bool $latest=false): ?int
+    {
+        $dates=[]; $session=false; $present=false;
+        foreach(preg_split('/\r?\n/',$content) as $line) {
+            if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+            elseif($line===''||str_starts_with($line,'#')) continue;
+            $fields=explode("\t",$line);
+            if(count($fields)!==7||!in_array($fields[5],$names,true)||$fields[6]==='') continue;
+            $present=true;
+            if((int)$fields[4]===0) $session=true; else $dates[]=(int)$fields[4];
+        }
+        if(!$present) return null;
+        if($latest) return $session||!$dates?0:max($dates);
+        return $dates?min($dates):0;
+    }
+
+    /** Remove jars whose account cookie has expired; returns what was removed. */
+    public function pruneExpired(): array
+    {
+        return $this->locked(function(): array {
+            $state=$this->state(); $removed=[]; $now=time();
+            foreach($this->scan() as $jar) {
+                $content=$this->read($jar['path']); if($content===null) continue;
+                $expires=self::sessionExpiry($content,$this->sessionNames,true);
+                if($expires===null||$expires===0||$expires>$now) continue;
+                if(!unlink($jar['path'])) continue;
+                $removed[]=['id'=>$jar['id'],'label'=>$state['labels'][$jar['id']]??''];
+                $this->forget($jar['id']);
+            }
+            $this->tidy();
+            return $removed;
+        });
     }
     /** @return array<string,int> jar id => time until which it is deprioritised */
     public function failures(): array
@@ -199,10 +270,11 @@ final class CookiePool
     }
     public function describe(): array
     {
-        $failures=$this->failures(); $result=[];
-        foreach($this->jars() as $jar) {
+        $state=$this->locked(fn()=>$this->state(),LOCK_SH); $now=time(); $result=[];
+        foreach($this->jars() as $index=>$jar) {
             $content=(string)$this->read($jar['path']);
-            $result[]=$jar+self::stats($content)+['failed'=>isset($failures[$jar['id']])];
+            $result[]=$jar+self::stats($content)+['failed'=>($state['failed'][$jar['id']]??0)>$now,'expires'=>self::sessionExpiry($content,$this->sessionNames),
+                'ok'=>$state['ok'][$jar['id']]??null,'fail'=>$state['fail'][$jar['id']]??null,'label'=>$state['labels'][$jar['id']]??''];
         }
         return $result;
     }

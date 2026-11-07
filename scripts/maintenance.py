@@ -19,8 +19,8 @@ from urllib.parse import urlsplit
 PROJECT = Path(__file__).resolve().parents[1]
 BACKUPS = Path('/var/backups/ciro-downloader')
 MAX_BYTES = 512 * 1024 * 1024
-FIELDS = {'BOT_TOKEN', 'ADMIN_IDS', 'YOUTUBE_PROXY'}
-ENV_KEYS = FIELDS | {'BOT_API_URL', 'MAX_FILE_BYTES', 'STORAGE_DIR', 'YT_DLP_BIN', 'YOUTUBE_COOKIES_FILE', 'WORKER_CONCURRENCY', 'GALLERY_DL_BIN', 'INSTAGRAM_COOKIES_FILE'}
+FIELDS = {'BOT_TOKEN', 'ADMIN_IDS', 'YOUTUBE_PROXY', 'GALLERY_PROXY'}
+ENV_KEYS = FIELDS | {'BOT_API_URL', 'MAX_FILE_BYTES', 'STORAGE_DIR', 'YT_DLP_BIN', 'YOUTUBE_COOKIES_FILE', 'WORKER_CONCURRENCY', 'GALLERY_DL_BIN', 'INSTAGRAM_COOKIES_FILE', 'YOUTUBE_POT_URL', 'YOUTUBE_POT_PLUGIN'}
 
 
 class MaintenanceError(RuntimeError):
@@ -61,7 +61,7 @@ def validate(field, value):
         raise MaintenanceError('Enter a valid Telegram bot token.')
     if field == 'ADMIN_IDS' and not re.fullmatch(r'[1-9]\d*(,[1-9]\d*)*', value):
         raise MaintenanceError('Enter numeric administrator IDs separated by commas.')
-    if field == 'YOUTUBE_PROXY' and value:
+    if field in ('YOUTUBE_PROXY', 'GALLERY_PROXY') and value:
         try:
             parsed = urlsplit(value)
             valid = parsed.scheme in ('http', 'https', 'socks5', 'socks5h') and parsed.hostname and parsed.port and not re.search(r'[\s\x00-\x1f]', value)
@@ -342,7 +342,7 @@ def main():
         return
     if args.action == 'summary':
         values = environment((PROJECT / '.env').read_text(encoding='utf-8'))
-        print('Token: configured\nAdministrators: ' + str(len(values['ADMIN_IDS'].split(','))) + '\nYouTube proxy: ' + ('configured' if values.get('YOUTUBE_PROXY') else 'disabled'))
+        print('Token: configured\nAdministrators: ' + str(len(values['ADMIN_IDS'].split(','))) + '\nYouTube proxy: ' + ('configured' if values.get('YOUTUBE_PROXY') else 'disabled') + '\nSocial media proxy: ' + ('configured' if values.get('GALLERY_PROXY') else 'disabled'))
         return
     with operation_lock():
         if args.action == 'backup':

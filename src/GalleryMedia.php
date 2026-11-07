@@ -10,6 +10,7 @@ abstract class GalleryMedia
     public static function service(): string { return static::SERVICE; }
     private static function type(string $service): string { return match($service) {'instagram'=>Instagram::class,'pinterest'=>Pinterest::class,'tiktok'=>TikTok::class,'twitter'=>Twitter::class,default=>throw new \InvalidArgumentException('Unknown media service')}; }
     public static function forService(Config $config,string $service): self { $class=self::type($service); return new $class($config); }
+    public static function validateFor(string $service,string $content): void { $class=self::type($service); $class::validateCookies($content); }
     public static function poolFor(Config $config,string $service): CookiePool { $class=self::type($service); return $class::pool($config); }
     public static function maxItems(string $service): int { $class=self::type($service); return $class::MAX_ITEMS; }
     protected static function cookiePath(Config $config): string { return $config->galleryCookiePath(static::SERVICE); }
@@ -45,7 +46,7 @@ abstract class GalleryMedia
     /** All cookie jars of this service only; other services keep separate pools. */
     public static function pool(Config $config): CookiePool
     {
-        return new CookiePool(static::cookiePath($config),[static::class,'validateCookies'],[static::class,'cookieIdentity'],static::COOKIE_DOMAIN);
+        return new CookiePool(static::cookiePath($config),[static::class,'validateCookies'],[static::class,'cookieIdentity'],static::COOKIE_DOMAIN,[static::SESSION_COOKIE,...static::SESSION_ALIASES]);
     }
     /** @return array{status:string,id:string} */
     public static function saveCookies(Config $config,string $content): array { return static::pool($config)->add($content); }
@@ -65,6 +66,8 @@ abstract class GalleryMedia
             '-o','extractor.twitter.quoted=false','-o','extractor.twitter.conversations=false','-o','extractor.twitter.cards=false','-o','extractor.twitter.articles=false',
             '--range','1-'.(static::MAX_ITEMS+1),'--Print','after:CIRO|{num}|{count}|{_path}',
             '--Print','post:CIRO_META|{description!j}']);
+        // Instagram, Pinterest, TikTok and X may need a cleaner exit address than the server's.
+        if($this->config->galleryProxy!=='') $command=array_merge($command,['--proxy',$this->config->galleryProxy]);
         $pool=static::pool($this->config); $jars=$pool->order(3);
         // Anonymous first when cookies are only a last resort; otherwise rotate through the jars.
         $attempts=!$jars?[null]:($this->config->cookieFallback?array_merge([null],$jars):$jars);

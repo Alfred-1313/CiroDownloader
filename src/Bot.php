@@ -14,6 +14,7 @@ require_once __DIR__.'/PinterestPages.php';
 require_once __DIR__.'/Administrators.php';
 require_once __DIR__.'/Reactions.php';
 require_once __DIR__.'/CookieJars.php';
+require_once __DIR__.'/CookieHealth.php';
 
 final class Bot
 {
@@ -124,10 +125,12 @@ final class Bot
             'users'=>(int)$this->store->query('SELECT COUNT(*) FROM users')->fetchColumn(),
             'completed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='done' AND created>=?",[$now-7*86400])->fetchColumn(),
             'failed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='failed' AND created>=?",[$now-7*86400])->fetchColumn(),
-            'running'=>$running,'cookies'=>$this->text(youtubeCookiePool($this->config)->count()>0?'cookies_loaded':'not_configured'),
+            'running'=>$running,'cookies'=>(new CookieHealth($this->config,$this->store,$this->api))->summary(),
             'proxy'=>$this->text($this->config->youtubeProxy!==''?'configured':'not_configured'),
+            'gproxy'=>$this->text($this->config->galleryProxy!==''?'configured':'not_configured'),
+            'pot'=>$this->text($this->config->youtubePotUrl!==''?'configured':'not_configured'),
             'error'=>$this->lastErrorMessage(),
-        ],['state','poller','worker','cookies','proxy']));
+        ],['state','poller','worker','cookies','proxy','gproxy','pot']));
     }
     private function lastErrorMessage(): string
     {
@@ -310,7 +313,7 @@ final class Bot
                 $hint=$custom->hint(substr($action,12));
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$hint,'show_alert'=>$hint!=='','cache_time'=>0]); return;
             }
-            if(preg_match('/^ck(?:rm|ex):/',$action)) { (new CookieJars($this))->callback($cb,$chat,$user,(int)($message['message_id']??0)); return; }
+            if(preg_match('/^ck(?:rm|ex|ts|lb):/',$action)) { (new CookieJars($this))->callback($cb,$chat,$user,(int)($message['message_id']??0)); return; }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
             if($action==='custom:noop') return;
             if(!$group) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
@@ -381,6 +384,9 @@ final class Bot
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'admins.add:')) {
             (new Administrators($this))->receive($chat,$user,$message,$state); return;
+        }
+        if($this->admin($user)&&is_string($state)&&str_starts_with($state,'cklabel:')) {
+            (new CookieJars($this))->receiveLabel($chat,$user,$text,$state); return;
         }
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;

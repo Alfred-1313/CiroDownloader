@@ -59,9 +59,35 @@ final class CookieJars
         }
         return $summary;
     }
-    public function name(string $code): string
+    public static function serviceName(Ui $ui,string $code): string
     {
-        return trim(preg_replace('/^[^\p{L}\p{N}]+/u','',$this->bot->ui->label('cookie_'.self::SERVICES[$code]))??'');
+        return trim(preg_replace('/^[^\p{L}\p{N}]+/u','',$ui->label('cookie_'.self::SERVICES[$code]))??'');
+    }
+    public function name(string $code): string { return self::serviceName($this->bot->ui,$code); }
+    /** Relative time such as "2 hours ago", in the administrator's language. */
+    public static function ago(Ui $ui,int $timestamp,?int $now=null): string
+    {
+        $seconds=max(0,($now??time())-$timestamp);
+        if($seconds<60) return $ui->plain('cookie_ago_now');
+        [$key,$value]=$seconds<3600?['cookie_ago_minutes',intdiv($seconds,60)]:($seconds<86400?['cookie_ago_hours',intdiv($seconds,3600)]:['cookie_ago_days',intdiv($seconds,86400)]);
+        return $ui->text($key,['n'=>$value]);
+    }
+    /** What the account cookie's stated expiry means for the administrator. */
+    public static function expiryText(Ui $ui,?int $expires,?int $now=null): string
+    {
+        $now??=time();
+        if($expires===null) return $ui->plain('cookie_exp_unknown');
+        if($expires===0) return $ui->plain('cookie_exp_session');
+        if($expires<=$now) return $ui->plain('cookie_exp_expired');
+        $left=$expires-$now;
+        return $left<172800?$ui->text('cookie_exp_hours',['n'=>max(1,intdiv($left,3600))]):$ui->text('cookie_exp_days',['n'=>(int)ceil($left/86400)]);
+    }
+    public static function historyText(Ui $ui,?int $ok,?int $fail): string
+    {
+        if($ok===null&&$fail===null) return $ui->plain('cookie_hist_none');
+        if($fail===null) return $ui->text('cookie_hist_ok',['ok'=>self::ago($ui,$ok)]);
+        if($ok===null) return $ui->text('cookie_hist_fail',['fail'=>self::ago($ui,$fail)]);
+        return $ui->text('cookie_hist_both',['ok'=>self::ago($ui,$ok),'fail'=>self::ago($ui,$fail)]);
     }
     /** The message shown after a document: counts, per-file reasons and the new total. */
     public function result(string $code,array $summary): string
@@ -82,8 +108,8 @@ final class CookieJars
     {
         $rows=[]; $ui=$this->bot->ui;
         foreach($jars as $index=>$jar) {
-            $tag=$code.':'.$jar['id'].':'.substr($jar['hash'],0,8);
-            $rows[]=[$ui->button('cookie_jar_export','ckex:'.$tag,['n'=>$index+1]),$ui->button('cookie_jar_remove','ckrm:'.$tag,['n'=>$index+1])];
+            $tag=$code.':'.$jar['id'].':'.substr($jar['hash'],0,8); $n=['n'=>$index+1];
+            $rows[]=[$ui->button('cookie_jar_export','ckex:'.$tag,$n),$ui->button('cookie_jar_remove','ckrm:'.$tag,$n),$ui->button('cookie_jar_test','ckts:'.$tag,$n),$ui->button('cookie_jar_label','cklb:'.$tag,$n)];
         }
         return $rows;
     }
@@ -92,7 +118,10 @@ final class CookieJars
         $ui=$this->bot->ui; $pool=self::pool($this->bot->config,$code); if(!$pool) return;
         $lines=[]; $jars=$pool->describe();
         foreach($jars as $index=>$jar) {
-            $lines[]=$ui->text($jar['failed']?'cookie_pool_jar_failed':'cookie_pool_jar',['n'=>$index+1,'count'=>$jar['count'],'expired'=>$jar['expired'],'session'=>$jar['session']]);
+            $lines[]=$ui->text($jar['failed']?'cookie_pool_jar_failed':'cookie_pool_jar',[
+                'n'=>$index+1,'label'=>$jar['label']!==''?$ui->text('cookie_label_view',['label'=>$jar['label']]):'','count'=>$jar['count'],'expired'=>$jar['expired'],'session'=>$jar['session'],
+                'expiry'=>self::expiryText($ui,$jar['expires']),'history'=>self::historyText($ui,$jar['ok'],$jar['fail']),
+            ],['label']);
         }
         $text=$ui->text('cookie_pool_view',[
             'service'=>$this->name($code),'count'=>count($jars),'max'=>CookiePool::MAX_JARS,
@@ -101,15 +130,66 @@ final class CookieJars
         ],['jars']).($notice!==''?"\n\n".$notice:'');
         $this->bot->send($chat,$text,$this->rows($code,$jars),$message);
     }
+    /** Test one jar: live for YouTube, structure and expiry for the others. Returns a message. */
+    private function test(string $code,CookiePool $pool,array $jar): string
+    {
+        $ui=$this->bot->ui; $content=$pool->content($jar['id']);
+        if($content===null) return $ui->text('cookie_test_inconclusive');
+        try {
+            if($code==='yt') {
+                require_once __DIR__.'/Download.php';
+                $folder=$this->bot->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
+                if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
+                try {
+                    $fresh=(new Download($this->bot->config))->verifyCookies($content,$folder,$this->bot->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
+                    // The test may rotate the cookies; keep the freshest copy of this jar only.
+                    try { saveYouTubeCookies($this->bot->config,$fresh,$jar['hash'],$jar['path']); } catch(\Throwable) {}
+                } finally { Download::clean($folder); }
+            } else {
+                GalleryMedia::validateFor((string)galleryFromPrefix($code),$content);
+                $pool->markWorking($jar['id']);
+                return $ui->text('cookie_test_structure_ok');
+            }
+        } catch(MediaFailure $e) {
+            if($e->reason==='cookies') { $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed'); }
+            return $ui->text($e->reason==='blocked'?'cookie_test_blocked':'cookie_test_inconclusive');
+        } catch(\RuntimeException) {
+            $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed');
+        } catch(\Throwable) { return $ui->text('cookie_test_inconclusive'); }
+        $pool->markWorking($jar['id']);
+        return $ui->text('cookie_test_live_ok');
+    }
+    /** The administrator's next message names the jar they chose. */
+    public function receiveLabel(int $chat,int $user,string $text,string $state): void
+    {
+        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^cklabel:(yt|ig|pin|tt|x):([a-f0-9]{12}|main)$/D',$state,$match)) return;
+        $pool=self::pool($this->bot->config,$match[1]);
+        if(!$pool||!$pool->setLabel($match[2],$text)) { $this->bot->send($chat,$this->bot->text('cookie_label_invalid')); return; }
+        $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        $this->view($chat,$match[1],0,$this->bot->text('cookie_label_saved'));
+    }
     /** Inline buttons of the pool list: export or remove one jar. */
     public function callback(array $query,int $chat,int $user,int $message): void
     {
         $ui=$this->bot->ui; $answer=fn(string $text='',bool $alert=false)=>$this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$query['id'],'text'=>$text,'show_alert'=>$alert,'cache_time'=>0]);
-        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^ck(rm|ex):(yt|ig|pin|tt|x):([a-f0-9]{12}|main):([a-f0-9]{8})$/D',(string)($query['data']??''),$match)) { $answer($ui->plain('denied'),true); return; }
+        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^ck(rm|ex|ts|lb):(yt|ig|pin|tt|x):([a-f0-9]{12}|main):([a-f0-9]{8})$/D',(string)($query['data']??''),$match)) { $answer($ui->plain('denied'),true); return; }
         [, $action,$code,$id,$prefix]=$match;
         $pool=self::pool($this->bot->config,$code); $jar=null;
-        foreach($pool?$pool->jars():[] as $candidate) if($candidate['id']===$id&&str_starts_with($candidate['hash'],$prefix)) $jar=$candidate;
+        $position=0;
+        foreach($pool?$pool->jars():[] as $index=>$candidate) if($candidate['id']===$id&&str_starts_with($candidate['hash'],$prefix)) { $jar=$candidate; $position=$index+1; }
         if(!$jar) { $answer($ui->plain('cookie_remove_changed'),true); $this->view($chat,$code,$message); return; }
+        if($action==='lb') {
+            $answer();
+            $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'cklabel:'.$code.':'.$id,time()+600]);
+            $this->bot->send($chat,$ui->text('cookie_label_prompt',['n'=>$position]));
+            return;
+        }
+        if($action==='ts') {
+            // Testing can take a while, so acknowledge first and report in the list itself.
+            $answer($ui->plain('cookie_checking'));
+            $this->view($chat,$code,$message,$this->test($code,$pool,$jar));
+            return;
+        }
         if($action==='ex') {
             try {
                 $content=$pool->content($id);

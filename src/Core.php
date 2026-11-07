@@ -10,6 +10,10 @@ final class Config
     public const VIDEO_QUALITIES=[360,480,720,1080];
     /** When on, downloads try without cookies first and use a cookie jar only if the site refuses. */
     public bool $cookieFallback=false;
+    /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
+    public string $galleryProxy='';
+    /** Optional PO Token provider for YouTube, for example http://pot:4416. */
+    public string $youtubePotUrl='';
 
     public function __construct(
         public string $token, public array $admins, public string $storage,
@@ -39,6 +43,8 @@ final class Config
             throw new \RuntimeException('Invalid file limit for configured Bot API');
         }
         $proxy=getenv('YOUTUBE_PROXY')?:'';
+        $galleryProxy=getenv('GALLERY_PROXY')?:'';
+        $potUrl=getenv('YOUTUBE_POT_URL')?:'';
         $concurrency=getenv('WORKER_CONCURRENCY');
         if($concurrency===false||$concurrency==='') $concurrency='3';
         if(!preg_match('/^[1-8]$/D',$concurrency)) throw new \RuntimeException('WORKER_CONCURRENCY must be between 1 and 8');
@@ -48,11 +54,21 @@ final class Config
                 throw new \RuntimeException('YOUTUBE_PROXY must be an HTTP, HTTPS or SOCKS5 URL');
             }
         }
-        return new self($token, array_map('intval', explode(',', $ids)),
+        foreach(['GALLERY_PROXY'=>$galleryProxy] as $name=>$value) if($value!=='') {
+            $parts=parse_url($value);
+            if(!$parts||empty($parts['host'])||!in_array($parts['scheme']??'', ['http','https','socks5','socks5h'],true)) throw new \RuntimeException($name.' must be an HTTP, HTTPS or SOCKS5 URL');
+        }
+        if($potUrl!=='') {
+            $parts=parse_url($potUrl);
+            if(!$parts||empty($parts['host'])||!in_array($parts['scheme']??'',['http','https'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['query'])||isset($parts['fragment'])) throw new \RuntimeException('YOUTUBE_POT_URL must be an HTTP or HTTPS URL without credentials');
+        }
+        $config=new self($token, array_map('intval', explode(',', $ids)),
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
             getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'',getenv('TIKTOK_COOKIES_FILE')?:'',getenv('TWITTER_COOKIES_FILE')?:'');
+        $config->galleryProxy=$galleryProxy; $config->youtubePotUrl=rtrim($potUrl,'/');
+        return $config;
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
@@ -101,7 +117,7 @@ function youtubeCookieIdentity(string $content): string
 
 function youtubeCookiePool(Config $config): CookiePool
 {
-    return new CookiePool($config->cookiePath(),'Zero\\validateYouTubeCookies','Zero\\youtubeCookieIdentity','youtube.com');
+    return new CookiePool($config->cookiePath(),'Zero\\validateYouTubeCookies','Zero\\youtubeCookieIdentity','youtube.com',['__Secure-3PSID','__Secure-1PSID','SAPISID','SID']);
 }
 
 // An expected hash makes downloader refreshes lose to a newer administrator import.

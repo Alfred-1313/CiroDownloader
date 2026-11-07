@@ -26,7 +26,7 @@ try {
     $new=str_replace('FAKE_SESSION_A','FAKE_SESSION_B',$old); Zero\saveYouTubeCookies($config,$old);
     $click=function(string $key) use($bot): void { $bot->handle(cookieMessage($bot->label($key))); };
     $bot->handle(cookieMessage('/cookies'));
-    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and the cookie-mode switch');
+    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_alerts'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and the cookie-mode switch');
     $click('cookie_youtube');
     managerCookieCheck(cookieLabels($api)===array_map(fn($key)=>$bot->label($key),['cookie_upload','cookie_view','cookie_remove','cookie_back_services']),'YouTube has independent import, view, delete and Back reply controls');
     $click('cookie_upload');
@@ -35,8 +35,8 @@ try {
     managerCookieCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back to YouTube cancels the upload session');
     $click('cookie_view');
     $details=end($api->calls)[1]['text']; $inline=end($api->calls)[1]['reply_markup']['inline_keyboard']??[];
-    managerCookieCheck(str_contains($details,'1</b> از 10')&&str_contains($details,'2 منقضی')===false&&str_contains($details,'1 منقضی')&&!str_contains($details,'FAKE_'),'view lists each jar with counts but never puts cookie values in message text');
-    managerCookieCheck(count($inline)===1&&count($inline[0])===2&&str_starts_with($inline[0][0]['callback_data'],'ckex:yt:main:')&&str_starts_with($inline[0][1]['callback_data'],'ckrm:yt:main:'),'view offers per-jar export and removal as inline buttons');
+    managerCookieCheck(str_contains($details,'1</b> از 10')&&str_contains($details,'⏳')&&str_contains($details,'📈')&&!str_contains($details,'FAKE_'),'view lists each jar with expiry and history but never puts cookie values in message text');
+    managerCookieCheck(count($inline)===1&&count($inline[0])===4&&str_starts_with($inline[0][0]['callback_data'],'ckex:yt:main:')&&str_starts_with($inline[0][1]['callback_data'],'ckrm:yt:main:')&&str_starts_with($inline[0][2]['callback_data'],'ckts:yt:main:')&&str_starts_with($inline[0][3]['callback_data'],'cklb:yt:main:'),'view offers per-jar export, removal, test and name as inline buttons');
     $click('cookie_view'); $exportQuery=['callback_query'=>['id'=>'q','from'=>['id'=>42],'message'=>['message_id'=>500,'chat'=>['id'=>42,'type'=>'private']],'data'=>$inline[0][0]['callback_data']]];
     $bot->handle($exportQuery); $export=end($api->exports);
     managerCookieCheck($export['chat']===42&&$export['hash']===hash('sha256',$old)&&$export['protected']&&$export['name']==='youtube-cookies.txt','explicit export delivers an exact private protected snapshot only to the requesting administrator');
