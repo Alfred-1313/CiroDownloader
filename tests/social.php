@@ -42,15 +42,15 @@ try {
         $click('cookie_'.$service); $keys=array_column(array_merge(...end($api->calls)[1]['reply_markup']['keyboard']),'text');
         socialCheck(in_array($bot->label($prefix.'_cookie_upload'),$keys,true)&&in_array($bot->label($prefix.'_cookie_view'),$keys,true),'independent cookie reply keyboard: '.$service);
         $click($prefix.'_cookie_view'); socialCheck(!str_contains(end($api->calls)[1]['text'],'FAKE_'),'metadata view never exposes cookie values: '.$service);
-        $click($prefix.'_cookie_export'); socialCheck(end($api->calls)[0]==='sendDocument'&&end($api->calls)[1]['protect_content']&&end($api->calls)[1]['document'] instanceof CURLStringFile,'administrator export is a protected document: '.$service);
+        $bot->handle(['callback_query'=>['id'=>'export','from'=>['id'=>42],'message'=>['message_id'=>800,'chat'=>['id'=>42,'type'=>'private']],'data'=>end($api->calls)[1]['reply_markup']['inline_keyboard'][0][0]['callback_data']]]); socialCheck((($docs=array_values(array_filter($api->calls,fn($call)=>$call[0]==='sendDocument')))&&end($docs)[1]['protect_content']&&end($docs)[1]['document'] instanceof CURLStringFile),'administrator export is a protected document: '.$service);
         $before=count($api->calls); $send($bot->label($prefix.'_cookie_export'),7,7); $send($bot->label($prefix.'_cookie_export'),42,-100123);
         socialCheck(!array_filter(array_slice($api->calls,$before),fn($call)=>$call[0]==='sendDocument'),'ordinary users and groups cannot export: '.$service);
         $click($prefix.'_cookie_upload'); $send('waiting for my file');
         socialCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()===$prefix.'_cookie.upload','upload remains pending for a file: '.$service);
         $api->content=$cookies;
         $bot->handle(['message'=>['message_id'=>701,'from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'document'=>['file_id'=>'fixture','file_name'=>'session.txt','file_size'=>strlen($cookies)]]]);
-        socialCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()&&file_get_contents($path)===$cookies,'document import saves and clears only its own state: '.$service);
-        $click($prefix.'_cookie_remove'); $fresh=str_replace('FAKE_SESSION_A','FAKE_SESSION_B',$cookies); $class::saveCookies($config,$fresh); $click($prefix.'_cookie_confirm');
+        socialCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()===$prefix.'_cookie.upload'&&file_get_contents($path)===$cookies,'document import saves and keeps only its own upload open: '.$service);
+        $click($prefix.'_cookie_remove'); $fresh=str_replace('FAKE_OTHER','FAKE_FRESH_OTHER',$cookies); $class::saveCookies($config,$fresh); $click($prefix.'_cookie_confirm');
         socialCheck(file_get_contents($path)===$fresh,'stale deletion cannot remove a newer import: '.$service);
         $click($prefix.'_cookie_remove'); $click($prefix.'_cookie_back'); socialCheck(is_file($path)&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back cancels deletion: '.$service);
         $click($prefix.'_cookie_remove'); $click($prefix.'_cookie_confirm'); socialCheck(!is_file($path)&&file_get_contents($config->instagramCookiePath())===$original,'confirmed deletion preserves other services: '.$service);

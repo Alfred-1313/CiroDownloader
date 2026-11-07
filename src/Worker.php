@@ -31,6 +31,7 @@ final class Worker
     public function process(array $job): void
     {
         $config=$this->config; $store=$this->store; $api=$this->api;
+        $config->cookieFallback=$store->get('cookies.fallback','0')==='1';
         $bot=new Bot($config,$store,$api); $downloader=new Download($config);
         $downloads=$config->storage.'/downloads';
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));

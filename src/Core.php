@@ -3,10 +3,13 @@ declare(strict_types=1);
 
 namespace Zero;
 require_once __DIR__.'/Ui.php';
+require_once __DIR__.'/CookiePool.php';
 
 final class Config
 {
     public const VIDEO_QUALITIES=[360,480,720,1080];
+    /** When on, downloads try without cookies first and use a cookie jar only if the site refuses. */
+    public bool $cookieFallback=false;
 
     public function __construct(
         public string $token, public array $admins, public string $storage,
@@ -82,15 +85,37 @@ function validateYouTubeCookies(string $content): void
     if(!$youtube) throw new \RuntimeException('No youtube.com cookies found in this export');
 }
 
+// Google identifies the signed-in account by its session cookies. Exporting the same account again replaces its jar.
+function youtubeCookieIdentity(string $content): string
+{
+    $found=[];
+    foreach(preg_split('/\r?\n/',$content) as $line) {
+        if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+        elseif($line===''||str_starts_with($line,'#')) continue;
+        $fields=explode("\t",$line);
+        if(count($fields)===7&&in_array($fields[5],['__Secure-3PSID','__Secure-1PSID','SAPISID','SID'],true)&&$fields[6]!=='') $found[$fields[5]]=$fields[6];
+    }
+    foreach(['__Secure-3PSID','__Secure-1PSID','SAPISID','SID'] as $name) if(isset($found[$name])) return $name.'='.$found[$name];
+    return '';
+}
+
+function youtubeCookiePool(Config $config): CookiePool
+{
+    return new CookiePool($config->cookiePath(),'Zero\\validateYouTubeCookies','Zero\\youtubeCookieIdentity');
+}
+
 // An expected hash makes downloader refreshes lose to a newer administrator import.
-function saveYouTubeCookies(Config $config, string $content, ?string $expectedHash = null): bool
+// The destination is one jar of the pool; all jars share the pool lock.
+function saveYouTubeCookies(Config $config, string $content, ?string $expectedHash = null, ?string $path = null): bool
 {
     validateYouTubeCookies($content);
     if(!is_dir($config->storage)&&!mkdir($config->storage,0700,true)) throw new \RuntimeException('Cannot create storage');
-    $destination=$config->cookiePath();
-    $lock=fopen($destination.'.lock','c');
+    $destination=$path??$config->cookiePath();
+    if(!is_dir(dirname($destination))&&!mkdir(dirname($destination),0700,true)) throw new \RuntimeException('Cannot create cookie directory');
+    $lockFile=$config->cookiePath().'.lock';
+    $lock=fopen($lockFile,'c');
     if(!$lock) throw new \RuntimeException('Cannot lock cookie file');
-    chmod($destination.'.lock',0600);
+    chmod($lockFile,0600);
     $temporary=dirname($destination).'/.cookies-import-'.bin2hex(random_bytes(6));
     try {
         if(!flock($lock,LOCK_EX)) throw new \RuntimeException('Cannot lock cookie file');

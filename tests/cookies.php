@@ -51,7 +51,8 @@ try {
     $config=new Zero\Config('123:test',[42],$temp);
     $store=new Zero\Store($temp); $api=new CookieApi(); $bot=new Zero\Bot($config,$store,$api);
     $old="# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_OLD_SESSION\n";
-    $new=str_replace('FAKE_OLD_SESSION','FAKE_NEW_SESSION',$old);
+    // The same account exported again (Google rotates auxiliary cookies) replaces its jar.
+    $new=$old.".youtube.com\tTRUE\t/\tTRUE\t2147483647\t__Secure-1PSIDTS\tFAKE_NEW_ROTATION\n";
     $mode=$temp.'/probe-mode'; file_put_contents($mode,'ok');
     $probe=$temp.'/probe';
     $metadata=['title'=>'Public test','formats'=>[['format_id'=>'18','width'=>640,'height'=>360,'vcodec'=>'avc1','acodec'=>'aac']]];
@@ -100,7 +101,7 @@ try {
     expect($verification[array_search('--cookies',$verification,true)+1]!==$config->cookiePath(),'verification never edits the live cookie jar before success');
     expect(count(array_filter(array_slice($api->calls,$before),fn($call)=>$call[0]==='sendMessage'))===0,'checking and success edit the original import message without extra replies');
     expect((fileperms($config->cookiePath())&0077)===0,'replacement cookie file is private');
-    expect(!$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'successful import ends upload session');
+    expect($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='cookie.upload','successful import keeps the upload open so more exports can follow');
     expect(count(array_filter($api->calls,fn($c)=>$c[0]==='deleteMessage'))>0,'uploaded cookie message deletion is attempted');
     $bot->handle(callback(42,'cookies:import'));
     $store->query('UPDATE states SET expires=1 WHERE user_id=42');

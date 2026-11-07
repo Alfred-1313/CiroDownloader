@@ -26,7 +26,7 @@ try {
     $new=str_replace('FAKE_SESSION_A','FAKE_SESSION_B',$old); Zero\saveYouTubeCookies($config,$old);
     $click=function(string $key) use($bot): void { $bot->handle(cookieMessage($bot->label($key))); };
     $bot->handle(cookieMessage('/cookies'));
-    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first');
+    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and the cookie-mode switch');
     $click('cookie_youtube');
     managerCookieCheck(cookieLabels($api)===array_map(fn($key)=>$bot->label($key),['cookie_upload','cookie_view','cookie_remove','cookie_back_services']),'YouTube has independent import, view, delete and Back reply controls');
     $click('cookie_upload');
@@ -34,14 +34,17 @@ try {
     $click('cookie_back_youtube');
     managerCookieCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back to YouTube cancels the upload session');
     $click('cookie_view');
-    $details=end($api->calls)[1]['text'];
-    managerCookieCheck(str_contains($details,'<b>2</b>')&&str_contains($details,'youtube.com')&&!str_contains($details,'FAKE_'),'view displays metadata without putting cookie values in message text');
-    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_export'),$bot->label('cookie_back_youtube')],'view offers explicit file retrieval and a return control');
-    $click('cookie_export'); $export=end($api->exports);
+    $details=end($api->calls)[1]['text']; $inline=end($api->calls)[1]['reply_markup']['inline_keyboard']??[];
+    managerCookieCheck(str_contains($details,'1</b> از 10')&&str_contains($details,'2 منقضی')===false&&str_contains($details,'1 منقضی')&&!str_contains($details,'FAKE_'),'view lists each jar with counts but never puts cookie values in message text');
+    managerCookieCheck(count($inline)===1&&count($inline[0])===2&&str_starts_with($inline[0][0]['callback_data'],'ckex:yt:main:')&&str_starts_with($inline[0][1]['callback_data'],'ckrm:yt:main:'),'view offers per-jar export and removal as inline buttons');
+    $click('cookie_view'); $exportQuery=['callback_query'=>['id'=>'q','from'=>['id'=>42],'message'=>['message_id'=>500,'chat'=>['id'=>42,'type'=>'private']],'data'=>$inline[0][0]['callback_data']]];
+    $bot->handle($exportQuery); $export=end($api->exports);
     managerCookieCheck($export['chat']===42&&$export['hash']===hash('sha256',$old)&&$export['protected']&&$export['name']==='youtube-cookies.txt','explicit export delivers an exact private protected snapshot only to the requesting administrator');
     managerCookieCheck(glob($temp.'/.cookie-export-*')===[]&&file_get_contents($config->cookiePath())===$old,'export uses an in-memory snapshot and preserves the active cookie file');
-    $api->failExport=true; $click('cookie_export'); $api->failExport=false;
+    $api->failExport=true; $bot->handle($exportQuery); $api->failExport=false;
     managerCookieCheck(glob($temp.'/.cookie-export-*')===[]&&file_get_contents($config->cookiePath())===$old,'export failure preserves the active jar and leaves no temporary credential file');
+    $forged=$exportQuery; $forged['callback_query']['from']['id']=7; $forged['callback_query']['message']['chat']['id']=7; $before=count($api->exports); $bot->handle($forged);
+    managerCookieCheck(count($api->exports)===$before,'an ordinary user cannot export a jar through a forged inline callback');
     foreach(Zero\Cookies::REPLIES as $key) {
         managerCookieCheck(!$bot->ui->customizable('button',$key),'cookie administration stays outside Personalization: '.$key);
         $bot->handle(cookieMessage($bot->label($key),7,7));
