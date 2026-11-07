@@ -10,7 +10,7 @@ final class Updates
 
     private function authorized(int $chat,int $user): bool
     {
-        return in_array($user,$this->config->admins,true)&&($chat===$user||($chat<0&&$this->store->groupsEnabled()));
+        return $this->store->isAdmin($user,$this->config->admins)&&($chat===$user||($chat<0&&$this->store->groupsEnabled()));
     }
     private function scope(int $chat,int $user): string { return $chat<0?$user.'.'.$chat.'.'.max(0,$this->thread):(string)$user; }
     private function key(string $name,int $chat,int $user): string { return 'update_'.$name.'.'.$this->scope($chat,$user); }

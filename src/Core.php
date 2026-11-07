@@ -220,6 +220,9 @@ final class Store
                 action TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', created INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS one_update ON update_requests((1)) WHERE status IN ('queued','running');
             CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, last_request INTEGER NOT NULL DEFAULT 0);");
+        $this->db->exec("CREATE TABLE IF NOT EXISTS user_profiles (user_id INTEGER PRIMARY KEY,username TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS profile_username ON user_profiles(username) WHERE username<>'';
+            CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY,added_by INTEGER NOT NULL,created INTEGER NOT NULL);");
         // NULL is a legacy job; 0 waits for its initial notice; >0 is ready to edit.
         $this->db->exec('BEGIN IMMEDIATE');
         try {
@@ -261,6 +264,14 @@ final class Store
                 }
                 $this->set('ui_delivery_v2','1');
             }
+            if($this->get('ui_instagram_source_v1','0')!=='1') {
+                foreach(['instagram_caption','instagram_page_caption'] as $key) {
+                    $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];
+                    $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.'.$key])->fetchColumn();
+                    if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.'.$key]);
+                }
+                $this->set('ui_instagram_source_v1','1');
+            }
             $this->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
@@ -278,6 +289,37 @@ final class Store
         $this->query('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [$key,$value]);
     }
     public function enabled(): bool { return $this->get('enabled', '1') === '1'; }
+    public function observeUser(array $profile): void
+    {
+        $id=(int)($profile['id']??0);
+        if($id<1||!empty($profile['is_bot'])) return;
+        $username=(string)($profile['username']??'');
+        $username=preg_match('/^[A-Za-z0-9_]{1,32}$/D',$username)?strtolower($username):'';
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            if($username!=='') $this->query("UPDATE user_profiles SET username='' WHERE username=? AND user_id<>?",[$username,$id]);
+            $this->query('INSERT INTO user_profiles(user_id,username,updated) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,updated=excluded.updated',[$id,$username,time()]);
+            $this->db->exec('COMMIT');
+        } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
+    public function isAdmin(int $user,array $roots): bool
+    {
+        if(in_array($user,$roots,true)) return true;
+        if(!$roots) return false;
+        // PDO execute-array values are strings; CTE values have no column affinity.
+        $seeds=implode(',',array_fill(0,count($roots),'(CAST(? AS INTEGER))'));
+        return (bool)$this->query('WITH RECURSIVE authorized(id) AS (VALUES '.$seeds.' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id) SELECT 1 FROM authorized WHERE id=CAST(? AS INTEGER)',array_merge($roots,[$user]))->fetchColumn();
+    }
+    public function addAdministrator(int $user,int $actor,array $roots): bool
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            if($user<1||!$this->isAdmin($actor,$roots)) throw new \RuntimeException('Administrator access changed');
+            $added=!$this->isAdmin($user,$roots);
+            if($added) $this->query('INSERT INTO bot_admins(user_id,added_by,created) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET added_by=excluded.added_by,created=excluded.created',[$user,$actor,time()]);
+            $this->db->exec('COMMIT'); return $added;
+        } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
     public function groupsEnabled(): bool { return $this->get('groups_enabled','1')==='1'; }
     public function enqueue(int $update, int $user, int $chat, string $url,int $thread=0): string
     {

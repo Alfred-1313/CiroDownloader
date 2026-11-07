@@ -30,10 +30,10 @@ try {
     $bot->handle(adminMessage('/start'));
     adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('admin')],'the main keyboard contains Help and the administrator entrance');
     $bot->handle(adminMessage($bot->label('admin')));
-    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','update','off','back_home']);
+    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','update','add_admin','off','back_home']);
     adminCheck(adminLabels($api)===$expected&&!isset(end($api->calls)[1]['reply_markup']['inline_keyboard']),'entering administration replaces the main reply keyboard with the administration tools');
     adminCheck(end($api->calls)[1]['reply_markup']['resize_keyboard']&&end($api->calls)[1]['reply_markup']['is_persistent'],'the administration keyboard stays available while navigating tools');
-    foreach(['customize','health','cookies','update','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
+    foreach(['customize','health','cookies','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
 
     $bot->handle(adminMessage($bot->label('customize')));
     adminCheck(str_contains(json_encode(end($api->calls)[1]['reply_markup']),'custom:groups:text'),'the Personalization reply control opens the existing user-only editor');
@@ -71,7 +71,7 @@ try {
 
     $bot->handle(adminMessage('/start',7));
     adminCheck(adminLabels($api)===[$bot->label('help')],'ordinary users receive only their own keyboard');
-    foreach(['admin','customize','health','cookies','update','off','on','back_home'] as $key) {
+    foreach(['admin','customize','health','cookies','update','add_admin','off','on','back_home'] as $key) {
         $before=count($api->calls); $bot->handle(adminMessage($bot->label($key),7));
         foreach(array_slice($api->calls,$before) as $call) if(isset($call[1]['reply_markup']['keyboard'])&&count($call[1]['reply_markup']['keyboard'])>1) throw new RuntimeException('Administrator keyboard leaked through '.$key);
     }

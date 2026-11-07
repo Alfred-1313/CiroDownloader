@@ -75,6 +75,7 @@ try {
     if($job['status']!=='done') throw new RuntimeException($store->get('last_job_error'));
     $photos=array_values(array_filter($calls,fn($call)=>$call['method']==='sendPhoto'));
     igMediaCheck(count($photos)===1&&$photos[0]['uploads']['photo']['hash']===hash_file('sha256',$photo),'a single Instagram photo uploads its real bytes directly without quality selection');
+    igMediaCheck(json_decode($photos[0]['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($photos[0]['params']['caption'],'href=')&&!str_contains($photos[0]['params']['caption'],'مشاهده'),'a default photo caption has no original-post link and its source button is off');
     igMediaCheck(count(file($trace))===1&&!in_array('--cookies',json_decode(file($trace)[0],true)['args'],true),'the actual gallery-dl CLI handles a cookie-free post in one invocation');
     igMediaCheck(end($calls)['method']==='deleteMessage'&&!array_filter($calls,fn($call)=>$call['method']==='editMessageMedia'),'single-file delivery cleans up its one status and never shows a quality poster');
     $cookies="# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t2147483647\tsessionid\tFAKE_SESSION\n"; Zero\Instagram::saveCookies($config,$cookies);
@@ -83,6 +84,7 @@ try {
     $videos=array_values(array_filter($calls,fn($call)=>$call['method']==='sendVideo')); $invocation=json_decode(file($trace)[0],true);
     igMediaCheck(count($videos)===1&&$videos[0]['uploads']['video']['mime']==='video/mp4'&&(int)$videos[0]['params']['chat_id']===-100123&&(int)$videos[0]['params']['message_thread_id']===321,'a silent Instagram video is prepared and delivered to the original group topic');
     igMediaCheck($invocation['cookie_mode']===0600&&file_get_contents($config->instagramCookiePath())===$cookies,'Instagram downloads use private cookie copies without refreshing the shared jar');
+    igMediaCheck(json_decode($videos[0]['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($videos[0]['params']['caption'],'href='),'a default video also has no caption link or source button');
     $job=$process(['video'],music:false,withAudio:true);
     igMediaCheck($job['status']==='done','Reels without a separate music record still deliver normally');
     $info=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$temp.'/delivered.mp4'],$temp,30),true);
@@ -92,10 +94,12 @@ try {
     $state=json_decode($job['options'],true)['pages']; $firstMessage=$state['message']; $cache=$storage.'/instagram-pages/'.$state['folder'];
     $markup=json_decode($slides[0]['params']['reply_markup'],true)['inline_keyboard'];
     igMediaCheck($job['status']==='done'&&count($slides)===1&&$slides[0]['method']==='sendPhoto'&&count($markup[0])===1&&$markup[0][0]['callback_data']==='igpage:'.$job['id'].':2:1'&&$markup[0][0]['text']==='بعدی ⏭️'&&!isset($markup[0][0]['style']),'the first slide has one full-row neutral Next button with no counter or Previous button');
+    igMediaCheck(count($markup)===1&&!str_contains($slides[0]['params']['caption'],'href='),'a default carousel keeps its navigation without an original-post link or source button');
     igMediaCheck(str_contains($slides[0]['params']['caption'],'متن اصلی پست')&&str_contains($slides[0]['params']['caption'],'&lt;script&gt;')&&!array_filter($calls,fn($call)=>in_array($call['method'],['upload','fallback','createAccount','createPage'],true)),'native pages include an escaped original caption and never contact an external host');
     igMediaCheck(count(glob($cache.'/*'))===3&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'only the prepared private media files survive initial-job cleanup');
     // A new poller/store instance must use the durable cursor, not process memory.
     $pageBot=new Zero\Bot($config,new Zero\Store($storage),$api);
+    $toggleSource=fn()=>$pageBot->handle(['callback_query'=>['id'=>'source-toggle','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igsource']]);
     $turn=function(array $saved,int $page,?int $user=null,?int $message=null,?int $thread=null,?int $revision=null,bool $legacy=false,bool $omitThread=false,?int $chat=null) use($pageBot): void {
         $state=json_decode($saved['options'],true)['pages'];
         $destination=$chat??(int)$saved['chat_id'];
@@ -118,6 +122,7 @@ try {
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,status) VALUES(?,?,?,?,?,1,'running')",[80000,$job['user_id'],$job['chat_id'],$job['url'],time()]);
     $turn($job,2); igMediaCheck($store->claim('media')===null,'next-page requests respect the configured per-user processing limit');
     $store->query('DELETE FROM jobs WHERE update_id=80000'); $store->set('processing_limit.group','0');
+    $toggleSource(); // Explicitly enable the optional source row for toggle coverage.
     file_put_contents($log,''); $turn($job,2,omitThread:true); $turn($job,2,omitThread:true); $calls=$requests();
     igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','editMessageMedia'],true))&&$store->claim('inspect')===null,'callbacks enqueue media without blocking the poller or the inspection lane');
     $next=$store->claim('media'); igMediaCheck($next&&$next['phase']==='instagram_page'&&(int)$next['thread_id']===321&&$store->claim('media')===null,'the non-admin sender can use the caption buttons without topic metadata while preserving the stored topic');
@@ -130,7 +135,6 @@ try {
     igMediaCheck(!array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo','sendMessage','deleteMessage'],true)),'navigation leaves only one media message and sends no extra status or replacement messages');
     $buttons=json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'][0];
     igMediaCheck(count($buttons)===2&&$buttons[0]['callback_data']==='igpage:'.$job['id'].':1:2'&&$buttons[1]['callback_data']==='igpage:'.$job['id'].':3:2'&&!isset($buttons[0]['style'])&&!isset($buttons[1]['style'])&&str_contains($shown['caption'],'متن اصلی پست'),'the middle slide keeps its caption and uses two wide neutral navigation buttons without a counter');
-    $toggleSource=fn()=>$pageBot->handle(['callback_query'=>['id'=>'source-toggle','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igsource']]);
     $toggleSource();
     file_put_contents($log,''); $turn($job,3); $worker->process($store->claim('media')); $calls=$requests(); $job=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     $edits=array_values(array_filter($calls,fn($call)=>$call['method']==='editMessageMedia')); $lastButtons=json_decode($edits[0]['params']['reply_markup'],true)['inline_keyboard'][0];

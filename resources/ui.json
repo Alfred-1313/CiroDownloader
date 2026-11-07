@@ -142,7 +142,7 @@
     "instagram_queued":{"audience":"user","label":"ثبت درخواست اینستاگرام","group":"instagram","value":"⏳ لینک اینستاگرام ثبت شد؛ وضعیت دریافت و آماده‌سازی در همین پیام نمایش داده می‌شود."},
     "instagram_downloading":{"audience":"user","label":"دریافت محتوای اینستاگرام","group":"instagram","value":"⏳ در حال دریافت و آماده‌سازی عکس‌ها و ویدیوهای اینستاگرام…"},
     "instagram_uploading":{"audience":"user","label":"وضعیت ارسال اسلایدها","group":"instagram","value":"📤 در حال ارسال به تلگرام؛ {sent} از {count} مورد ارسال شده است.","variables":["sent","count"]},
-    "instagram_caption":{"audience":"user","label":"کپشن محتوای اینستاگرام","group":"instagram","value":"<b>📷 اینستاگرام · {index}/{count}</b>\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>","caption":true,"variables":["index","count","url"]},
+    "instagram_caption":{"audience":"user","label":"کپشن محتوای اینستاگرام","group":"instagram","value":"<b>📷 اینستاگرام · {index}/{count}</b>","caption":true,"variables":["index","count","url"],"legacy_values":["<b>📷 اینستاگرام · {index}/{count}</b>\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>"]},
     "instagram_error_cookies":{"audience":"user","label":"خطای کوکی اینستاگرام","group":"instagram","value":"🍪 کوکی اینستاگرام معتبر یا قابل خواندن نیست؛ مدیر باید فایل تازه را از «ایمپورت کوکی ← اینستاگرام» وارد کند."},
     "instagram_error_blocked":{"audience":"user","label":"خطای دسترسی اینستاگرام","group":"instagram","value":"⚠️ اینستاگرام دسترسی به این پست را نپذیرفت. ورود به حساب، خصوصی‌بودن پست یا محدودیت اتصال سرور می‌تواند علت باشد؛ مدیر باید کوکی و دسترسی حساب را بررسی کند."},
     "instagram_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال اینستاگرام","group":"instagram","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
@@ -169,7 +169,7 @@
     "instagram_article_author":{"audience":"user","label":"نام نویسندهٔ مقاله","group":"instagram","value":"Ciro Downloader","limit":128},
     "instagram_article_slide":{"audience":"user","label":"عنوان هر اسلاید مقاله","group":"instagram","value":"اسلاید {index} از {count}","variables":["index","count"]},
     "instagram_error_article":{"audience":"user","label":"خطای ساخت مقاله","group":"instagram","value":"⚠️ سرویس ساخت مقاله یا میزبانی فایل پاسخ موفق نداد؛ لینک مقاله تأیید نشد. کمی بعد دوباره تلاش کن."},
-    "instagram_page_caption":{"audience":"user","label":"کپشن صفحه‌های اینستاگرام","group":"instagram","value":"<b>📷 پست اینستاگرام</b>\n<blockquote>اسلاید {index} از {count}</blockquote>\n\n{description}","caption":true,"variables":["index","count","description","url"]},
+    "instagram_page_caption":{"audience":"user","label":"کپشن صفحه‌های اینستاگرام","group":"instagram","value":"<b>📷 پست اینستاگرام</b>\n<blockquote>اسلاید {index} از {count}</blockquote>\n\n{description}","caption":true,"variables":["index","count","description","url"],"legacy_values":["<b>📷 اینستاگرام · صفحهٔ {index} از {count}</b>\n\n{description}\n\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>"]},
     "instagram_page_expired":{"audience":"user","label":"انقضای صفحه‌های اینستاگرام","group":"instagram","value":"مهلت ورق‌زدن این پست تمام شده یا ارسال قبلی کامل نشده است؛ لینک پست را دوباره بفرست."},
     "instagram_error_expired":{"audience":"user","label":"فایل صفحهٔ اینستاگرام در دسترس نیست","group":"instagram","value":"⚠️ مهلت نگهداری فایل‌های این پست تمام شده است؛ برای دریافت صفحه‌ها لینک پست را دوباره بفرست."},
     "instagram_page_stale":{"audience":"user","label":"دکمهٔ قدیمی صفحهٔ اینستاگرام","group":"instagram","value":"این دکمه مربوط به نمای قبلی است؛ از دکمه‌های زیر اسلاید فعلی استفاده کن."},
@@ -177,7 +177,14 @@
     "instagram_page_busy":{"audience":"user","label":"صفحهٔ اینستاگرام در صف ارسال","group":"instagram","value":"اسلاید در صف نمایش است؛ کمی صبر کن."},
     "instagram_mode_info":{"audience":"admin","label":"روش ارسال پست‌های چنداسلایدی","group":"custom","value":"<blockquote><b>📷 پست‌های چنداسلایدی اینستاگرام</b></blockquote>\n\nروش فعلی: {mode}\n\nدر حالت صفحه‌به‌صفحه، عکس یا ویدیو در همان پیام جایگزین می‌شود. دکمه‌های قبلی و بعدی زیر اسلاید قرار دارند و تا ۲۴ ساعت فعال‌اند. شمارهٔ اسلاید در کپشن نمایش داده می‌شود.\n\nدکمهٔ «مشاهده در اینستاگرام» برای عکس، ویدیو و اسلایدها از کنترل زیر قابل روشن و خاموش‌کردن است؛ تغییر آن در ارسال یا ورق‌زدن بعدی اعمال می‌شود.\n\nدر حالت مقاله، همهٔ اسلایدها روی سرویس خارجی منتشر می‌شوند. تغییر روش برای درخواست‌های جدید اعمال می‌شود.","variables":["mode"]},
     "instagram_page_loading":{"audience":"user","label":"بازکردن اسلاید اینستاگرام","group":"instagram","value":"⏳ در حال بازکردن اسلاید…"},
-    "update_closed":{"audience":"admin","label":"بستن منوی به‌روزرسانی گروه","group":"updates","value":"منوی به‌روزرسانی بسته شد. برای بازکردن دوباره، /update را بفرست."}
+    "update_closed":{"audience":"admin","label":"بستن منوی به‌روزرسانی گروه","group":"updates","value":"منوی به‌روزرسانی بسته شد. برای بازکردن دوباره، /update را بفرست."},
+    "admin_add_prompt":{"audience":"admin","label":"راهنمای افزودن ادمین","group":"admin","value":"<blockquote><b>➕ افزودن ادمین</b></blockquote>\n\nنام‌کاربری تلگرام شخص را بفرست؛ مثلاً <code>@ExampleUser</code>. آیدی عددی لازم نیست.\n\nکاربر باید یک‌بار در پی‌وی ربات <code>/start</code> کرده باشد تا حسابش شناسایی شود.\nبرای لغو، بازگشت یا /cancel را بزن."},
+    "admin_add_invalid":{"audience":"admin","label":"نام‌کاربری نامعتبر ادمین","group":"admin","value":"نام‌کاربری را به‌شکل <code>@ExampleUser</code> بفرست؛ آیدی عددی پذیرفته نمی‌شود."},
+    "admin_add_unknown":{"audience":"admin","label":"کاربر ناشناخته برای ادمین","group":"admin","value":"این نام‌کاربری در ربات شناخته نشده است. کاربر ابتدا در پی‌وی ربات <code>/start</code> کند؛ سپس نام‌کاربری را دوباره بفرست."},
+    "admin_add_unavailable":{"audience":"admin","label":"خطای بررسی حساب ادمین","group":"admin","value":"بررسی حساب انجام نشد و ادمینی اضافه نشد. کاربر در پی‌وی ربات <code>/start</code> کند و دوباره تلاش کن."},
+    "admin_add_changed":{"audience":"admin","label":"تغییر نام‌کاربری ادمین","group":"admin","value":"نام‌کاربری این حساب تغییر کرده است. نام فعلی را از کاربر بگیر و دوباره بفرست."},
+    "admin_add_success":{"audience":"admin","label":"ادمین افزوده شد","group":"admin","value":"<blockquote><b>✅ ادمین افزوده شد</b></blockquote>\n\n{username} به ادمین‌های ربات اضافه شد.","variables":["username"]},
+    "admin_add_exists":{"audience":"admin","label":"ادمین تکراری","group":"admin","value":"{username} از قبل ادمین ربات است.","variables":["username"]}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},
@@ -291,6 +298,7 @@
     "instagram_output":{"audience":"admin","label":"روش ارسال پست چنداسلایدی","group":"custom","value":"روش ارسال پست چنداسلایدی"},
     "instagram_mode_pages":{"audience":"admin","label":"ارسال صفحه‌به‌صفحه","group":"custom","value":"📑 صفحه‌به‌صفحه در تلگرام"},
     "instagram_mode_article":{"audience":"admin","label":"ارسال مقاله","group":"custom","value":"📝 لینک مقاله"},
-    "close_update":{"audience":"admin","label":"بستن منوی به‌روزرسانی","group":"updates","value":"بستن"}
+    "close_update":{"audience":"admin","label":"بستن منوی به‌روزرسانی","group":"updates","value":"بستن"},
+    "add_admin":{"audience":"admin","label":"افزودن ادمین","group":"admin","value":"➕ افزودن ادمین"}
   }
 }

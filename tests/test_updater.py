@@ -151,6 +151,21 @@ class UpdaterTests(unittest.TestCase):
             with self.agent.db() as db:
                 self.assertEqual(db.execute('SELECT status FROM update_requests').fetchone()[0], 'denied')
 
+    def test_username_added_administrators_use_account_bound_grants(self):
+        with self.agent.db() as db:
+            db.executescript('CREATE TABLE bot_admins(user_id INTEGER PRIMARY KEY,added_by INTEGER,created INTEGER);'
+                             'INSERT INTO bot_admins VALUES(7,42,0),(8,7,0),(9,999,0),(10,11,0),(11,10,0);')
+        self.assertTrue(self.agent.is_admin(7))
+        self.assertTrue(self.agent.is_admin(8))
+        self.assertFalse(self.agent.is_admin(9))
+        self.assertFalse(self.agent.is_admin(10))
+        self.assertFalse(self.agent.is_admin(11))
+        self.queue(user=7, chat=-100123, thread=17)
+        self.assertTrue(self.agent.claim())
+        self.assertEqual(self.agent.job['user_id'], 7)
+        self.agent.admins = set()
+        self.assertFalse(self.agent.authorized(self.agent.job))
+
     def test_request_waits_for_message_and_is_global(self):
         self.queue(message=0)
         self.assertFalse(self.agent.claim())

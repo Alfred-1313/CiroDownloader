@@ -7,6 +7,7 @@ require_once __DIR__.'/GroupSupport.php';
 require_once __DIR__.'/Cookies.php';
 require_once __DIR__.'/InstagramCookies.php';
 require_once __DIR__.'/InstagramPages.php';
+require_once __DIR__.'/Administrators.php';
 
 final class Bot
 {
@@ -14,7 +15,7 @@ final class Bot
     public function __construct(public Config $config,public Store $store,public Api $api) { $this->ui=new Ui($store); }
     public function text(string $key,array $values=[],array $raw=[]): string { return $this->ui->text($key,$values,$raw); }
     public function label(string $key): string { return $this->ui->label($key); }
-    public function admin(int $id): bool { return in_array($id,$this->config->admins,true); }
+    public function admin(int $id): bool { return $this->store->isAdmin($id,$this->config->admins); }
     public function allowed(int $id,?int $chat=null): bool { return !($chat<0&&!$this->store->groupsEnabled())&&($this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1')); }
     public function denial(?int $chat=null): string { return $this->text($chat<0&&!$this->store->groupsEnabled()?'groups_disabled':($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline')); }
     public function button(string $key,string $data): array { return $this->ui->button($key,$data); }
@@ -101,6 +102,7 @@ final class Bot
         $this->sendKeyboard($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off')],['state']),[
             [$this->replyButton('customize'),$this->replyButton('health')],
             [$this->replyButton('cookies'),$this->replyButton('update')],
+            [$this->replyButton('add_admin')],
             [$this->replyButton($on?'off':'on')],
             [$this->replyButton('back_home')],
         ]);
@@ -256,6 +258,7 @@ final class Bot
             if($cb) $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('groups_disabled'),'show_alert'=>true]);
             return;
         }
+        $this->store->observeUser($cb['from']??$message['from']);
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         $custom=new Personalization($this);
         if($cb) {
@@ -302,6 +305,7 @@ final class Bot
             elseif($action==='update:progress') return;
             elseif($action==='download') $this->send($chat,$this->text('prompt'));
             elseif($action==='admin') $this->panel($chat,$menu);
+            elseif($action==='admins:cancel') $this->panel($chat,$menu);
             elseif($action==='health') $this->health($chat);
             elseif($action==='cookies') (new Cookies($this))->handle($chat,$user,'cookies');
             elseif(in_array($action,['cookies:info','cookies:import'],true)) {
@@ -342,6 +346,7 @@ final class Bot
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
+            if($reply==='add_admin') { (new Administrators($this))->begin($chat,$user); return; }
             if($text==='/health'||$reply==='health') { $this->health($chat); return; }
             if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
             if($reply!==null&&(new InstagramCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
@@ -355,6 +360,9 @@ final class Bot
         if($text==='/help'||$reply==='help') { (new GroupSupport($this))->help($chat); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
+        if($this->admin($user)&&is_string($state)&&str_starts_with($state,'admins.add:')) {
+            (new Administrators($this))->receive($chat,$user,$message,$state); return;
+        }
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }

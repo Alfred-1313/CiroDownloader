@@ -131,11 +131,28 @@ class Agent:
             if 'thread_id' not in {row['name'] for row in db.execute('PRAGMA table_info(update_requests)')}:
                 db.execute('ALTER TABLE update_requests ADD COLUMN thread_id INTEGER NOT NULL DEFAULT 0')
 
-    def authorized(self, job):
-        return (job['user_id'] in self.admins and job['action'] in ('update', 'rollback')
+    def authorized(self, job, db=None):
+        return (self.is_admin(job['user_id'], db) and job['action'] in ('update', 'rollback')
                 and (job['chat_id'] == job['user_id'] or job['chat_id'] < 0)
                 and isinstance(job.get('thread_id', 0), int) and job.get('thread_id', 0) >= 0
                 and (job['chat_id'] < 0 or job.get('thread_id', 0) == 0))
+
+    def is_admin(self, user, db=None):
+        if user in self.admins:
+            return True
+        if not self.admins:
+            return False
+        if db is None:
+            with self.db() as connection:
+                return self.is_admin(user, connection)
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='bot_admins'").fetchone():
+            return False
+        roots = list(self.admins)
+        seeds = ','.join('(?)' for _ in roots)
+        row = db.execute('WITH RECURSIVE authorized(id) AS (VALUES ' + seeds +
+                         ' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id)'
+                         ' SELECT 1 FROM authorized WHERE id=?', (*roots, user)).fetchone()
+        return row is not None
 
     def menu_scope(self):
         scope = str(self.job['user_id'])
@@ -270,7 +287,7 @@ class Agent:
             db.execute("UPDATE update_requests SET status='failed' WHERE status='queued' AND message_id=0 AND created<?", (int(time.time()) - 120,))
             row = db.execute("SELECT * FROM update_requests WHERE status='queued' AND message_id>0 ORDER BY id LIMIT 1").fetchone()
             if row:
-                allowed = self.authorized(dict(row))
+                allowed = self.authorized(dict(row), db)
                 db.execute('UPDATE update_requests SET status=? WHERE id=?', ('running' if allowed else 'denied', row['id']))
                 if allowed:
                     self.job = dict(row)

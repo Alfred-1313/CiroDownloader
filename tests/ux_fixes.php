@@ -41,6 +41,17 @@ try {
     $database=null;
     uxCheck((new Zero\Ui(new Zero\Store($other)))->template('video_caption')===$custom,'the upgrade itself also preserves a real custom caption');
 
+    $instagram=$temp.'/instagram'; mkdir($instagram,0700);
+    $legacy=new PDO('sqlite:'.$instagram.'/zero.sqlite'); $legacy->exec('CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
+    $single="<b>📷 اینستاگرام · {index}/{count}</b>\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>";
+    $slides="<b>📷 اینستاگرام · صفحهٔ {index} از {count}</b>\n\n{description}\n\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>";
+    foreach(['ui_html_version'=>'1','ui_delivery_v2'=>'1','text.instagram_caption'=>$single,'text.instagram_page_caption'=>$slides,'instagram.source_button'=>'1'] as $key=>$value) $legacy->prepare('INSERT INTO settings VALUES(?,?)')->execute([$key,$value]);
+    $legacy=null; $instagramStore=new Zero\Store($instagram); $instagramUi=new Zero\Ui($instagramStore);
+    uxCheck(!str_contains($instagramUi->template('instagram_caption'),'href=')&&!str_contains($instagramUi->template('instagram_page_caption'),'href='),'saved historical Instagram defaults lose the original-post caption link on upgrade');
+    uxCheck($instagramUi->instagramSourceEnabled(),'an explicitly enabled Instagram source button survives the default change');
+    $instagramStore->set('text.instagram_caption','<b>Custom Instagram caption</b>');
+    uxCheck((new Zero\Ui(new Zero\Store($instagram)))->template('instagram_caption')==='<b>Custom Instagram caption</b>','later restarts preserve a customized Instagram caption');
+
     foreach([42,7,8] as $id) $store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$id]);
     foreach(['done','done','failed'] as $index=>$status) $store->query('INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(?,?,?,?,?,?)',[100+$index,7,7,'https://youtu.be/oXWMmELDOq0',$status,time()]);
     $store->set('last_job_error','Job 1 [download]: cookies are no longer valid. Sign in to confirm you are not a bot.');
