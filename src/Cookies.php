@@ -4,7 +4,7 @@ namespace Zero;
 
 final class Cookies
 {
-    public const REPLIES=['cookies','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_mode'];
+    public const REPLIES=['cookies','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_mode','cookie_guide'];
     public function __construct(private Bot $bot) {}
     private function keyboard(array $keys): array
     {
@@ -13,7 +13,7 @@ final class Cookies
     private function services(int $chat): void
     {
         $mode=$this->bot->ui->plain($this->bot->store->get('cookies.fallback','0')==='1'?'cookie_mode_fallback':'cookie_mode_always');
-        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['mode'=>$mode]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_mode'],['cookie_back_admin']]));
+        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['mode'=>$mode]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_mode'],['cookie_guide'],['cookie_back_admin']]));
     }
     private function youtube(int $chat,string $notice=''): void
     {
@@ -39,6 +39,7 @@ final class Cookies
         elseif($action==='cookie_back_admin') $this->bot->panel($chat);
         elseif($action==='cookie_upload') $this->bot->beginCookieImport($chat,$user);
         elseif(in_array($action,['cookie_view','cookie_export'],true)) (new CookieJars($this->bot))->view($chat,'yt');
+        elseif($action==='cookie_guide') $this->bot->send($chat,$this->bot->text('cookie_guide'));
         elseif($action==='cookie_mode') {
             $this->bot->store->set('cookies.fallback',$this->bot->store->get('cookies.fallback','0')==='1'?'0':'1');
             $this->services($chat);

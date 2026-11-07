@@ -23,4 +23,4 @@ The installer asks for your Telegram bot token and admin ID, then starts the bot
 
 For uploads over 50 MB, obtain a Telegram **API ID** and **API hash**, then enable the [local Bot API with Docker](docs/large-uploads.md). The application limit is 1990 MB.
 
-Cookies per service (several accounts, ZIP import, rotation): [docs/cookies.md](docs/cookies.md).
+Cookies per service (computer and phone guide): [docs/cookie-guide.md](docs/cookie-guide.md); several accounts, ZIP import and rotation: [docs/cookies.md](docs/cookies.md).

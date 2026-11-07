@@ -66,6 +66,7 @@ jobs:
           php tests/parallel_worker.php
           php tests/parallel_worker.php --group
           php tests/cookie_pool.php
+          php tests/cookie_formats.php
           php tests/media.php
           php tests/downloader_access.php
           php tests/quality_worker.php --anonymous

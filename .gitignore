@@ -8,3 +8,4 @@ storage/
 tests/.manager-test-*/
 __pycache__/
 *.py[cod]
+*.pdf

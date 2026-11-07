@@ -217,7 +217,9 @@ final class Bot
                 return (new Download($this->config))->verifyCookies($content,$folder,
                     $this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
             };
-            $summary=CookieJars::ingest($this->api,$message['document'],youtubeCookiePool($this->config),$this->config->storage,$verify);
+            $pool=youtubeCookiePool($this->config);
+            $summary=isset($message['document'])?CookieJars::ingest($this->api,$message['document'],$pool,$this->config->storage,$verify)
+                :CookieJars::ingestContent((string)($message['text']??''),$pool,$verify);
             $saved=true;
             // The upload stays open so more exports can follow; Back or /cancel ends it.
             $notice=(new CookieJars($this))->result('yt',$summary); $this->cookieNotice($chat,$user,$notice);
@@ -384,6 +386,15 @@ final class Bot
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
         if(isset($message['document'])) {
+            if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
+            elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
+            elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);
+            elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
+            else $this->cookieDocument($chat,$user,$message);
+            return;
+        }
+        // Phones often cannot save a file, so a pasted export (Netscape, JSON or header string) is accepted while an import waits.
+        if($text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)&&CookieFormats::looksLikeCookies($text)) {
             if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
             elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
             elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);

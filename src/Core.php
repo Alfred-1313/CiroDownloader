@@ -101,7 +101,7 @@ function youtubeCookieIdentity(string $content): string
 
 function youtubeCookiePool(Config $config): CookiePool
 {
-    return new CookiePool($config->cookiePath(),'Zero\\validateYouTubeCookies','Zero\\youtubeCookieIdentity');
+    return new CookiePool($config->cookiePath(),'Zero\\validateYouTubeCookies','Zero\\youtubeCookieIdentity','youtube.com');
 }
 
 // An expected hash makes downloader refreshes lose to a newer administrator import.

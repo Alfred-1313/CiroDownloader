@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 namespace Zero;
+require_once __DIR__.'/CookieFormats.php';
 
 /**
  * Several independent cookie jars for one service.
@@ -17,10 +18,12 @@ final class CookiePool
     private $validate;
     /** @var callable(string):string */
     private $identity;
-    public function __construct(private string $primary,callable $validate,callable $identity)
+    public function __construct(private string $primary,callable $validate,callable $identity,private string $domain='')
     {
         $this->validate=$validate; $this->identity=$identity;
     }
+    /** Accept Netscape, JSON and header-string exports; the service's own validator still decides. */
+    public function normalize(string $content): string { return CookieFormats::toNetscape($content,$this->domain); }
     public function directory(): string { return $this->primary.'.d'; }
     private function statePath(): string { return $this->primary.'.pool'; }
     private function lockPath(): string { return $this->primary.'.lock'; }
@@ -85,6 +88,7 @@ final class CookiePool
     /** @return array{status:string,id:string} status is added, replaced or unchanged */
     public function add(string $content): array
     {
+        $content=$this->normalize($content);
         ($this->validate)($content);
         $identity=$this->identityOf($content);
         return $this->locked(function() use ($content,$identity): array {
@@ -228,7 +232,7 @@ final class CookiePool
             for($index=0;$index<$zip->numFiles;$index++) {
                 $stat=$zip->statIndex($index); if(!is_array($stat)) continue;
                 $name=(string)$stat['name'];
-                if(str_ends_with($name,'/')||str_contains($name,'__MACOSX/')||str_starts_with(basename($name),'.')||strtolower(pathinfo($name,PATHINFO_EXTENSION))!=='txt') continue;
+                if(str_ends_with($name,'/')||str_contains($name,'__MACOSX/')||str_starts_with(basename($name),'.')||!in_array(strtolower(pathinfo($name,PATHINFO_EXTENSION)),['txt','json'],true)) continue;
                 $label=mb_substr(preg_replace('/[^\p{L}\p{N}._ -]+/u','_',basename($name))??'file.txt',0,40);
                 $candidates[]=[$index,$label,$stat];
             }

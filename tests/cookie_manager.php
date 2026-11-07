@@ -26,7 +26,7 @@ try {
     $new=str_replace('FAKE_SESSION_A','FAKE_SESSION_B',$old); Zero\saveYouTubeCookies($config,$old);
     $click=function(string $key) use($bot): void { $bot->handle(cookieMessage($bot->label($key))); };
     $bot->handle(cookieMessage('/cookies'));
-    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and the cookie-mode switch');
+    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and the cookie-mode switch');
     $click('cookie_youtube');
     managerCookieCheck(cookieLabels($api)===array_map(fn($key)=>$bot->label($key),['cookie_upload','cookie_view','cookie_remove','cookie_back_services']),'YouTube has independent import, view, delete and Back reply controls');
     $click('cookie_upload');

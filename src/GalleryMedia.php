@@ -45,7 +45,7 @@ abstract class GalleryMedia
     /** All cookie jars of this service only; other services keep separate pools. */
     public static function pool(Config $config): CookiePool
     {
-        return new CookiePool(static::cookiePath($config),[static::class,'validateCookies'],[static::class,'cookieIdentity']);
+        return new CookiePool(static::cookiePath($config),[static::class,'validateCookies'],[static::class,'cookieIdentity'],static::COOKIE_DOMAIN);
     }
     /** @return array{status:string,id:string} */
     public static function saveCookies(Config $config,string $content): array { return static::pool($config)->add($content); }

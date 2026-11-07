@@ -75,7 +75,7 @@ try {
     $screen=end($api->calls)[1];
     expect(end($api->calls)[0]==='sendMessage'&&!isset($screen['reply_markup']),'import uses an editable prompt while the service reply keyboard remains visible');
     expect(!str_contains($screen['text'],'10 دقیقه')&&!str_contains($screen['text'],'/cancel')&&!str_contains($screen['text'],'youtube-cookies.txt'),'import instructions have no deadline, cancel hint or required filename');
-    $bot->handle(document(42,'export.json'));
+    $bot->handle(document(42,'export.rar'));
     $bot->handle(document(42,'export.txt',1048577));
     expect($api->downloads===0,'wrong extension and oversized documents rejected before fetching');
     $api->content='NOT_A_COOKIE_EXPORT_WITH_PRIVATE_DATA';

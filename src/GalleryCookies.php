@@ -58,7 +58,8 @@ abstract class GalleryCookies
         if($state!==static::PREFIX.'.upload') return;
         $notice=$this->bot->text(static::PREFIX.'_failed');
         try {
-            $summary=CookieJars::ingest($this->bot->api,$message['document'],$this->pool(),$this->bot->config->storage);
+            $summary=isset($message['document'])?CookieJars::ingest($this->bot->api,$message['document'],$this->pool(),$this->bot->config->storage)
+                :CookieJars::ingestContent((string)($message['text']??''),$this->pool());
             $notice=(new CookieJars($this->bot))->result($this->code(),$summary);
         } catch(\InvalidArgumentException) { $notice=$this->bot->text('cookie_file_invalid'); }
         catch(\Throwable) { /* Keep the current jars; the administrator may try another file. */ }

@@ -20,26 +20,36 @@ final class CookieJars
     }
     /**
      * Download one document and add every export it holds to the pool.
-     * A single TXT keeps strict errors (so the caller can explain them); a ZIP
-     * reports each file separately and never stops at the first bad one.
+     * A single TXT or JSON keeps strict errors (so the caller can explain them);
+     * a ZIP reports each file separately and never stops at the first bad one.
      * @return array{added:int,replaced:int,unchanged:int,invalid:int,notes:list<array{0:string,1:string}>,live:bool}
      */
     public static function ingest(Api $api,array $document,CookiePool $pool,string $workDirectory,?callable $verify=null): array
     {
         $extension=strtolower(pathinfo((string)($document['file_name']??''),PATHINFO_EXTENSION));
         $limit=$extension==='zip'?CookiePool::MAX_ZIP_BYTES:CookiePool::MAX_BYTES;
-        if(!in_array($extension,['txt','zip'],true)||(int)($document['file_size']??0)>$limit||empty($document['file_id'])) throw new \InvalidArgumentException('Invalid cookie document');
+        if(!in_array($extension,['txt','json','zip'],true)||(int)($document['file_size']??0)>$limit||empty($document['file_id'])) throw new \InvalidArgumentException('Invalid cookie document');
         if(!($api instanceof FileApi)) throw new \RuntimeException('Cookie file unavailable');
         $file=$api->call('getFile',['file_id'=>$document['file_id']]);
         if(!is_array($file)||empty($file['file_path'])||(int)($file['file_size']??0)>$limit) throw new \RuntimeException('Cookie file unavailable');
         $bytes=$api->downloadFile((string)$file['file_path'],$limit);
-        $single=$extension==='txt';
-        $entries=$single?[['cookies.txt',$bytes,'']]:CookiePool::zipEntries($bytes,$workDirectory);
+        if($extension!=='zip') return self::ingestContent($bytes,$pool,$verify);
+        $entries=CookiePool::zipEntries($bytes,$workDirectory);
         if(!$entries) throw new \InvalidArgumentException('The archive holds no cookie files');
+        return self::addEntries($entries,$pool,false,null);
+    }
+    /** A pasted message or a single file: strict errors, optional live check. */
+    public static function ingestContent(string $content,CookiePool $pool,?callable $verify=null): array
+    {
+        return self::addEntries([['cookies',$content,'']],$pool,true,$verify);
+    }
+    private static function addEntries(array $entries,CookiePool $pool,bool $single,?callable $verify): array
+    {
         $summary=['added'=>0,'replaced'=>0,'unchanged'=>0,'invalid'=>0,'notes'=>[],'live'=>false];
         foreach($entries as [$name,$content,$reason]) {
             if($content===null) { $summary['invalid']++; $summary['notes'][]=[$name,$reason]; continue; }
             try {
+                $content=$pool->normalize($content);
                 if($single&&$verify!==null) { $content=$verify($content); $summary['live']=true; }
                 $summary[$pool->add($content)['status']]++;
             } catch(\Throwable $e) {
