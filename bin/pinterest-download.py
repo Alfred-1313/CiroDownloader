@@ -4,7 +4,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from gallery_dl import exception, main
 from gallery_dl.extractor.message import Message
@@ -17,12 +17,21 @@ extract_video = PinterestExtractor._extract_video
 
 
 def canonical_pin(url):
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(urljoin("https://www.pinterest.com/", url))
+        port = parsed.port
+    except ValueError:
+        raise exception.ExtractionError("Pinterest requires a single pin URL (reason=malformed)") from None
     host = re.sub(r"^(?:www|[a-z]{2})\.", "", parsed.hostname or "")
-    match = re.fullmatch(r"/pin/(?:[^/?#]+--)?([0-9]{1,30})/?", parsed.path)
-    if (parsed.scheme not in ("https", "http") or host not in HOSTS or not match
-            or parsed.username is not None or parsed.password is not None or parsed.port is not None):
-        raise exception.ExtractionError("Pinterest requires a single pin URL")
+    # Pinterest's share links can redirect to /pin/ID/sent/. Extract the pin
+    # identifier before dropping the sharing path and query parameters.
+    match = re.fullmatch(r"/pin/(?:[^/?#]+--)?([0-9]{1,30})(?:/sent)?/?", parsed.path)
+    reason = ("scheme" if parsed.scheme not in ("https", "http") else
+              "host" if host not in HOSTS else
+              "authority" if parsed.username is not None or parsed.password is not None or port is not None else
+              "path" if not match else "")
+    if reason:
+        raise exception.ExtractionError(f"Pinterest requires a single pin URL (reason={reason})")
     return "https://www.pinterest.com/pin/" + match[1] + "/"
 
 

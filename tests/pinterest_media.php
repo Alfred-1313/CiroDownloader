@@ -72,11 +72,17 @@ try {
     $reactions=array_values(array_filter($requests(),fn($call)=>$call['method']==='setMessageReaction'));
     pinMediaCheck(count($reactions)===1&&json_decode($reactions[0]['params']['reaction'],true)[0]['emoji']==='👾','Pinterest links receive the configured default reaction');
     $cookies="# Netscape HTTP Cookie File\n.pinterest.com\tTRUE\t/\tTRUE\t2147483647\t_pinterest_sess\tFAKE_PINTEREST_SESSION\n";
-    Zero\Pinterest::saveCookies($config,$cookies); $job=$process('video',true,true);
+    // Both anonymous and authenticated pin.it requests must accept Pinterest's
+    // shared-pin destination; cookies cannot repair a URL-validation failure.
+    $job=$process('photo',short:true,redirect:'https://www.pinterest.com/pin/123456789/sent/?invite_code=fixture');
+    pinMediaCheck($job['status']==='done'&&json_decode(file($trace)[0],true)['cookie_mode']===null,'an anonymous short link accepts the shared-pin redirect before extraction');
+    Zero\Pinterest::saveCookies($config,$cookies); $job=$process('video',true,true,redirect:'https://www.pinterest.com/pin/123456789/sent/?sender=fixture');
     $videos=array_values(array_filter($requests(),fn($call)=>$call['method']==='sendVideo'));
     pinMediaCheck($job['status']==='done'&&count($videos)===1&&(int)$videos[0]['params']['chat_id']===-100123&&(int)$videos[0]['params']['message_thread_id']===321,'a short pin link resolves to one video and retains its group topic');
     $info=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$temp.'/delivered.mp4'],$temp,30),true);
     pinMediaCheck(in_array('audio',array_column($info['streams'],'codec_type'),true)&&json_decode(file($trace)[0],true)['cookie_mode']===0600&&file_get_contents($config->pinterestCookiePath())===$cookies,'direct MP4 delivery keeps its audio and uses an isolated private cookie copy');
+    $job=$process('photo',short:true,redirect:'/pin/123456789/sent/?invite_code=fixture');
+    pinMediaCheck($job['status']==='done','a relative shared-pin redirect is normalized before the real extractor runs');
     $job=$process('story',true); $state=json_decode($job['options'],true)['pages']; $message=$state['message'];
     $slides=array_values(array_filter($requests(),fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)));
     $rows=json_decode($slides[0]['params']['reply_markup'],true)['inline_keyboard'];

@@ -2,7 +2,7 @@
 
 Pinterest uses the pinned **gallery-dl 1.32.19** already installed for Instagram. It supports native pin photos, videos, image carousels and visual items in story/Idea pins. yt-dlp also has a Pinterest video extractor; gallery-dl supplies the photo and multi-item flow needed here. When several direct MP4 formats exist, the adapter selects the largest dimensions without asking for quality; HLS remains available when there is no direct MP4.
 
-Send a single `pinterest.com/pin/…/` or `pin.it/…` link in private chat or a supported group. Known regional Pinterest domains normalize to `www.pinterest.com`. A short link is resolved by the worker and must lead to a single pin on an accepted Pinterest domain. Profiles, boards and other destinations are rejected. There is no board-wide download.
+Send a single `pinterest.com/pin/…/` or `pin.it/…` link in private chat or a supported group. Known regional Pinterest domains normalize to `www.pinterest.com`. Shared pins ending in `/pin/ID/sent/` are accepted, including relative short-link destinations. The sharing suffix and query parameters are removed before extraction. A short link is resolved by the worker and must lead to a single pin on an accepted Pinterest domain. Profiles, boards and other destinations are rejected. There is no board-wide download.
 
 The behavior follows Instagram: automatic single-file delivery, or one carousel message with neutral Previous/Next buttons. Each navigation replaces that message's media. Only the original sender in the original chat can navigate; explicit topic mismatches and stale/cross-service callbacks are rejected. Up to 20 visual items are supported. Missing/unsupported visual items fail the request before delivery. Story music and paragraph attachments are excluded; a video's own soundtrack is retained.
 
@@ -25,3 +25,5 @@ Prepared slides remain private in `storage/pinterest-pages` for 24 hours so Prev
 ## Verification
 
 Local tests use the actual pinned extractor, downloader, FFmpeg and Telegram HTTP client with controlled API/media fixtures. They verify the integration, not Pinterest access from a deployment's IP or the validity of a real login session.
+
+`ExtractionError: Pinterest requires a single pin URL` is a rejected redirect destination, before the pin request is sent; importing cookies cannot change that validation. Current releases append a fixed reason (`scheme`, `host`, `authority`, `path` or `malformed`) without logging the destination's query values. In 1.17.0, legitimate shared-pin `/sent/` paths caused this error; update to 1.17.1 or later.

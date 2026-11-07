@@ -54,6 +54,7 @@ jobs:
           /tmp/ciro-gallery-tests/bin/pip install 'gallery-dl==1.32.19'
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_media.php
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php
+          /tmp/ciro-gallery-tests/bin/python -B tests/pinterest_redirects.py
 
       - name: Verify portrait video conversion and multipart upload
         run: |

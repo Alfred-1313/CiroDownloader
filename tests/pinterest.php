@@ -14,7 +14,7 @@ final class PinterestCookieApi implements Zero\FileApi {
 }
 $temp=sys_get_temp_dir().'/ciro-pinterest-'.bin2hex(random_bytes(6)); mkdir($temp,0700);
 try {
-    foreach(['https://www.pinterest.com/pin/123456789/?tracking=1','pinterest.com/pin/123456789/','http://pinterest.co.uk/pin/title--123456789/','https://br.pinterest.com/pin/123456789/'] as $url) pinCheck(Zero\pinterestUrl($url)==='https://www.pinterest.com/pin/123456789/','pin URLs normalize to a single canonical pin');
+    foreach(['https://www.pinterest.com/pin/123456789/?tracking=1','pinterest.com/pin/123456789/','http://pinterest.co.uk/pin/title--123456789/','https://br.pinterest.com/pin/123456789/','https://www.pinterest.com/pin/123456789/sent/?invite_code=fixture','https://pinterest.co.uk/pin/title--123456789/sent/'] as $url) pinCheck(Zero\pinterestUrl($url)==='https://www.pinterest.com/pin/123456789/','pin and shared-pin URLs normalize to a single canonical pin');
     pinCheck(Zero\pinterestUrl('https://pin.it/AbC123?tracking=1')==='https://pin.it/AbC123','short links preserve their identifier without tracking');
     foreach(['https://pinterest.com.evil/pin/123/','https://pinterest.com@evil/pin/123/','https://www.pinterest.com:443/pin/123/','https://www.pinterest.com/user/board/','https://www.pinterest.com/pin/../../etc/passwd','https://pin.it/abc/extra','https://www.pinterest.com/pin/123/ extra','file:///pin/123/'] as $url) pinCheck(Zero\pinterestUrl($url)===null,'boards and unrelated or unsafe Pinterest URLs are rejected');
     $config=new Zero\Config('123:fixture',[42],$temp); $store=new Zero\Store($temp); $api=new PinterestCookieApi(); $bot=new Zero\Bot($config,$store,$api);

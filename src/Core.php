@@ -427,7 +427,7 @@ function pinterestUrl(string $input): ?string
     static $domains=null;
     $domains??=json_decode((string)file_get_contents(dirname(__DIR__).'/resources/pinterest-domains.json'),true,512,JSON_THROW_ON_ERROR);
     $host=preg_replace('/^(?:www|[a-z]{2})\./','',$host);
-    if(!in_array($host,array_map(fn($suffix)=>'pinterest.'.$suffix,$domains),true)||!preg_match('~^/pin/(?:[^/?#]+--)?([0-9]{1,30})/?$~D',$path,$match)) return null;
+    if(!in_array($host,array_map(fn($suffix)=>'pinterest.'.$suffix,$domains),true)||!preg_match('~^/pin/(?:[^/?#]+--)?([0-9]{1,30})(?:/sent)?/?$~D',$path,$match)) return null;
     return 'https://www.pinterest.com/pin/'.$match[1].'/';
 }
 
