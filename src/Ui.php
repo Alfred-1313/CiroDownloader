@@ -4,11 +4,13 @@ namespace Zero;
 
 final class Ui
 {
-    public const REPLY_KEYS=['help','admin','health','update','cookies','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back','cookie_pinterest','pin_cookie_upload','pin_cookie_view','pin_cookie_export','pin_cookie_remove','pin_cookie_confirm','pin_cookie_back','cookie_tiktok','tt_cookie_upload','tt_cookie_view','tt_cookie_export','tt_cookie_remove','tt_cookie_confirm','tt_cookie_back','cookie_twitter','x_cookie_upload','x_cookie_view','x_cookie_export','x_cookie_remove','x_cookie_confirm','x_cookie_back'];
+    public const REPLY_KEYS=['help','admin','health','update','cookies','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_mode','cookie_guide','cookie_alerts','cookie_back_youtube','cookie_back_admin','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back','cookie_pinterest','pin_cookie_upload','pin_cookie_view','pin_cookie_export','pin_cookie_remove','pin_cookie_confirm','pin_cookie_back','cookie_tiktok','tt_cookie_upload','tt_cookie_view','tt_cookie_export','tt_cookie_remove','tt_cookie_confirm','tt_cookie_back','cookie_twitter','x_cookie_upload','x_cookie_view','x_cookie_export','x_cookie_remove','x_cookie_confirm','x_cookie_back'];
     private static ?array $definitions=null;
     private array $preview=[];
     public function __construct(private Store $store) {}
     public function preview(array $values): void { $this->preview=$values; }
+    /** A setting as it would be shown now, including a pending preview. */
+    public function setting(string $key,string $default=''): string { return $this->get($key,$default); }
     private function get(string $key,string $default=''): string { return array_key_exists($key,$this->preview)?$this->preview[$key]:$this->store->get($key,$default); }
     public static function definitions(): array
     {
@@ -42,6 +44,12 @@ final class Ui
         $limit=!empty($definition['caption'])?1024:3900;
         if(TextFormat::length(html_entity_decode(strip_tags($result),ENT_QUOTES|ENT_HTML5,'UTF-8'))>$limit) $result=strtr($definition['value'],$replace);
         return $result;
+    }
+    /** A text with {placeholders} filled for places that take plain text, such as button labels. */
+    public function plainWith(string $key,array $values): string
+    {
+        $replace=[]; foreach($values as $name=>$value) $replace['{'.$name.'}']=(string)$value;
+        return strtr($this->plain($key),$replace);
     }
     public function plain(string $key): string { return html_entity_decode(strip_tags($this->template($key)),ENT_QUOTES|ENT_HTML5,'UTF-8'); }
     public static function escape(string $value): string { return htmlspecialchars($value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }

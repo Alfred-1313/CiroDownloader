@@ -105,6 +105,19 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(self.app.services, [])
         self.assertEqual(len(list(self.app.backups.glob('ciro-config-*.env'))), 1)
 
+    def test_social_media_proxy_is_saved_and_validated_like_the_youtube_proxy(self):
+        self.app.services = []
+        self.app.configure('GALLERY_PROXY', 'socks5h://name:FAKE_PASSWORD@127.0.0.1:1080')
+        values = maintenance.environment((self.project / '.env').read_text())
+        self.assertEqual(values['GALLERY_PROXY'], 'socks5h://name:FAKE_PASSWORD@127.0.0.1:1080')
+        self.assertEqual(values['YOUTUBE_PROXY'], '')
+        self.assertIn('GALLERY_PROXY', maintenance.ENV_KEYS)
+        self.assertTrue({'YOUTUBE_POT_URL', 'YOUTUBE_POT_PLUGIN'} <= maintenance.ENV_KEYS)
+        with self.assertRaises(maintenance.MaintenanceError):
+            self.app.configure('GALLERY_PROXY', 'ftp://SECRET@host')
+        self.app.configure('GALLERY_PROXY', '')
+        self.assertEqual(maintenance.environment((self.project / '.env').read_text())['GALLERY_PROXY'], '')
+
     def test_bad_inputs_never_change_configuration_or_leak_input(self):
         for field, value in [('BOT_TOKEN', 'bad SECRET'), ('ADMIN_IDS', '42,invalid'), ('YOUTUBE_PROXY', 'ftp://SECRET@host')]:
             with self.assertRaises(maintenance.MaintenanceError) as caught:

@@ -13,6 +13,8 @@ require_once __DIR__.'/TwitterCookies.php';
 require_once __DIR__.'/PinterestPages.php';
 require_once __DIR__.'/Administrators.php';
 require_once __DIR__.'/Reactions.php';
+require_once __DIR__.'/CookieJars.php';
+require_once __DIR__.'/CookieHealth.php';
 
 final class Bot
 {
@@ -123,10 +125,12 @@ final class Bot
             'users'=>(int)$this->store->query('SELECT COUNT(*) FROM users')->fetchColumn(),
             'completed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='done' AND created>=?",[$now-7*86400])->fetchColumn(),
             'failed'=>(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='failed' AND created>=?",[$now-7*86400])->fetchColumn(),
-            'running'=>$running,'cookies'=>$this->text(is_readable($this->config->cookiePath())?'cookies_loaded':'not_configured'),
+            'running'=>$running,'cookies'=>(new CookieHealth($this->config,$this->store,$this->api))->summary(),
             'proxy'=>$this->text($this->config->youtubeProxy!==''?'configured':'not_configured'),
+            'gproxy'=>$this->text($this->config->galleryProxy!==''?'configured':'not_configured'),
+            'pot'=>$this->text($this->config->youtubePotUrl!==''?'configured':'not_configured'),
             'error'=>$this->lastErrorMessage(),
-        ],['state','poller','worker','cookies','proxy']));
+        ],['state','poller','worker','cookies','proxy','gproxy','pot']));
     }
     private function lastErrorMessage(): string
     {
@@ -182,61 +186,37 @@ final class Bot
         if($chat!==$user||!$this->admin($user)) return;
         // Keep the service reply keyboard visible. A separate message without
         // reply markup remains editable throughout verification and success.
-        $message=$this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(is_readable($this->config->cookiePath())?'cookie_present':'cookie_missing')]));
+        $message=$this->send($chat,$this->text('cookie_import',['status'=>$this->ui->plain(youtubeCookiePool($this->config)->count()>0?'cookie_present':'cookie_missing')]));
         $this->store->set('cookie_menu.'.$user,(string)$message);
         $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,0)',[$user,'cookie.upload']);
     }
     private function cookieNotice(int $chat,int $user,string $text): void
     {
-        $message=(int)$this->store->get('cookie_menu.'.$user,'0');
-        $rows=[];
-        try { $message=$this->send($chat,$text,$rows,$message); }
-        catch(\RuntimeException $e) {
-            if($e->getCode()!==404||$message<1) throw $e;
-            $message=$this->send($chat,$text,$rows);
-        }
-        $this->store->set('cookie_menu.'.$user,(string)$message);
+        (new CookieJars($this))->notice($chat,'cookie_menu.'.$user,$text);
     }
     private function cookieDocument(int $chat,int $user,array $message): void
     {
         if(!$this->admin($user)) { $this->send($chat,$this->text('cookie_admin_only')); return; }
         $state=$this->store->query('SELECT key,expires FROM states WHERE user_id=?',[$user])->fetch();
         if(!$state||$state['key']!=='cookie.upload') { $this->send($chat,$this->text('cookie_begin_first')); return; }
-        $saved=false; $folder=null; $notice='cookie_failed';
-        try {
-            $doc=$message['document'];
-            if(strtolower(pathinfo((string)($doc['file_name']??''),PATHINFO_EXTENSION))!=='txt'||(int)($doc['file_size']??0)>1048576||empty($doc['file_id'])) {
-                $notice='cookie_file_invalid'; $this->cookieNotice($chat,$user,$this->text($notice)); return;
-            }
-            $file=$this->api->call('getFile',['file_id'=>$doc['file_id']]);
-            if(!is_array($file)||empty($file['file_path'])||(int)($file['file_size']??0)>1048576||!($this->api instanceof FileApi)) throw new \RuntimeException('Cookie file unavailable');
-            $content=$this->api->downloadFile((string)$file['file_path'],1048576);
+        $folder=null; $started=false;
+        // One TXT, JSON file or pasted export is tested against YouTube. A ZIP or several files get a
+        // structure check only, so the single-threaded poller is never blocked by many live probes.
+        $verify=function(string $content) use (&$folder,&$started,$chat,$user): string {
             validateYouTubeCookies($content);
             $this->cookieNotice($chat,$user,$this->text('cookie_checking'));
             require_once __DIR__.'/Download.php';
             $folder=$this->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
             if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
-            $notice='cookie_check_inconclusive';
-            $content=(new Download($this->config))->verifyCookies($content,$folder,
+            $started=true;
+            return (new Download($this->config))->verifyCookies($content,$folder,
                 $this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
-            saveYouTubeCookies($this->config,$content); $saved=true;
-            $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-            $notice='cookie_saved'; $this->cookieNotice($chat,$user,$this->text($notice));
-        } catch(\Throwable $e) {
-            error_log('Cookie import failure: '.get_class($e));
-            if(!$saved) {
-                if($e instanceof MediaFailure) $notice=match($e->reason) {
-                    'cookies'=>'cookie_check_invalid','blocked'=>'cookie_check_blocked','network'=>'cookie_check_network',default=>'cookie_check_inconclusive',
-                };
-                $this->cookieNotice($chat,$user,$this->text($notice));
-            }
-        } finally {
-            if($folder!==null) Download::clean($folder);
-            if(isset($message['message_id'])) {
-                try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message['message_id']]); }
-                catch(\Throwable) { $this->cookieNotice($chat,$user,$this->text($notice)."\n\n".$this->text('cookie_delete_failed')); }
-            }
-        }
+        };
+        $explain=fn(\Throwable $e): string=>$this->text($e instanceof MediaFailure?match($e->reason) {
+            'cookies'=>'cookie_check_invalid','blocked'=>'cookie_check_blocked','network'=>'cookie_check_network',default=>'cookie_check_inconclusive',
+        }:($started?'cookie_check_inconclusive':'cookie_failed'));
+        try { (new CookieJars($this))->receive($chat,$user,$message,'yt','cookie_menu.'.$user,$this->text('cookie_failed'),$verify,$explain); }
+        finally { if($folder!==null) Download::clean($folder); }
     }
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
     public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0): void
@@ -302,6 +282,12 @@ final class Bot
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pageService.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }
+            if(str_starts_with($action,'custom:hint:')) {
+                // White title buttons explain themselves; they never cancel a pending edit.
+                $hint=$custom->hint(substr($action,12));
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$hint,'show_alert'=>$hint!=='','cache_time'=>0]); return;
+            }
+            if(preg_match('/^ck(?:rm|ex|ts|lb):/',$action)) { (new CookieJars($this))->callback($cb,$chat,$user,(int)($message['message_id']??0)); return; }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
             if($action==='custom:noop') return;
             if(!$group) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
@@ -349,7 +335,7 @@ final class Bot
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
         $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
-        if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        if(in_array($text,$commands,true)||$reply!==null) { $this->store->query('DELETE FROM states WHERE user_id=?',[$user]); (new CookieJars($this))->cancelLabel($user); }
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
@@ -373,10 +359,22 @@ final class Bot
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'admins.add:')) {
             (new Administrators($this))->receive($chat,$user,$message,$state); return;
         }
+        if($this->admin($user)&&$text!==''&&(new CookieJars($this))->pendingLabel($user)!==null) {
+            (new CookieJars($this))->receiveLabel($chat,$user,$text); return;
+        }
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
         if(isset($message['document'])) {
+            if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
+            elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
+            elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);
+            elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
+            else $this->cookieDocument($chat,$user,$message);
+            return;
+        }
+        // Phones often cannot save a file, so a pasted export (Netscape, JSON or header string) is accepted while an import waits.
+        if($text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)&&CookieFormats::looksLikeCookies($text)) {
             if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
             elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
             elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);

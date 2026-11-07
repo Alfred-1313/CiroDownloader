@@ -3,10 +3,19 @@ declare(strict_types=1);
 
 namespace Zero;
 require_once __DIR__.'/Ui.php';
+require_once __DIR__.'/CookiePool.php';
 
 final class Config
 {
     public const VIDEO_QUALITIES=[360,480,720,1080];
+    /** When on, downloads try without cookies first and use a cookie jar only if the site refuses. */
+    public bool $cookieFallback=false;
+    /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
+    public string $galleryProxy='';
+    /** TikTok: prefer H.264 streams so videos are remuxed instead of re-encoded (much faster). */
+    public bool $tiktokPreferH264=true;
+    /** Optional PO Token provider for YouTube, for example http://pot:4416. */
+    public string $youtubePotUrl='';
 
     public function __construct(
         public string $token, public array $admins, public string $storage,
@@ -36,6 +45,8 @@ final class Config
             throw new \RuntimeException('Invalid file limit for configured Bot API');
         }
         $proxy=getenv('YOUTUBE_PROXY')?:'';
+        $galleryProxy=getenv('GALLERY_PROXY')?:'';
+        $potUrl=getenv('YOUTUBE_POT_URL')?:'';
         $concurrency=getenv('WORKER_CONCURRENCY');
         if($concurrency===false||$concurrency==='') $concurrency='3';
         if(!preg_match('/^[1-8]$/D',$concurrency)) throw new \RuntimeException('WORKER_CONCURRENCY must be between 1 and 8');
@@ -45,11 +56,22 @@ final class Config
                 throw new \RuntimeException('YOUTUBE_PROXY must be an HTTP, HTTPS or SOCKS5 URL');
             }
         }
-        return new self($token, array_map('intval', explode(',', $ids)),
+        foreach(['GALLERY_PROXY'=>$galleryProxy] as $name=>$value) if($value!=='') {
+            $parts=parse_url($value);
+            if(!$parts||empty($parts['host'])||!in_array($parts['scheme']??'', ['http','https','socks5','socks5h'],true)) throw new \RuntimeException($name.' must be an HTTP, HTTPS or SOCKS5 URL');
+        }
+        if($potUrl!=='') {
+            $parts=parse_url($potUrl);
+            if(!$parts||empty($parts['host'])||!in_array($parts['scheme']??'',['http','https'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['query'])||isset($parts['fragment'])) throw new \RuntimeException('YOUTUBE_POT_URL must be an HTTP or HTTPS URL without credentials');
+        }
+        $config=new self($token, array_map('intval', explode(',', $ids)),
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
             getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'',getenv('TIKTOK_COOKIES_FILE')?:'',getenv('TWITTER_COOKIES_FILE')?:'');
+        $config->tiktokPreferH264=(getenv('TIKTOK_PREFER_H264')?:'1')!=='0';
+        $config->galleryProxy=$galleryProxy; $config->youtubePotUrl=rtrim($potUrl,'/');
+        return $config;
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
@@ -82,15 +104,37 @@ function validateYouTubeCookies(string $content): void
     if(!$youtube) throw new \RuntimeException('No youtube.com cookies found in this export');
 }
 
+// Google identifies the signed-in account by its session cookies. Exporting the same account again replaces its jar.
+function youtubeCookieIdentity(string $content): string
+{
+    $found=[];
+    foreach(preg_split('/\r?\n/',$content) as $line) {
+        if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+        elseif($line===''||str_starts_with($line,'#')) continue;
+        $fields=explode("\t",$line);
+        if(count($fields)===7&&in_array($fields[5],['__Secure-3PSID','__Secure-1PSID','SAPISID','SID'],true)&&$fields[6]!=='') $found[$fields[5]]=$fields[6];
+    }
+    foreach(['__Secure-3PSID','__Secure-1PSID','SAPISID','SID'] as $name) if(isset($found[$name])) return $name.'='.$found[$name];
+    return '';
+}
+
+function youtubeCookiePool(Config $config): CookiePool
+{
+    return new CookiePool($config->cookiePath(),'Zero\\validateYouTubeCookies','Zero\\youtubeCookieIdentity','youtube.com',['__Secure-3PSID','__Secure-1PSID','SAPISID','SID']);
+}
+
 // An expected hash makes downloader refreshes lose to a newer administrator import.
-function saveYouTubeCookies(Config $config, string $content, ?string $expectedHash = null): bool
+// The destination is one jar of the pool; all jars share the pool lock.
+function saveYouTubeCookies(Config $config, string $content, ?string $expectedHash = null, ?string $path = null): bool
 {
     validateYouTubeCookies($content);
     if(!is_dir($config->storage)&&!mkdir($config->storage,0700,true)) throw new \RuntimeException('Cannot create storage');
-    $destination=$config->cookiePath();
-    $lock=fopen($destination.'.lock','c');
+    $destination=$path??$config->cookiePath();
+    if(!is_dir(dirname($destination))&&!mkdir(dirname($destination),0700,true)) throw new \RuntimeException('Cannot create cookie directory');
+    $lockFile=$config->cookiePath().'.lock';
+    $lock=fopen($lockFile,'c');
     if(!$lock) throw new \RuntimeException('Cannot lock cookie file');
-    chmod($destination.'.lock',0600);
+    chmod($lockFile,0600);
     $temporary=dirname($destination).'/.cookies-import-'.bin2hex(random_bytes(6));
     try {
         if(!flock($lock,LOCK_EX)) throw new \RuntimeException('Cannot lock cookie file');
@@ -139,21 +183,32 @@ function diagnosticMessage(string $message): string
 
 final class Telegram implements FileApi
 {
+    /** @var array<int,\CurlHandle> one connection per process, reused so each call skips a new TCP and TLS handshake */
+    private static array $handles = [];
     public function __construct(private Config $config) {}
+    private static function handle(): \CurlHandle
+    {
+        // A forked job must not share its parent's socket.
+        $pid = getmypid();
+        if (!isset(self::$handles[$pid])) self::$handles = [$pid => curl_init()];
+        else curl_reset(self::$handles[$pid]);
+        return self::$handles[$pid];
+    }
     public function call(string $method, array $params = []): mixed
     {
         foreach ($params as &$value) {
             if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         }
         unset($value);
-        $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
+        $ch = self::handle();
+        curl_setopt_array($ch, [CURLOPT_URL => $this->config->api . '/bot' . $this->config->token . '/' . $method, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
+            // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
+            CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 524288, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
             CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
-        curl_close($ch);
-        if ($body === false) throw new \RuntimeException('Telegram transport error ' . $errno);
+        if ($body === false) { self::$handles = []; throw new \RuntimeException('Telegram transport error ' . $errno); }
         $result = json_decode($body, true);
         if (!($result['ok'] ?? false)) {
             if(str_starts_with($method,'editMessage')&&str_contains((string)($result['description']??''),'message is not modified')) return true;

@@ -19,7 +19,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: curl, mbstring, pdo_sqlite, pcntl, posix
+          extensions: curl, mbstring, pdo_sqlite, pcntl, posix, zip
           coverage: none
 
       - name: Run PHP tests
@@ -35,6 +35,7 @@ jobs:
           php tests/customization.php
           php tests/personalization_recovery.php
           php tests/personalization_sections.php
+          php tests/personalization_ui.php
           php tests/personalization_scope.php
           php tests/admin_keyboard.php
           php tests/administrators.php
@@ -57,6 +58,7 @@ jobs:
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php
           /tmp/ciro-gallery-tests/bin/python -B tests/pinterest_redirects.py
           /tmp/ciro-gallery-tests/bin/python -B tests/social_links.py
+          /tmp/ciro-gallery-tests/bin/python -B tests/tiktok_codec.py
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/social_media.php tiktok
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/social_media.php twitter
 
@@ -64,6 +66,12 @@ jobs:
         run: |
           php tests/parallel_worker.php
           php tests/parallel_worker.php --group
+          php tests/speed.php
+          php tests/speedtest.php
+          php tests/cookie_pool.php
+          php tests/cookie_formats.php
+          php tests/cookie_health.php
+          php tests/network_options.php
           php tests/media.php
           php tests/downloader_access.php
           php tests/quality_worker.php --anonymous
@@ -110,6 +118,7 @@ jobs:
           docker run --rm --read-only --entrypoint php ciro-downloader:ci -r '
             foreach (["Core.php", "Bot.php", "Download.php", "Worker.php"] as $file) require "/app/src/".$file;
             if (!extension_loaded("pcntl") || !extension_loaded("posix")) throw new RuntimeException("Worker process extensions are missing");
+            if (!extension_loaded("zip")) throw new RuntimeException("ZIP cookie import extension is missing");
             foreach (glob("/app/bin/*.php") as $file) {
               if (!is_readable($file)) throw new RuntimeException("Unreadable entrypoint: ".$file);
             }

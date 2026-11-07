@@ -23,7 +23,10 @@ try {
     if(!empty($webhook['url'])) throw new RuntimeException('A webhook is configured; polling cannot receive updates.');
     if(!is_executable($config->ytDlp)) throw new RuntimeException('yt-dlp is not executable.');
     $store->set('diagnostic_at',(string)time());
-    echo 'YouTube cookies: '.(is_readable($config->cookiePath())?'loaded (validity checked during download)':'not configured').PHP_EOL;
+    foreach(Zero\CookieJars::SERVICES as $code=>$name) {
+        $count=Zero\CookieJars::pool($config,$code)?->count()??0;
+        echo ucfirst($name).' cookies: '.($count>0?$count.' loaded (validity checked during download)':'not configured').PHP_EOL;
+    }
     echo 'YouTube proxy: '.($config->youtubeProxy!==''?'configured':'not configured').PHP_EOL;
 
     if($url!=='') {

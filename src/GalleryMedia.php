@@ -10,6 +10,8 @@ abstract class GalleryMedia
     public static function service(): string { return static::SERVICE; }
     private static function type(string $service): string { return match($service) {'instagram'=>Instagram::class,'pinterest'=>Pinterest::class,'tiktok'=>TikTok::class,'twitter'=>Twitter::class,default=>throw new \InvalidArgumentException('Unknown media service')}; }
     public static function forService(Config $config,string $service): self { $class=self::type($service); return new $class($config); }
+    public static function validateFor(string $service,string $content): void { $class=self::type($service); $class::validateCookies($content); }
+    public static function poolFor(Config $config,string $service): CookiePool { $class=self::type($service); return $class::pool($config); }
     public static function maxItems(string $service): int { $class=self::type($service); return $class::MAX_ITEMS; }
     protected static function cookiePath(Config $config): string { return $config->galleryCookiePath(static::SERVICE); }
     public function __construct(private Config $config) {}
@@ -28,30 +30,27 @@ abstract class GalleryMedia
         }
         if(!$session) throw new \RuntimeException('No unexpired '.static::NAME.' session cookie');
     }
-    public static function saveCookies(Config $config,string $content): void
+    /** The session cookie value identifies the account, so one account is never stored twice. */
+    public static function cookieIdentity(string $content): string
     {
-        self::validateCookies($content);
-        $path=static::cookiePath($config); $lock=fopen($path.'.lock','c');
-        if(!$lock) throw new \RuntimeException('Cannot lock '.static::NAME.' cookies');
-        chmod($path.'.lock',0600); $temporary=dirname($path).'/.cookies-import-'.bin2hex(random_bytes(8));
-        try {
-            if(!flock($lock,LOCK_EX)) throw new \RuntimeException('Cannot lock '.static::NAME.' cookies');
-            if(file_put_contents($temporary,$content)!==strlen($content)||!chmod($temporary,0600)||!rename($temporary,$path)) throw new \RuntimeException('Cannot save '.static::NAME.' cookies');
-        } finally { if(is_file($temporary)) unlink($temporary); flock($lock,LOCK_UN); fclose($lock); }
+        $found=[];
+        foreach(preg_split('/\r?\n/',$content) as $line) {
+            if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+            elseif($line===''||str_starts_with($line,'#')) continue;
+            $fields=explode("\t",$line);
+            if(count($fields)===7&&$fields[6]!==''&&in_array($fields[5],[static::SESSION_COOKIE,...static::SESSION_ALIASES],true)) $found[$fields[5]]=$fields[6];
+        }
+        foreach([static::SESSION_COOKIE,...static::SESSION_ALIASES] as $name) if(isset($found[$name])) return $name.'='.$found[$name];
+        return '';
     }
-    public static function deleteCookies(Config $config,string $hash): bool
+    /** All cookie jars of this service only; other services keep separate pools. */
+    public static function pool(Config $config): CookiePool
     {
-        $path=static::cookiePath($config); $lock=fopen($path.'.lock','c');
-        if(!$lock) throw new \RuntimeException('Cannot lock '.static::NAME.' cookies');
-        chmod($path.'.lock',0600);
-        try {
-            if(!flock($lock,LOCK_EX)) throw new \RuntimeException('Cannot lock '.static::NAME.' cookies');
-            clearstatcache(true,$path);
-            if(!is_file($path)||!hash_equals($hash,hash_file('sha256',$path))) return false;
-            if(!unlink($path)) throw new \RuntimeException('Cannot delete '.static::NAME.' cookies');
-            return true;
-        } finally { flock($lock,LOCK_UN); fclose($lock); }
+        return new CookiePool(static::cookiePath($config),[static::class,'validateCookies'],[static::class,'cookieIdentity'],static::COOKIE_DOMAIN,[static::SESSION_COOKIE,...static::SESSION_ALIASES]);
     }
+    /** @return array{status:string,id:string} */
+    public static function saveCookies(Config $config,string $content): array { return static::pool($config)->add($content); }
+    public static function deleteCookies(Config $config,string $digest): bool { return static::pool($config)->clear($digest); }
     public function fetch(string $url,string $folder): array
     {
         $url=galleryUrl(static::SERVICE,$url);
@@ -67,21 +66,39 @@ abstract class GalleryMedia
             '-o','extractor.twitter.quoted=false','-o','extractor.twitter.conversations=false','-o','extractor.twitter.cards=false','-o','extractor.twitter.articles=false',
             '--range','1-'.(static::MAX_ITEMS+1),'--Print','after:CIRO|{num}|{count}|{_path}',
             '--Print','post:CIRO_META|{description!j}']);
-        $path=static::cookiePath($this->config);
-        if(is_file($path)) {
-            if(!is_readable($path)||filesize($path)>1048576) throw new MediaFailure('cookies',static::NAME.' cookie file is unreadable');
-            $content=(string)file_get_contents($path);
-            try { static::validateCookies($content); } catch(\RuntimeException $e) { throw new MediaFailure('cookies',$e->getMessage()); }
-            $private=$folder.'/'.static::SERVICE.'-cookies.txt';
-            if(file_put_contents($private,$content)!==strlen($content)||!chmod($private,0600)) throw new MediaFailure('cookies','Cannot create private '.static::NAME.' cookie copy');
-            $command=array_merge($command,['--cookies',$private]);
+        if(static::SERVICE==='tiktok'&&!$this->config->tiktokPreferH264) $command=array_merge($command,['-o','extractor.tiktok.prefer-h264=false']);
+        // Instagram, Pinterest, TikTok and X may need a cleaner exit address than the server's.
+        if($this->config->galleryProxy!=='') $command=array_merge($command,['--proxy',$this->config->galleryProxy]);
+        $pool=static::pool($this->config); $jars=$pool->order(3);
+        // Anonymous first when cookies are only a last resort; otherwise rotate through the jars.
+        $attempts=!$jars?[null]:($this->config->cookieFallback?array_merge([null],$jars):$jars);
+        $output=''; $failure=null; $refused=[];
+        foreach($attempts as $jar) {
+            $arguments=[];
+            if($jar!==null) {
+                $content=(string)file_get_contents($jar['path']);
+                try { static::validateCookies($content); }
+                catch(\RuntimeException $e) { $pool->markFailed($jar['id']); $failure=new MediaFailure('cookies',$e->getMessage()); continue; }
+                $private=$folder.'/'.static::SERVICE.'-cookies.txt';
+                if(file_put_contents($private,$content)!==strlen($content)||!chmod($private,0600)) throw new MediaFailure('cookies','Cannot create private '.static::NAME.' cookie copy');
+                $arguments=['--cookies',$private];
+            }
+            error_log(static::NAME.' provider=gallery-dl cookies='.($jar?'yes jar='.$jar['id']:'no'));
+            // Partial files of an earlier refused attempt must not be mistaken for this one's result.
+            foreach(glob($folder.'/'.static::PREFIX.'-*')?:[] as $stale) if(is_file($stale)) unlink($stale);
+            try { $output=$runner->run(array_merge($command,$arguments,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*(static::MAX_ITEMS+1),$this->config->maxBytes); $failure=null; }
+            catch(MediaFailure $e) {
+                if(preg_match('/login|authentication|authorization|unauthorized|forbidden|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) $e=new MediaFailure('blocked',$e->getMessage());
+                $failure=$e;
+                if($e->reason!=='blocked') throw $e;
+                // A refusal may be the server's IP; it only counts against a jar once another jar got through.
+                if($jar!==null) $refused[]=$jar['id'];
+                continue;
+            }
+            if($jar!==null) { $pool->markWorking($jar['id']); foreach($refused as $id) $pool->markFailed($id); }
+            break;
         }
-        error_log(static::NAME.' provider=gallery-dl cookies='.(is_file($path)?'yes':'no'));
-        try { $output=$runner->run(array_merge($command,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*(static::MAX_ITEMS+1),$this->config->maxBytes); }
-        catch(MediaFailure $e) {
-            if(preg_match('/login|authentication|authorization|unauthorized|forbidden|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) throw new MediaFailure('blocked',$e->getMessage());
-            throw $e;
-        }
+        if($failure!==null) throw $failure;
         $files=[]; $count=null; $description='';
         foreach(explode("\n",$output) as $line) {
             if(str_starts_with($line,'CIRO_META|')) {
@@ -134,10 +151,16 @@ abstract class GalleryMedia
         $ready=$folder.'/ready.mp4';
         $args=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$source,'-map','0:v:0','-map','0:a:0?'];
         $copy=($video['codec_name']??'')==='h264'&&($video['pix_fmt']??'')==='yuv420p';
-        $args=array_merge($args,$copy?['-c:v','copy']:['-c:v','libx264','-preset','veryfast','-crf','23','-threads','2','-pix_fmt','yuv420p']);
+        $args=array_merge($args,$copy?['-c:v','copy']:["-vf","scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",'-c:v','libx264','-preset','veryfast','-crf','23','-threads','2','-pix_fmt','yuv420p']);
         if($audio) $args=array_merge($args,($audio['codec_name']??'')==='aac'?['-c:a','copy']:['-c:a','aac','-b:a','128k']);
         $runner->run(array_merge($args,['-movflags','+faststart',$ready]),$folder,$this->config->timeout);
         if(!is_file($ready)||filesize($ready)<1||filesize($ready)>$this->config->maxBytes) throw new MediaFailure('size','Prepared '.static::NAME.' video exceeds file size limit');
-        return ['type'=>'video','path'=>$ready,'width'=>(int)$video['width'],'height'=>(int)$video['height'],'duration'=>(int)ceil($duration)];
+        $width=(int)$video['width']; $height=(int)$video['height'];
+        if(!$copy) {
+            // The picture was scaled, so Telegram must be told the size of the file it receives.
+            $out=json_decode($runner->run(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=width,height','-of','json',$ready],$folder,30),true)['streams'][0]??[];
+            $width=(int)($out['width']??$width); $height=(int)($out['height']??$height);
+        }
+        return ['type'=>'video','path'=>$ready,'width'=>$width,'height'=>$height,'duration'=>(int)ceil($duration)];
     }
 }

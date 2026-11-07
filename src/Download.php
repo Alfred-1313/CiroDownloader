@@ -94,12 +94,14 @@ final class Download
         }
         return file_get_contents($stdout)?:'';
     }
-    private function access(string $folder,bool $withCookies): array
+    /** Arguments for one attempt. A null jar means an anonymous request. */
+    private function access(string $folder,?array $jar): array
     {
         $access=[]; $snapshot=null;
-        $cookies=$this->config->cookiePath();
-        clearstatcache(true,$cookies);
-        if($withCookies&&is_file($cookies)) {
+        if($jar!==null) {
+            $cookies=$jar['path'];
+            clearstatcache(true,$cookies);
+            if(!is_file($cookies)) throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
             if(!is_readable($cookies)||filesize($cookies)>1048576) throw new MediaFailure('cookies','YouTube cookie file is unreadable or too large');
             $content=(string)file_get_contents($cookies);
             try { validateYouTubeCookies($content); }
@@ -109,28 +111,46 @@ final class Download
             if(file_put_contents($private,$content)===false) throw new MediaFailure('cookies','Cannot create private cookie copy');
             chmod($private,0600);
             $access=['--cookies',$private];
-            $snapshot=['path'=>$private,'hash'=>hash('sha256',$content)];
-        } elseif($withCookies) {
-            throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
+            $snapshot=['path'=>$private,'hash'=>hash('sha256',$content),'jar'=>$jar];
         }
         if($this->config->youtubeProxy!=='') $access=array_merge($access,['--proxy',$this->config->youtubeProxy]);
+        // Only with the optional provider container: yt-dlp then asks it for a PO Token.
+        if($this->config->youtubePotUrl!=='') $access=array_merge($access,['--extractor-args','youtubepot-bgutilhttp:base_url='.$this->config->youtubePotUrl]);
         return ['args'=>$access,'snapshot'=>$snapshot];
     }
     private function youtube(string $url,array $options,string $folder,int $seconds,bool $forceCookies=false): string
     {
-        $withCookies=$forceCookies||is_file($this->config->cookiePath());
-        $access=$this->access($folder,$withCookies);
+        $pool=youtubeCookiePool($this->config);
+        $jars=$pool->order(3);
         $context=preg_match('/^job-(\d+)-/',basename($folder),$match)?' job='.$match[1]:'';
-        error_log('YouTube provider=yt-dlp cookies='.($withCookies?'yes':'no').$context);
-        $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
-        $this->refresh($access);
-        return $result;
+        if(!$jars&&$forceCookies) throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
+        // Anonymous first when the administrator prefers cookies only as a last resort.
+        $attempts=!$jars?[null]:($this->config->cookieFallback&&!$forceCookies?array_merge([null],$jars):$jars);
+        $failure=null; $refused=[];
+        foreach($attempts as $jar) {
+            try {
+                $access=$this->access($folder,$jar);
+                error_log('YouTube provider=yt-dlp cookies='.($jar?'yes':'no').($jar?' jar='.$jar['id']:'').$context);
+                $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
+            } catch(MediaFailure $e) {
+                $failure=$e;
+                // Only a refusal that a login could fix is retried with the next cookie jar.
+                if(!in_array($e->reason,$jar===null?['blocked','restricted']:['blocked','cookies'],true)) throw $e;
+                // An unreadable or expired jar is its own fault. A plain refusal may be the server's IP, so
+                // it only counts against a jar once another jar got through where it did not.
+                if($jar!==null) { if($e->reason==='cookies') $pool->markFailed($jar['id']); else $refused[]=$jar['id']; }
+                continue;
+            }
+            if($jar!==null) { $pool->markWorking($jar['id']); foreach($refused as $id) $pool->markFailed($id); $this->refresh($access); }
+            return $result;
+        }
+        throw $failure??new MediaFailure('process','YouTube download did not start');
     }
     private function refresh(array $access): void
     {
         $snapshot=$access['snapshot'];
         if($snapshot&&is_file($snapshot['path'])) {
-            try { saveYouTubeCookies($this->config,(string)file_get_contents($snapshot['path']),$snapshot['hash']); }
+            try { saveYouTubeCookies($this->config,(string)file_get_contents($snapshot['path']),$snapshot['hash'],$snapshot['jar']['path']); }
             catch(\Throwable) { error_log('YouTube cookie refresh skipped: invalid jar or unavailable storage'); }
         }
     }

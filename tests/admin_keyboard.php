@@ -36,13 +36,13 @@ try {
     foreach(['customize','health','cookies','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
 
     $bot->handle(adminMessage($bot->label('customize')));
-    adminCheck(str_contains(json_encode(end($api->calls)[1]['reply_markup']),'custom:groups:text'),'the Personalization reply control opens the existing user-only editor');
+    adminCheck(str_contains(json_encode(end($api->calls)[1]['reply_markup']),'custom:section:cover'),'the Personalization reply control opens the grouped user-only editor');
     $bot->handle(adminCallback('custom:back'));
     adminCheck(adminLabels($api)===$expected,'returning from Personalization restores the administration keyboard');
     $bot->handle(adminMessage($bot->label('health')));
     adminCheck(str_contains(end($api->calls)[1]['text'],'کاربران ثبت‌شده'),'the status reply control opens the private statistics');
     $bot->handle(adminMessage($bot->label('cookies')));
-    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
+    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_alerts'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
     $bot->handle(adminMessage($bot->label('cookie_youtube')));
     adminCheck(in_array($bot->label('cookie_view'),adminLabels($api),true)&&in_array($bot->label('cookie_remove'),adminLabels($api),true),'the YouTube service exposes separate import, view and delete controls');
     $bot->handle(adminMessage($bot->label('cookie_upload')));

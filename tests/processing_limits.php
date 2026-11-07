@@ -55,20 +55,20 @@ try {
 
     $bot->handle(limitClick('custom:section:access')); // Reproduce a stale prior screen.
     $bot->handle(limitInput('/customize'));
-    $home=limitRows($api); $previousHeader=false;
+    $home=limitRows($api); $titles=0;
     foreach($home as $row) foreach($row as $button) {
-        if($button['callback_data']==='custom:noop') {
-            limitCheck(($button['style']??'')==='primary','display headers are blue'); $previousHeader=true;
-        } elseif($button['callback_data']!=='custom:back') {
-            limitCheck(!isset($button['style'])&&$previousHeader,'feature controls are neutral and follow a display header');
-        }
+        if(str_starts_with($button['callback_data'],'custom:hint:')) { $titles++; limitCheck(!isset($button['style']),'section titles are white and only explain themselves'); }
     }
+    limitCheck($titles>=5&&in_array('custom:features',limitActions($api),true),'the main screen groups sections under white titles and links to the features page');
+    $bot->handle(limitClick('custom:features'));
+    $switches=[]; foreach(limitRows($api) as $row) foreach($row as $button) if(in_array($button['callback_data'],['custom:groups_mode','custom:access'],true)) $switches[$button['callback_data']]=$button['style']??'';
+    limitCheck($switches==['custom:groups_mode'=>'success','custom:access'=>'danger'],'feature switches show their state with green and red');
     $bot->handle(limitClick('custom:item:text:admin_only_notice'));
-    limitCheck(in_array('custom:home',limitActions($api),true),'private-mode notice opened from home returns to home despite a stale screen');
+    limitCheck(in_array('custom:features',limitActions($api),true),'private-mode notice opened from the features page returns there despite a stale screen');
     $bot->handle(limitClick('custom:edit:text:admin_only_notice')); $bot->handle(limitInput('<b>پیام اختصاصی تازه</b>'));
-    limitCheck(in_array('custom:home',limitActions($api),true),'saving the private-mode notice preserves its return destination');
-    $bot->handle(limitClick('custom:home'));
-    limitCheck(in_array('custom:limits',limitActions($api),true),'Back actually reopens the Personalization home');
+    limitCheck(in_array('custom:features',limitActions($api),true),'saving the private-mode notice preserves its return destination');
+    $bot->handle(limitClick('custom:features'));
+    limitCheck(in_array('custom:limits',limitActions($api),true),'Back actually reopens the features page');
     $bot->handle(limitClick('custom:section:access')); $bot->handle(limitClick('custom:item:text:admin_only_notice'));
     limitCheck(in_array('custom:section:access',limitActions($api),true),'the same notice opened from a section returns to that section');
     $bot->handle(limitClick('custom:list:text:public:0')); $bot->handle(limitClick('custom:item:text:admin_only_notice'));
@@ -82,8 +82,8 @@ try {
         $bot->handle(limitClick('custom:limit:private')); $bot->handle(limitInput($invalid));
         limitCheck($store->processingLimit(7)===3&&$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()!==false,'invalid input keeps the previous limit and allows retry: '.$invalid);
     }
-    $bot->handle(limitClick('custom:noop'));
-    limitCheck($store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()!==false,'tapping a display header does not cancel pending input');
+    $bot->handle(limitClick('custom:noop')); $bot->handle(limitClick('custom:hint:feat_limits'));
+    limitCheck($store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()!==false&&end($api->calls)[0]==='answerCallbackQuery'&&end($api->calls)[1]['show_alert']===true,'tapping a title explains it in an alert and does not cancel pending input');
     $bot->handle(limitClick('custom:limits'));
     limitCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back cancels pending numeric input');
     $bot->handle(limitClick('custom:limit:private')); $bot->handle(limitInput('0'));

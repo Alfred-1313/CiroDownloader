@@ -35,16 +35,16 @@ try {
     pinCheck(in_array($bot->label('pin_cookie_upload'),$keys,true)&&in_array($bot->label('pin_cookie_view'),$keys,true),'Pinterest has a private reply-keyboard cookie panel');
     $click('pin_cookie_view');
     pinCheck(!str_contains(end($api->calls)[1]['text'],'FAKE_')&&str_contains(end($api->calls)[1]['text'],'2'),'cookie view shows counts without session values');
-    $click('pin_cookie_export');
-    pinCheck(end($api->calls)[0]==='sendDocument'&&end($api->calls)[1]['protect_content']===true&&end($api->calls)[1]['document'] instanceof CURLStringFile,'only the private administrator receives a protected in-memory cookie export');
+    $exportData=end($api->calls)[1]['reply_markup']['inline_keyboard'][0][0]['callback_data']; $bot->handle(['callback_query'=>['id'=>'export','from'=>['id'=>42],'message'=>['message_id'=>800,'chat'=>['id'=>42,'type'=>'private']],'data'=>$exportData]]);
+    pinCheck((($docs=array_values(array_filter($api->calls,fn($call)=>$call[0]==='sendDocument')))&&end($docs)[1]['protect_content']===true&&end($docs)[1]['document'] instanceof CURLStringFile),'only the private administrator receives a protected in-memory cookie export');
     $before=count($api->calls); $send($bot->label('pin_cookie_export'),7);
     pinCheck(count(array_filter(array_slice($api->calls,$before),fn($call)=>$call[0]==='sendDocument'))===0,'ordinary users cannot export the Pinterest jar');
     $click('pin_cookie_upload');
     pinCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='pin_cookie.upload'&&!isset(end($api->calls)[1]['reply_markup']),'Pinterest import keeps a persistent editable status and the service keyboard');
     $api->content=$cookies;
     $bot->handle(['message'=>['message_id'=>701,'from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'document'=>['file_id'=>'fixture','file_name'=>'any-name.txt','file_size'=>strlen($cookies)]]]);
-    pinCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()&&file_get_contents($config->cookiePath())===$youtube,'a valid document saves only Pinterest cookies and ends its upload state');
-    $click('pin_cookie_remove'); $new=str_replace('FAKE_INSTAGRAM_SESSION','FAKE_FRESH_SESSION',$cookies); Zero\Pinterest::saveCookies($config,$new); $click('pin_cookie_confirm');
+    pinCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='pin_cookie.upload'&&file_get_contents($config->cookiePath())===$youtube,'a valid document saves only Pinterest cookies and keeps the upload open for more files');
+    $click('pin_cookie_remove'); $new=str_replace('FAKE_CSRF','FAKE_FRESH_CSRF',$cookies); Zero\Pinterest::saveCookies($config,$new); $click('pin_cookie_confirm');
     pinCheck(file_get_contents($config->pinterestCookiePath())===$new,'a stale deletion confirmation cannot delete a newer Pinterest import');
     $click('pin_cookie_remove'); $click('pin_cookie_back');
     pinCheck(is_file($config->pinterestCookiePath())&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back cancels Pinterest cookie deletion');
@@ -53,19 +53,16 @@ try {
     $custom=new Zero\Personalization($bot); $custom->home(42);
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
-        if($button['text']===$bot->label('section_pinterest')&&($button['callback_data']??'')==='custom:noop') $header=($button['style']??'')==='primary';
-        if(($button['callback_data']??'')==='custom:section:pinterest') $control=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:hint:home_social') $header=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:section:pinterest') $control=true;
     }
-    pinCheck($header&&$control,'Personalization adds a blue Pinterest heading followed by a neutral feature control');
+    pinCheck($header&&$control,'Personalization lists Pinterest under a white social-networks title');
     $toggle=fn(int $user=42)=>$bot->handle(['callback_query'=>['id'=>'pin-source','from'=>['id'=>$user],'message'=>['message_id'=>700,'chat'=>['id'=>$user,'type'=>'private']],'data'=>'custom:pinsource']]);
     $toggle(7);
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the Pinterest source button defaults off and ordinary users cannot enable it');
-    $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
-    foreach($rows as $row) foreach($row as $button) {
-        if($button['text']===$bot->label('pinterest_source_heading')&&($button['callback_data']??'')==='custom:noop') $header=($button['style']??'')==='primary';
-        if(($button['callback_data']??'')==='custom:pinsource') $control=!isset($button['style']);
-    }
-    pinCheck($header&&$control&&(new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled('pinterest'),'the source toggle has a blue heading, a neutral control and a persistent enabled setting');
+    $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $state='';
+    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:pinsource') $state=$button['style']??'';
+    pinCheck($state==='success'&&(new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled('pinterest'),'the source switch turns green and its enabled setting persists');
     $toggle();
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the administrator can disable the Pinterest source button again');
     pinCheck(!isset($bot->catalog('button')['pinterest_page_counter']),'the removed counter is absent from Personalization');
