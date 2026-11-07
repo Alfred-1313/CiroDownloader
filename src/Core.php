@@ -194,8 +194,21 @@ final class Telegram implements FileApi
         else curl_reset(self::$handles[$pid]);
         return self::$handles[$pid];
     }
+    /** Buttons the administrator hid are removed here, so no screen has to know about the switch. */
+    public static function withoutHidden(array $markup): array
+    {
+        if (!isset($markup['inline_keyboard'])) return $markup;
+        $rows = [];
+        foreach ($markup['inline_keyboard'] as $row) {
+            $row = array_values(array_filter($row, fn($button) => empty($button['_hidden'])));
+            if ($row) $rows[] = $row;
+        }
+        $markup['inline_keyboard'] = $rows;
+        return $markup;
+    }
     public function call(string $method, array $params = []): mixed
     {
+        if (isset($params['reply_markup']) && is_array($params['reply_markup'])) $params['reply_markup'] = self::withoutHidden($params['reply_markup']);
         foreach ($params as &$value) {
             if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         }

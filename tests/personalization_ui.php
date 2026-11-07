@@ -66,9 +66,9 @@ try {
 
     // Button editor shows its state and the colour on the colour button.
     $bot->handle(uiClick('custom:item:button:extract_audio'));
-    uiCheck(uiFind($api,'custom:color:extract_audio')!==null&&uiFind($api,'custom:icon:extract_audio')!==null&&uiFind($api,'custom:clearicon:extract_audio')!==null&&str_contains(uiText($api),'🎨 رنگ'),'a button editor shows colour and premium emoji state');
+    uiCheck(uiFind($api,'custom:cyclecolor:extract_audio')!==null&&uiFind($api,'custom:icon:extract_audio')!==null&&uiFind($api,'custom:clearicon:extract_audio')!==null&&str_contains(uiText($api),'🎨 رنگ'),'a button editor shows colour and premium emoji state');
     $bot->handle(uiClick('custom:setcolor:extract_audio:danger'));
-    uiCheck(str_contains(uiText($api),$bot->ui->label('color_danger'))&&str_contains(uiFind($api,'custom:color:extract_audio')['text'],$bot->ui->label('color_danger')),'the colour button names the current colour after a change');
+    uiCheck(str_contains(uiText($api),$bot->ui->label('color_danger'))&&str_contains(uiFind($api,'custom:cyclecolor:extract_audio')['text'],$bot->ui->label('color_danger')),'the colour button names the current colour after a change');
 
     // Features page: one-tap switches with green and red.
     $bot->handle(uiClick('custom:features'));
