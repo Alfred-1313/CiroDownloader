@@ -13,7 +13,7 @@ final class Config
         public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
         public string $ytDlp = '/opt/yt/bin/yt-dlp', public int $timeout = 600,
         public string $youtubeCookies = '', public string $youtubeProxy = '', public int $workerConcurrency = 3,
-        public string $galleryDl = '/opt/yt/bin/gallery-dl', public string $instagramCookies = '', public string $pinterestCookies = '',
+        public string $galleryDl = '/opt/yt/bin/gallery-dl', public string $instagramCookies = '', public string $pinterestCookies = '', public string $tiktokCookies = '', public string $twitterCookies = '',
     ) {}
 
     public static function load(): self
@@ -49,10 +49,13 @@ final class Config
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
-            getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'');
+            getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'',getenv('TIKTOK_COOKIES_FILE')?:'',getenv('TWITTER_COOKIES_FILE')?:'');
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
+    public function tiktokCookiePath(): string { return $this->tiktokCookies!==''?$this->tiktokCookies:$this->storage.'/tiktok-cookies.txt'; }
+    public function twitterCookiePath(): string { return $this->twitterCookies!==''?$this->twitterCookies:$this->storage.'/twitter-cookies.txt'; }
+    public function galleryCookiePath(string $service): string { return match($service) {'instagram'=>$this->instagramCookiePath(),'pinterest'=>$this->pinterestCookiePath(),'tiktok'=>$this->tiktokCookiePath(),'twitter'=>$this->twitterCookiePath(),default=>throw new \InvalidArgumentException('Unknown media service')}; }
     public function pinterestCookiePath(): string { return $this->pinterestCookies!==''?$this->pinterestCookies:$this->storage.'/pinterest-cookies.txt'; }
     public function instagramCookiePath(): string { return $this->instagramCookies!==''?$this->instagramCookies:$this->storage.'/instagram-cookies.txt'; }
 }
@@ -431,8 +434,40 @@ function pinterestUrl(string $input): ?string
     return 'https://www.pinterest.com/pin/'.$match[1].'/';
 }
 
-function galleryService(string $input): ?string { return pinterestUrl($input)?'pinterest':(instagramUrl($input)?'instagram':null); }
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input); }
+function tiktokUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(!str_contains($input,'://')) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return null;
+    $host=strtolower($parts['host']??''); $path=$parts['path']??'';
+    if(in_array($host,['vm.tiktok.com','vt.tiktok.com'],true)) return preg_match('~^/([A-Za-z0-9_-]{1,64})/?$~D',$path,$match)?'https://'.$host.'/'.$match[1].'/':null;
+    if(!in_array($host,['tiktok.com','www.tiktok.com','m.tiktok.com'],true)) return null;
+    if(preg_match('~^/t/([A-Za-z0-9_-]{1,64})/?$~D',$path,$match)) return 'https://www.tiktok.com/t/'.$match[1].'/';
+    if(!preg_match('~^/(?:@([A-Za-z0-9_.-]{0,64})|share)/(video|photo)/([0-9]{1,30})/?$~D',$path,$match)) return null;
+    return 'https://www.tiktok.com/@'.$match[1].'/'.$match[2].'/'.$match[3];
+}
+
+function twitterUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(!str_contains($input,'://')) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])
+        ||!in_array(strtolower($parts['host']??''),['x.com','www.x.com','mobile.x.com','twitter.com','www.twitter.com','mobile.twitter.com','m.twitter.com'],true)) return null;
+    if(!preg_match('~^/(?:([A-Za-z0-9_]{1,15})|i/web)/status/([0-9]{1,30})(?:/(?:photo|video)/[1-9][0-9]?)?/?$~D',$parts['path']??'',$match)) return null;
+    return 'https://x.com/'.(($match[1]??'')==='i'||empty($match[1])?'i/web':$match[1]).'/status/'.$match[2];
+}
+
+const GALLERY_PREFIXES=['instagram'=>'ig','pinterest'=>'pin','tiktok'=>'tt','twitter'=>'x'];
+function galleryServices(): array { return array_keys(GALLERY_PREFIXES); }
+function galleryPrefix(string $service): string { return GALLERY_PREFIXES[$service]??throw new \InvalidArgumentException('Unknown media service'); }
+function galleryFromPrefix(string $prefix): ?string { $service=array_search($prefix,GALLERY_PREFIXES,true); return $service===false?null:$service; }
+function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),default=>null}; }
+function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input); }
 
 function lockProcess(string $path): mixed
 {

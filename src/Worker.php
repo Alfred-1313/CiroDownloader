@@ -4,6 +4,8 @@ namespace Zero;
 use Throwable;
 require_once __DIR__.'/Instagram.php';
 require_once __DIR__.'/Pinterest.php';
+require_once __DIR__.'/TikTok.php';
+require_once __DIR__.'/Twitter.php';
 require_once __DIR__.'/Articles.php';
 
 final class WorkerStopped extends \RuntimeException {}
@@ -52,7 +54,7 @@ final class Worker
                 }
                 $bot->jobMessage($job,$bot->text($service.'_downloading'));
                 $inspectionStarted=hrtime(true);
-                $media=($service==='pinterest'?new Pinterest($config):new Instagram($config))->fetch($job['url'],$folder);
+                $media=GalleryMedia::forService($config,$service)->fetch($job['url'],$folder);
                 $timings['prepare_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
                 $stage='upload'; $uploadStarted=hrtime(true);
                 if(count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {

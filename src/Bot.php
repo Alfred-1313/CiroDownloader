@@ -8,6 +8,8 @@ require_once __DIR__.'/Cookies.php';
 require_once __DIR__.'/InstagramCookies.php';
 require_once __DIR__.'/InstagramPages.php';
 require_once __DIR__.'/PinterestCookies.php';
+require_once __DIR__.'/TikTokCookies.php';
+require_once __DIR__.'/TwitterCookies.php';
 require_once __DIR__.'/PinterestPages.php';
 require_once __DIR__.'/Administrators.php';
 require_once __DIR__.'/Reactions.php';
@@ -135,7 +137,7 @@ final class Bot
             require_once __DIR__.'/Download.php';
             $reason=MediaFailure::process(1,$detail)->reason;
         }
-        $key=(in_array($this->store->get('last_job_service'),['instagram','pinterest'],true)?$this->store->get('last_job_service').'_':'').'error_'.$reason;
+        $key=(in_array($this->store->get('last_job_service'),galleryServices(),true)?$this->store->get('last_job_service').'_':'').'error_'.$reason;
         return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed');
     }
     public function qualityMenu(array $job,array $media): void
@@ -267,7 +269,7 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
-            $isPage=preg_match('/^(?:ig|pin)page:(\d+):([1-9]|1\d|20)(?::(\d+))?$/D',$action,$page)===1;
+            $isPage=preg_match('/^(?:ig|pin|tt|x)page:(\d+):([1-9][0-9]?)(?::(\d+))?$/D',$action,$page)===1;
             $pageCounter=$action==='igpage:noop';
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back'],true);
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter;
@@ -295,7 +297,7 @@ final class Bot
             if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }
             if($isPage) {
                 $topic=$group&&!isset($message['message_thread_id'])?null:$thread;
-                $pageService=str_starts_with($action,'pinpage:')?'pinterest':'instagram';
+                $pageService=galleryFromPrefix(substr(strstr($action,':',true),0,-4));
                 $notice=(new GalleryPages($this->config,$this->store,$this->api,$pageService))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$topic,(int)$page[2],isset($page[3])?(int)$page[3]:null);
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pageService.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
@@ -346,7 +348,7 @@ final class Bot
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
-        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','pin_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
+        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
         if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
@@ -356,6 +358,8 @@ final class Bot
             if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
             if($reply!==null&&(new InstagramCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new PinterestCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
+            if($reply!==null&&(new TikTokCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
+            if($reply!==null&&(new TwitterCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new Cookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($text==='/update'||$reply==='update') { (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,0,'',true); return; }
             if($text==='/customize'||$reply==='customize') { $custom->home($chat); return; }
@@ -373,7 +377,9 @@ final class Bot
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
         if(isset($message['document'])) {
-            if($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);
+            if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
+            elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
+            elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);
             elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
             else $this->cookieDocument($chat,$user,$message);
             return;
@@ -382,6 +388,8 @@ final class Bot
         if($state==='cookie.upload'&&$this->admin($user)) { $this->cookieNotice($chat,$user,$this->text('cookie_waiting')); return; }
         if($state==='ig_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('ig_cookie_waiting')); return; }
         if($state==='pin_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('pin_cookie_waiting')); return; }
+        if($state==='tt_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('tt_cookie_waiting')); return; }
+        if($state==='x_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('x_cookie_waiting')); return; }
         $url=mediaUrl($text);
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));

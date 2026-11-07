@@ -29,6 +29,8 @@ final class Personalization
         $this->bot->store->set('custom.section.'.$chat,'home');
         $state=$ui->plain($this->bot->store->get('admins_only','0')==='1'?'state_on':'state_off');
         $groupState=$ui->plain($this->bot->store->groupsEnabled()?'state_on':'state_off');
+        $galleryRows=[];
+        foreach(galleryServices() as $service) { $galleryRows[]=[$this->heading($ui->label('section_'.$service))]; $galleryRows[]=[$ui->button('section_'.$service,'custom:section:'.$service)]; }
         $this->send($chat,$ui->text('custom_panel',['state'=>$state]),[
             [$this->heading($ui->label('sections'))],
             [$ui->button('sections','custom:sections')],
@@ -47,10 +49,7 @@ final class Personalization
             [$ui->button('processing_limits','custom:limits')],
             [$this->heading($ui->label('reaction_heading'))],
             [$ui->button('reaction_settings','custom:reaction')],
-            [$this->heading($ui->label('section_instagram'))],
-            [$ui->button('section_instagram','custom:section:instagram')],
-            [$this->heading($ui->label('section_pinterest'))],
-            [$ui->button('section_pinterest','custom:section:pinterest')],
+            ...$galleryRows,
             [$ui->button('back_admin','custom:back')],
         ],$message);
     }
@@ -101,8 +100,6 @@ final class Personalization
     private function sectionItems(string $section): array
     {
         $screens=[
-            'instagram'=>[['text','instagram_queued'],['text','instagram_downloading'],['text','instagram_uploading'],['text','instagram_caption'],['text','instagram_page_caption'],['button','instagram_prev'],['button','instagram_next'],['button','source_instagram'],['button','open_instagram_article']],
-            'pinterest'=>[['text','pinterest_queued'],['text','pinterest_downloading'],['text','pinterest_uploading'],['text','pinterest_caption'],['text','pinterest_page_caption'],['button','pinterest_prev'],['button','pinterest_next'],['button','source_pinterest'],['button','open_pinterest_article']],
             'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
@@ -112,16 +109,17 @@ final class Personalization
             'progress'=>[['text','queued'],['text','inspecting'],['text','quality_expired'],['text','quality_busy'],['text','downloading'],['text','uploading'],['text','audio_downloading'],['text','audio_uploading']],
             'errors'=>[],
         ];
+        foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
         if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
-        if(in_array($section,['instagram','pinterest'],true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
+        if(in_array($section,galleryServices(),true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
         return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
     }
     private function sections(int $chat,int $message): void
     {
         $ui=$this->bot->ui; $rows=[[$this->heading($ui->label('sections'))]];
-        foreach(['cover','video','audio','instagram','pinterest','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
+        foreach(array_merge(['cover','video','audio'],galleryServices(),['help','group','access','progress','errors']) as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
         $rows[]=[$ui->button('back_custom','custom:home')];
         $this->send($chat,$ui->text('section_info',['title'=>$ui->label('sections')]),$rows,$message);
     }
@@ -130,8 +128,8 @@ final class Personalization
         $ui=$this->bot->ui; $items=$this->sectionItems($section);
         if(!$items) { $this->sections($chat,$message); return; }
         $this->bot->store->set('custom.section.'.$chat,$section); $rows=[[$this->heading($ui->label('section_'.$section))]];
-        if(in_array($section,['instagram','pinterest'],true)) {
-            $prefix=$section==='pinterest'?'pin':'ig';
+        if(in_array($section,galleryServices(),true)) {
+            $prefix=galleryPrefix($section);
             $rows[]=[$this->heading($ui->label($section.'_output'))];
             $rows[]=[$ui->button($section.'_mode_pages','custom:'.$prefix.'mode:pages')];
             $rows[]=[$ui->button($section.'_mode_article','custom:'.$prefix.'mode:article')];
@@ -149,7 +147,7 @@ final class Personalization
             $rows[]=[$ui->button('cover_use_legacy','custom:mediamode:'.$section.':legacy')];
         }
         $rows[]=[$ui->button('back','custom:sections')];
-        $text=in_array($section,['instagram','pinterest'],true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]));
+        $text=in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]));
         $this->send($chat,$text,$rows,$message);
     }
     private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void
@@ -453,13 +451,13 @@ final class Personalization
         }
         elseif($op==='sections') $this->sections($chat,$message);
         elseif($op==='section') $this->section($chat,$kind,$message);
-        elseif(in_array($op,['igmode','pinmode'],true)&&in_array($kind,['pages','article'],true)) {
-            $service=$op==='pinmode'?'pinterest':'instagram';
+        elseif(in_array($op,['igmode','pinmode','ttmode','xmode'],true)&&in_array($kind,['pages','article'],true)) {
+            $service=galleryFromPrefix(substr($op,0,-4));
             $this->bot->store->set($service.'.carousel_mode',$kind);
             $this->section($chat,$service,$message);
         }
-        elseif(in_array($op,['igsource','pinsource'],true)) {
-            $service=$op==='pinsource'?'pinterest':'instagram';
+        elseif(in_array($op,['igsource','pinsource','ttsource','xsource'],true)) {
+            $service=galleryFromPrefix(substr($op,0,-6));
             $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
             $this->section($chat,$service,$message);
         }

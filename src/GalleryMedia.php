@@ -6,7 +6,12 @@ abstract class GalleryMedia
 {
     public const MAX_ITEMS=20;
     protected const SERVICE='instagram', NAME='Instagram', PREFIX='ig', SESSION_COOKIE='sessionid', COOKIE_DOMAIN='instagram.com';
-    protected static function cookiePath(Config $config): string { return static::SERVICE==='pinterest'?$config->pinterestCookiePath():$config->instagramCookiePath(); }
+    protected const SESSION_ALIASES=[];
+    public static function service(): string { return static::SERVICE; }
+    private static function type(string $service): string { return match($service) {'instagram'=>Instagram::class,'pinterest'=>Pinterest::class,'tiktok'=>TikTok::class,'twitter'=>Twitter::class,default=>throw new \InvalidArgumentException('Unknown media service')}; }
+    public static function forService(Config $config,string $service): self { $class=self::type($service); return new $class($config); }
+    public static function maxItems(string $service): int { $class=self::type($service); return $class::MAX_ITEMS; }
+    protected static function cookiePath(Config $config): string { return $config->galleryCookiePath(static::SERVICE); }
     public function __construct(private Config $config) {}
     public static function validateCookies(string $content): void
     {
@@ -19,7 +24,7 @@ abstract class GalleryMedia
             if(count($fields)!==7||!ctype_digit($fields[4])||!in_array($fields[1],['TRUE','FALSE'],true)||!in_array($fields[3],['TRUE','FALSE'],true)) throw new \RuntimeException('Invalid Netscape cookie row');
             $domain=ltrim(strtolower($fields[0]),'.');
             if($domain!==static::COOKIE_DOMAIN&&!str_ends_with($domain,'.'.static::COOKIE_DOMAIN)) throw new \RuntimeException('Export only '.static::COOKIE_DOMAIN.' cookies');
-            if($fields[5]===static::SESSION_COOKIE&&$fields[6]!==''&&((int)$fields[4]===0||(int)$fields[4]>time())) $session=true;
+            if(in_array($fields[5],[static::SESSION_COOKIE,...static::SESSION_ALIASES],true)&&$fields[6]!==''&&((int)$fields[4]===0||(int)$fields[4]>time())) $session=true;
         }
         if(!$session) throw new \RuntimeException('No unexpired '.static::NAME.' session cookie');
     }
@@ -49,7 +54,7 @@ abstract class GalleryMedia
     }
     public function fetch(string $url,string $folder): array
     {
-        $url=static::SERVICE==='pinterest'?pinterestUrl($url):instagramUrl($url);
+        $url=galleryUrl(static::SERVICE,$url);
         if(!$url) throw new MediaFailure('format','Invalid '.static::NAME.' post URL');
         $runner=new Download($this->config);
         $python=dirname($this->config->galleryDl).'/python';
@@ -57,8 +62,10 @@ abstract class GalleryMedia
             ?[$python,dirname(__DIR__).'/bin/'.static::SERVICE.'-download.py']:[$this->config->galleryDl];
         $command=array_merge($backend,['--ignore-config','--no-input','--quiet','--retries','2','--http-timeout','20',
             '--directory',$folder,'--filename',static::PREFIX.'-{num:02d}.{extension}',
-            '-o','extractor.'.static::SERVICE.'.videos='.(static::SERVICE==='instagram'?'merged':'true'),'-o','extractor.instagram.previews=false',
-            '--range','1-21','--Print','after:CIRO|{num}|{count}|{_path}',
+            '-o','extractor.'.static::SERVICE.'.videos='.(static::SERVICE==='instagram'?'merged':'true'),
+            '-o','extractor.'.static::SERVICE.'.previews=false','-o','extractor.tiktok.audio=false','-o','extractor.tiktok.covers=false',
+            '-o','extractor.twitter.quoted=false','-o','extractor.twitter.conversations=false','-o','extractor.twitter.cards=false','-o','extractor.twitter.articles=false',
+            '--range','1-'.(static::MAX_ITEMS+1),'--Print','after:CIRO|{num}|{count}|{_path}',
             '--Print','post:CIRO_META|{description!j}']);
         $path=static::cookiePath($this->config);
         if(is_file($path)) {
@@ -70,9 +77,9 @@ abstract class GalleryMedia
             $command=array_merge($command,['--cookies',$private]);
         }
         error_log(static::NAME.' provider=gallery-dl cookies='.(is_file($path)?'yes':'no'));
-        try { $output=$runner->run(array_merge($command,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*(self::MAX_ITEMS+1),$this->config->maxBytes); }
+        try { $output=$runner->run(array_merge($command,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*(static::MAX_ITEMS+1),$this->config->maxBytes); }
         catch(MediaFailure $e) {
-            if(preg_match('/login|authentication|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) throw new MediaFailure('blocked',$e->getMessage());
+            if(preg_match('/login|authentication|authorization|unauthorized|forbidden|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) throw new MediaFailure('blocked',$e->getMessage());
             throw $e;
         }
         $files=[]; $count=null; $description='';
@@ -86,7 +93,7 @@ abstract class GalleryMedia
             $parts=explode('|',$line,4);
             if(count($parts)!==4||!ctype_digit($parts[1])||!ctype_digit($parts[2])) throw new MediaFailure('format','Invalid '.static::NAME.' manifest');
             $index=(int)$parts[1]; $total=(int)$parts[2]; $file=realpath($parts[3]);
-            if($index<1||$total<1||$total>self::MAX_ITEMS||isset($files[$index])||($count!==null&&$count!==$total)
+            if($index<1||$total<1||$total>static::MAX_ITEMS||isset($files[$index])||($count!==null&&$count!==$total)
                 ||$file===false||dirname($file)!==realpath($folder)||is_link($parts[3])||!is_file($file)
                 ||!preg_match('/^'.static::PREFIX.'-\d+\.(jpg|jpeg|png|webp|mp4|mkv|mov)$/Di',basename($file))) throw new MediaFailure('format',static::NAME.' media manifest is incomplete or invalid');
             if(filesize($file)<1||filesize($file)>$this->config->maxBytes) throw new MediaFailure('size',static::NAME.' media exceeds file size limit');

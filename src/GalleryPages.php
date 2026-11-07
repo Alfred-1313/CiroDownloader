@@ -5,7 +5,7 @@ namespace Zero;
 class GalleryPages
 {
     public const TTL=86400;
-    public function __construct(private Config $config,private Store $store,private Api $api,private string $service='instagram') { if(!in_array($service,['instagram','pinterest'],true)) throw new \InvalidArgumentException('Unsupported gallery service'); }
+    public function __construct(private Config $config,private Store $store,private Api $api,private string $service='instagram') { if(!in_array($service,galleryServices(),true)) throw new \InvalidArgumentException('Unsupported gallery service'); }
     private function root(): string { return $this->config->storage.'/'.$this->service.'-pages'; }
     public function prepare(array $job,array $media): array
     {
@@ -31,7 +31,7 @@ class GalleryPages
     private function state(array $job): ?array
     {
         $state=json_decode($job['options'],true)['pages']??null;
-        if(!is_array($state)||!is_array($state['items']??null)||count($state['items'])<2||count($state['items'])>GalleryMedia::MAX_ITEMS
+        if(!is_array($state)||!is_array($state['items']??null)||count($state['items'])<2||count($state['items'])>GalleryMedia::maxItems($this->service)
             ||!preg_match('/^job-'.(int)$job['id'].'-[a-f0-9]{16}$/D',(string)($state['folder']??''))) return null;
         // Existing one-way sessions can continue using their first old button.
         if(!isset($state['current'])) {
@@ -86,8 +86,8 @@ class GalleryPages
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
         $caption=Ui::fitCaption($bot->text($this->service.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description]));
         $navigation=[]; $revision=(int)$state['revision']+1;
-        if($index>1) $navigation[]=$bot->ui->button($this->service.'_prev',($this->service==='pinterest'?'pinpage:':'igpage:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
-        if($index<$count) $navigation[]=$bot->ui->button($this->service.'_next',($this->service==='pinterest'?'pinpage:':'igpage:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
+        if($index>1) $navigation[]=$bot->ui->button($this->service.'_prev',(galleryPrefix($this->service).'page:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
+        if($index<$count) $navigation[]=$bot->ui->button($this->service.'_next',(galleryPrefix($this->service).'page:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
         $rows=array_merge([$navigation],$bot->ui->gallerySourceRows($this->service,$job['url']));
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
         $media=['type'=>$item['type'],'media'=>$cached?$item['file_id']:'attach://slide','caption'=>$caption,'parse_mode'=>'HTML'];

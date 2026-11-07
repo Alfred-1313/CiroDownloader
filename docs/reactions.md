@@ -1,6 +1,6 @@
 # Link reactions
 
-Newly accepted YouTube, Instagram and Pinterest links receive a native Telegram 👾 reaction on the user's original message. This defaults on in both private chats and groups, including `/download@BotName` commands. The bot creates the job and its status before requesting the reaction; workers can process the job while that optional request completes.
+Newly accepted YouTube, Instagram, Pinterest, TikTok and X links receive a native Telegram 👾 reaction on the user's original message. This defaults on in both private chats and groups, including `/download@BotName` commands. The bot creates the job and its status before requesting the reaction; workers can process the job while that optional request completes.
 
 Administrators can open **🎨 شخصی‌سازی → 👾 تنظیم ری‌اکشن لینک** to select a preset, enter another supported Telegram reaction emoji, or disable reactions. The choice persists across restarts and applies to future requests. Disabling the feature does not remove reactions from older messages. The blue section heading is display-only, and the controls use the neutral default style.
 

@@ -3,11 +3,13 @@ declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/Instagram.php';
 require_once __DIR__.'/Pinterest.php';
+require_once __DIR__.'/TikTok.php';
+require_once __DIR__.'/Twitter.php';
 
 abstract class GalleryCookies
 {
     protected const PREFIX='ig_cookie', MEDIA=Instagram::class;
-    protected function cookiePath(): string { return static::MEDIA===Pinterest::class?$this->bot->config->pinterestCookiePath():$this->bot->config->instagramCookiePath(); }
+    protected function cookiePath(): string { return $this->bot->config->galleryCookiePath((static::MEDIA)::service()); }
     public function __construct(private Bot $bot) {}
     private function send(int $chat,string $key,array $rows,array $values=[]): void
     {
@@ -31,7 +33,7 @@ abstract class GalleryCookies
         if(!in_array($action,static::REPLIES,true)) return false;
         if($chat!==$user||!$this->bot->admin($user)) return true;
         $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-        if(in_array($action,[static::MEDIA===Pinterest::class?'cookie_pinterest':'cookie_instagram',static::PREFIX.'_back'],true)) $this->panel($chat);
+        if(in_array($action,['cookie_'.(static::MEDIA)::service(),static::PREFIX.'_back'],true)) $this->panel($chat);
         elseif($action===static::PREFIX.'_upload') {
             $id=$this->bot->send($chat,$this->bot->text(static::PREFIX.'_import'));
             $this->bot->store->set(static::PREFIX.'_menu.'.$user,(string)$id);
@@ -54,7 +56,7 @@ abstract class GalleryCookies
             try {
                 $content=$this->read();
                 if($content===null) { $this->panel($chat); return true; }
-                $this->bot->api->call('sendDocument',['chat_id'=>$chat,'document'=>new \CURLStringFile($content,(static::MEDIA===Pinterest::class?'pinterest':'instagram').'-cookies.txt','text/plain'),
+                $this->bot->api->call('sendDocument',['chat_id'=>$chat,'document'=>new \CURLStringFile($content,(static::MEDIA)::service().'-cookies.txt','text/plain'),
                     'caption'=>$this->bot->text(static::PREFIX.'_export_caption'),'parse_mode'=>'HTML','protect_content'=>true]);
             } catch(\Throwable) { $this->panel($chat,static::PREFIX.'_failed'); }
         } elseif($action===static::PREFIX.'_remove') {

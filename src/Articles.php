@@ -75,8 +75,8 @@ final class Articles
     public function publish(array $items,string $source,Ui $ui,callable $authorized): string
     {
         $service=galleryService($source);
-        $source=$service==='pinterest'?pinterestUrl($source):instagramUrl($source);
-        if(!$source||count($items)<2||count($items)>GalleryMedia::MAX_ITEMS) throw new MediaFailure('format','Invalid article source or slide count');
+        $source=$service?galleryUrl($service,$source):null;
+        if(!$source||count($items)<2||count($items)>GalleryMedia::maxItems($service)) throw new MediaFailure('format','Invalid article source or slide count');
         if(!$authorized()) throw new MediaFailure('restricted','Article publication no longer authorized');
         $token=$this->token(); $nodes=[]; $fallback=false;
         $description=mb_substr((string)($items[0]['description']??''),0,10000);

@@ -21,9 +21,9 @@ $temp=sys_get_temp_dir().'/ciro-sections-'.bin2hex(random_bytes(6));mkdir($temp,
 try {
     $store=new Zero\Store($temp);$api=new SectionApi();$bot=new Zero\Bot(new Zero\Config('123:fake',[42],$temp),$store,$api);
     $bot->handle(sectionClick('custom:sections'));
-    foreach(['cover','video','audio','instagram','pinterest','help','group','access','progress','errors'] as $section) sectionCheck(in_array('custom:section:'.$section,sectionActions($api),true),'screen is available: '.$section);
+    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','help','group','access','progress','errors'] as $section) sectionCheck(in_array('custom:section:'.$section,sectionActions($api),true),'screen is available: '.$section);
     $seen=[];
-    foreach(['cover','video','audio','instagram','pinterest','help','group','access','progress','errors'] as $section) {
+    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','help','group','access','progress','errors'] as $section) {
         $bot->handle(sectionClick('custom:section:'.$section));
         foreach(sectionActions($api) as $action) if(preg_match('/^custom:item:(text|button):(.+)$/D',$action,$m)) {
             sectionCheck($bot->ui->customizable($m[1],$m[2]),'screen contains only user-facing active fields: '.$action);
