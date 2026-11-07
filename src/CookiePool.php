@@ -64,11 +64,13 @@ final class CookiePool
         foreach($paths as $id=>$path) {
             $content=$this->read($path);
             if($content===null) continue;
-            $jars[]=['id'=>(string)$id,'path'=>$path,'hash'=>hash('sha256',$content),'bytes'=>strlen($content),'identity'=>$this->identityOf($content)];
+            $jars[]=['id'=>(string)$id,'path'=>$path,'hash'=>hash('sha256',$content),'bytes'=>strlen($content),'identity'=>$this->identityOf($content),'content'=>$content];
         }
         return $jars;
     }
-    public function jars(): array { return $this->locked(fn()=>$this->scan(),LOCK_SH); }
+    /** Jars without their contents, so callers never hold cookie values longer than needed. */
+    private static function bare(array $jars): array { return array_map(fn($jar)=>array_diff_key($jar,['content'=>1]),$jars); }
+    public function jars(): array { return $this->locked(fn()=>self::bare($this->scan()),LOCK_SH); }
     public function count(): int { return count($this->jars()); }
     /** One value that changes whenever any jar is added, replaced or removed. */
     public function digest(): string
@@ -176,8 +178,9 @@ final class CookiePool
             $state=$this->state(); $now=time(); $healthy=[]; $failed=[];
             foreach($jars as $jar) if(($state['failed'][$jar['id']]??0)>$now) $failed[]=$jar; else $healthy[]=$jar;
             if($healthy) { $shift=$state['rr']%count($healthy); $healthy=array_merge(array_slice($healthy,$shift),array_slice($healthy,0,$shift)); }
-            $state['rr']=$state['rr']+1; $this->save($state);
-            return array_slice(array_merge($healthy,$failed),0,max(1,$limit));
+            // Rotation only matters with several jars; a lone jar needs no state write per request.
+            if(count($jars)>1) { $state['rr']=$state['rr']+1; $this->save($state); }
+            return self::bare(array_slice(array_merge($healthy,$failed),0,max(1,$limit)));
         });
     }
     public function markFailed(string $id): void
@@ -238,7 +241,7 @@ final class CookiePool
         return $this->locked(function(): array {
             $state=$this->state(); $removed=[]; $now=time();
             foreach($this->scan() as $jar) {
-                $content=$this->read($jar['path']); if($content===null) continue;
+                $content=$jar['content'];
                 $expires=self::sessionExpiry($content,$this->sessionNames,true);
                 if($expires===null||$expires===0||$expires>$now) continue;
                 if(!unlink($jar['path'])) continue;
@@ -270,10 +273,10 @@ final class CookiePool
     }
     public function describe(): array
     {
-        $state=$this->locked(fn()=>$this->state(),LOCK_SH); $now=time(); $result=[];
-        foreach($this->jars() as $index=>$jar) {
-            $content=(string)$this->read($jar['path']);
-            $result[]=$jar+self::stats($content)+['failed'=>($state['failed'][$jar['id']]??0)>$now,'expires'=>self::sessionExpiry($content,$this->sessionNames),
+        [$state,$jars]=$this->locked(fn()=>[$this->state(),$this->scan()],LOCK_SH); $now=time(); $result=[];
+        foreach($jars as $jar) {
+            $content=$jar['content'];
+            $result[]=array_diff_key($jar,['content'=>1])+self::stats($content)+['failed'=>($state['failed'][$jar['id']]??0)>$now,'expires'=>self::sessionExpiry($content,$this->sessionNames),
                 'ok'=>$state['ok'][$jar['id']]??null,'fail'=>$state['fail'][$jar['id']]??null,'label'=>$state['labels'][$jar['id']]??''];
         }
         return $result;

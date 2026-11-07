@@ -374,7 +374,11 @@
     "cookie_alerts_off":{"audience":"admin","label":"هشدار کوکی خاموش","group":"cookies","value":"هشدار کوکی: خاموش ❌"},
     "cookie_sum_item":{"audience":"admin","label":"خلاصهٔ کوکی هر سرویس","group":"cookies","variables":["service","count","failed"],"value":"{service} {count}{failed}"},
     "cookie_sum_failed":{"audience":"admin","label":"خلاصهٔ کوکی خراب","group":"cookies","variables":["failed"],"value":"(⚠️{failed})"},
-    "cookie_sum_none":{"audience":"admin","label":"خلاصهٔ کوکی: بدون کوکی","group":"cookies","value":"—"}
+    "cookie_sum_none":{"audience":"admin","label":"خلاصهٔ کوکی: بدون کوکی","group":"cookies","value":"—"},
+    "cookie_jar_named":{"audience":"admin","label":"نام کوکی در هشدار","group":"cookies","variables":["label"],"value":"«{label}»"},
+    "mark_text":{"audience":"admin","label":"نشانهٔ متن سفارشی","group":"custom","variables":["label"],"value":"✏️ {label}"},
+    "mark_button":{"audience":"admin","label":"نشانهٔ دکمهٔ سفارشی","group":"custom","variables":["label"],"value":"🔘 {label}"},
+    "mark_chosen":{"audience":"admin","label":"نشانهٔ گزینهٔ انتخاب‌شده","group":"custom","variables":["label"],"value":"✅ {label}"}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},

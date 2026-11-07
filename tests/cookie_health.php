@@ -104,16 +104,20 @@ try {
     $send($bot->label('cookies')); $send($bot->label('cookie_instagram')); $send($bot->label('ig_cookie_view'));
     $row=$api->last('sendMessage')['reply_markup']['inline_keyboard'][0]; $nameButton=$row[3]['callback_data']; $testButton=$row[2]['callback_data'];
     $click($nameButton,7);
-    healthCheck(!$store->query('SELECT 1 FROM states WHERE user_id=7')->fetchColumn()&&!$store->query("SELECT 1 FROM states WHERE key LIKE 'cklabel:%'")->fetchColumn(),'an ordinary user cannot start naming a jar');
+    healthCheck($store->get('cklabel.7')===''&&$store->get('cklabel.42')==='','an ordinary user cannot start naming a jar');
     $click($nameButton);
-    healthCheck(str_starts_with((string)$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'cklabel:ig:'),'the name button asks for a name and waits for it');
+    healthCheck(str_starts_with($store->get('cklabel.42'),'ig:'),'the name button asks for a name and waits for it');
     $send(str_repeat('x',40));
-    healthCheck(str_starts_with((string)$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn(),'cklabel:')&&str_contains($api->last('sendMessage')['text'],'۲۴'),'an invalid name keeps waiting and explains the limit');
+    healthCheck(str_starts_with($store->get('cklabel.42'),'ig:')&&str_contains($api->last('sendMessage')['text'],'۲۴'),'an invalid name keeps waiting and explains the limit');
     $send('حساب اصلی');
     $named=array_column($pool->describe(),'label');
-    healthCheck(in_array('حساب اصلی',$named,true)&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()&&str_contains($api->last('sendMessage')['text'],'«حساب اصلی»'),'a valid name is saved and the list is shown with it');
+    healthCheck(in_array('حساب اصلی',$named,true)&&$store->get('cklabel.42')===''&&str_contains($api->last('sendMessage')['text'],'«حساب اصلی»'),'a valid name is saved and the list is shown with it');
     $send('/cancel'); $click($nameButton); $send('/cancel');
-    healthCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'/cancel abandons naming');
+    healthCheck($store->get('cklabel.42')==='','/cancel abandons naming');
+    // Naming never cancels a waiting import (they live in different places).
+    $send($bot->label('ig_cookie_upload')); $click($nameButton);
+    healthCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='ig_cookie.upload'&&str_starts_with($store->get('cklabel.42'),'ig:'),'starting to name a jar keeps a waiting import open');
+    $send('/cancel');
 
     $click($testButton);
     $notice=$api->last('editMessageText')['text']??'';

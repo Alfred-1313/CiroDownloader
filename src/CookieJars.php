@@ -59,6 +59,40 @@ final class CookieJars
         }
         return $summary;
     }
+    /** Edit the import's status message, or start a new one if it was deleted. */
+    public function notice(int $chat,string $menuKey,string $text): void
+    {
+        $id=(int)$this->bot->store->get($menuKey,'0');
+        try { $id=$this->bot->send($chat,$text,[],$id); }
+        catch(\RuntimeException $e) {
+            if($e->getCode()!==404||$id<1) throw $e;
+            $id=$this->bot->send($chat,$text);
+        }
+        $this->bot->store->set($menuKey,(string)$id);
+    }
+    /**
+     * Shared by every import panel: read the document or pasted text, add it to the pool,
+     * report the result in the status message and delete the message that held credentials.
+     * $explain turns an unexpected error into the notice to show.
+     */
+    public function receive(int $chat,int $user,array $message,string $code,string $menuKey,string $failed,?callable $verify=null,?callable $explain=null): void
+    {
+        $bot=$this->bot; $pool=self::pool($bot->config,$code); $notice=$failed;
+        try {
+            $summary=isset($message['document'])?self::ingest($bot->api,$message['document'],$pool,$bot->config->storage,$verify)
+                :self::ingestContent((string)($message['text']??''),$pool,$verify);
+            $notice=$this->result($code,$summary);
+        } catch(\InvalidArgumentException) { $notice=$bot->text('cookie_file_invalid'); }
+        catch(\Throwable $e) {
+            error_log('Cookie import failure: '.get_class($e));
+            if($explain) $notice=$explain($e);
+        }
+        $this->notice($chat,$menuKey,$notice);
+        if(isset($message['message_id'])) {
+            try { $bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$message['message_id']]); }
+            catch(\Throwable) { $this->notice($chat,$menuKey,$notice."\n\n".$bot->text('cookie_delete_failed')); }
+        }
+    }
     public static function serviceName(Ui $ui,string $code): string
     {
         return trim(preg_replace('/^[^\p{L}\p{N}]+/u','',$ui->label('cookie_'.self::SERVICES[$code]))??'');
@@ -136,37 +170,44 @@ final class CookieJars
         $ui=$this->bot->ui; $content=$pool->content($jar['id']);
         if($content===null) return $ui->text('cookie_test_inconclusive');
         try {
-            if($code==='yt') {
-                require_once __DIR__.'/Download.php';
-                $folder=$this->bot->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
-                if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
-                try {
-                    $fresh=(new Download($this->bot->config))->verifyCookies($content,$folder,$this->bot->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
-                    // The test may rotate the cookies; keep the freshest copy of this jar only.
-                    try { saveYouTubeCookies($this->bot->config,$fresh,$jar['hash'],$jar['path']); } catch(\Throwable) {}
-                } finally { Download::clean($folder); }
-            } else {
-                GalleryMedia::validateFor((string)galleryFromPrefix($code),$content);
-                $pool->markWorking($jar['id']);
-                return $ui->text('cookie_test_structure_ok');
-            }
+            // A broken or expired file is the jar's fault; a local failure below is not.
+            try {
+                if($code==='yt') validateYouTubeCookies($content); else GalleryMedia::validateFor((string)galleryFromPrefix($code),$content);
+            } catch(\RuntimeException) { $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed'); }
+            if($code!=='yt') { $pool->markWorking($jar['id']); return $ui->text('cookie_test_structure_ok'); }
+            require_once __DIR__.'/Download.php';
+            $folder=$this->bot->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
+            if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
+            try {
+                $fresh=(new Download($this->bot->config))->verifyCookies($content,$folder,$this->bot->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
+                // The test may rotate the cookies; keep the freshest copy of this jar only.
+                try { saveYouTubeCookies($this->bot->config,$fresh,$jar['hash'],$jar['path']); } catch(\Throwable) {}
+            } finally { Download::clean($folder); }
         } catch(MediaFailure $e) {
             if($e->reason==='cookies') { $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed'); }
             return $ui->text($e->reason==='blocked'?'cookie_test_blocked':'cookie_test_inconclusive');
-        } catch(\RuntimeException) {
-            $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed');
         } catch(\Throwable) { return $ui->text('cookie_test_inconclusive'); }
         $pool->markWorking($jar['id']);
         return $ui->text('cookie_test_live_ok');
     }
-    /** The administrator's next message names the jar they chose. */
-    public function receiveLabel(int $chat,int $user,string $text,string $state): void
+    /** The jar the administrator is about to name, or null when nothing is pending or it timed out. */
+    public function pendingLabel(int $user): ?string
     {
-        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^cklabel:(yt|ig|pin|tt|x):([a-f0-9]{12}|main)$/D',$state,$match)) return;
-        $pool=self::pool($this->bot->config,$match[1]);
-        if(!$pool||!$pool->setLabel($match[2],$text)) { $this->bot->send($chat,$this->bot->text('cookie_label_invalid')); return; }
-        $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-        $this->view($chat,$match[1],0,$this->bot->text('cookie_label_saved'));
+        $saved=$this->bot->store->get('cklabel.'.$user);
+        if(!preg_match('/^(yt|ig|pin|tt|x):([a-f0-9]{12}|main):(\d+)$/D',$saved,$match)||(int)$match[3]<time()) return null;
+        return $match[1].':'.$match[2];
+    }
+    public function cancelLabel(int $user): void { $this->bot->store->query('DELETE FROM settings WHERE key=?',['cklabel.'.$user]); }
+    /** The administrator's next message names the jar they chose. */
+    public function receiveLabel(int $chat,int $user,string $text): void
+    {
+        $pending=$this->pendingLabel($user);
+        if($chat!==$user||!$this->bot->admin($user)||$pending===null) return;
+        [$code,$id]=explode(':',$pending,2);
+        $pool=self::pool($this->bot->config,$code);
+        if(!$pool||!$pool->setLabel($id,$text)) { $this->bot->send($chat,$this->bot->text('cookie_label_invalid')); return; }
+        $this->cancelLabel($user);
+        $this->view($chat,$code,0,$this->bot->text('cookie_label_saved'));
     }
     /** Inline buttons of the pool list: export or remove one jar. */
     public function callback(array $query,int $chat,int $user,int $message): void
@@ -180,7 +221,7 @@ final class CookieJars
         if(!$jar) { $answer($ui->plain('cookie_remove_changed'),true); $this->view($chat,$code,$message); return; }
         if($action==='lb') {
             $answer();
-            $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'cklabel:'.$code.':'.$id,time()+600]);
+            $this->bot->store->set('cklabel.'.$user,$code.':'.$id.':'.(time()+600));
             $this->bot->send($chat,$ui->text('cookie_label_prompt',['n'=>$position]));
             return;
         }

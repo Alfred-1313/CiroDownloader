@@ -45,6 +45,12 @@ final class Ui
         if(TextFormat::length(html_entity_decode(strip_tags($result),ENT_QUOTES|ENT_HTML5,'UTF-8'))>$limit) $result=strtr($definition['value'],$replace);
         return $result;
     }
+    /** A text with {placeholders} filled for places that take plain text, such as button labels. */
+    public function plainWith(string $key,array $values): string
+    {
+        $replace=[]; foreach($values as $name=>$value) $replace['{'.$name.'}']=(string)$value;
+        return strtr($this->plain($key),$replace);
+    }
     public function plain(string $key): string { return html_entity_decode(strip_tags($this->template($key)),ENT_QUOTES|ENT_HTML5,'UTF-8'); }
     public static function escape(string $value): string { return htmlspecialchars($value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8'); }
     public static function fitCaption(string $html): string

@@ -192,57 +192,31 @@ final class Bot
     }
     private function cookieNotice(int $chat,int $user,string $text): void
     {
-        $message=(int)$this->store->get('cookie_menu.'.$user,'0');
-        $rows=[];
-        try { $message=$this->send($chat,$text,$rows,$message); }
-        catch(\RuntimeException $e) {
-            if($e->getCode()!==404||$message<1) throw $e;
-            $message=$this->send($chat,$text,$rows);
-        }
-        $this->store->set('cookie_menu.'.$user,(string)$message);
+        (new CookieJars($this))->notice($chat,'cookie_menu.'.$user,$text);
     }
     private function cookieDocument(int $chat,int $user,array $message): void
     {
         if(!$this->admin($user)) { $this->send($chat,$this->text('cookie_admin_only')); return; }
         $state=$this->store->query('SELECT key,expires FROM states WHERE user_id=?',[$user])->fetch();
         if(!$state||$state['key']!=='cookie.upload') { $this->send($chat,$this->text('cookie_begin_first')); return; }
-        $saved=false; $folder=null; $notice=$this->text('cookie_failed');
-        try {
-            // One TXT is tested against YouTube. A ZIP or several files get a structure check only,
-            // so the single-threaded poller is never blocked by many live probes.
-            $verify=function(string $content) use (&$folder,&$notice,$chat,$user): string {
-                validateYouTubeCookies($content);
-                $this->cookieNotice($chat,$user,$this->text('cookie_checking'));
-                require_once __DIR__.'/Download.php';
-                $folder=$this->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
-                if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
-                $notice=$this->text('cookie_check_inconclusive');
-                return (new Download($this->config))->verifyCookies($content,$folder,
-                    $this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
-            };
-            $pool=youtubeCookiePool($this->config);
-            $summary=isset($message['document'])?CookieJars::ingest($this->api,$message['document'],$pool,$this->config->storage,$verify)
-                :CookieJars::ingestContent((string)($message['text']??''),$pool,$verify);
-            $saved=true;
-            // The upload stays open so more exports can follow; Back or /cancel ends it.
-            $notice=(new CookieJars($this))->result('yt',$summary); $this->cookieNotice($chat,$user,$notice);
-        } catch(\InvalidArgumentException) {
-            $this->cookieNotice($chat,$user,$this->text('cookie_file_invalid')); return;
-        } catch(\Throwable $e) {
-            error_log('Cookie import failure: '.get_class($e));
-            if(!$saved) {
-                if($e instanceof MediaFailure) $notice=$this->text(match($e->reason) {
-                    'cookies'=>'cookie_check_invalid','blocked'=>'cookie_check_blocked','network'=>'cookie_check_network',default=>'cookie_check_inconclusive',
-                });
-                $this->cookieNotice($chat,$user,$notice);
-            }
-        } finally {
-            if($folder!==null) Download::clean($folder);
-            if(isset($message['message_id'])) {
-                try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message['message_id']]); }
-                catch(\Throwable) { $this->cookieNotice($chat,$user,$notice."\n\n".$this->text('cookie_delete_failed')); }
-            }
-        }
+        $folder=null; $started=false;
+        // One TXT, JSON file or pasted export is tested against YouTube. A ZIP or several files get a
+        // structure check only, so the single-threaded poller is never blocked by many live probes.
+        $verify=function(string $content) use (&$folder,&$started,$chat,$user): string {
+            validateYouTubeCookies($content);
+            $this->cookieNotice($chat,$user,$this->text('cookie_checking'));
+            require_once __DIR__.'/Download.php';
+            $folder=$this->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
+            if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
+            $started=true;
+            return (new Download($this->config))->verifyCookies($content,$folder,
+                $this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
+        };
+        $explain=fn(\Throwable $e): string=>$this->text($e instanceof MediaFailure?match($e->reason) {
+            'cookies'=>'cookie_check_invalid','blocked'=>'cookie_check_blocked','network'=>'cookie_check_network',default=>'cookie_check_inconclusive',
+        }:($started?'cookie_check_inconclusive':'cookie_failed'));
+        try { (new CookieJars($this))->receive($chat,$user,$message,'yt','cookie_menu.'.$user,$this->text('cookie_failed'),$verify,$explain); }
+        finally { if($folder!==null) Download::clean($folder); }
     }
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
     public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0): void
@@ -361,7 +335,7 @@ final class Bot
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
         $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
-        if(in_array($text,$commands,true)||$reply!==null) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        if(in_array($text,$commands,true)||$reply!==null) { $this->store->query('DELETE FROM states WHERE user_id=?',[$user]); (new CookieJars($this))->cancelLabel($user); }
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
@@ -385,8 +359,8 @@ final class Bot
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'admins.add:')) {
             (new Administrators($this))->receive($chat,$user,$message,$state); return;
         }
-        if($this->admin($user)&&is_string($state)&&str_starts_with($state,'cklabel:')) {
-            (new CookieJars($this))->receiveLabel($chat,$user,$text,$state); return;
+        if($this->admin($user)&&$text!==''&&(new CookieJars($this))->pendingLabel($user)!==null) {
+            (new CookieJars($this))->receiveLabel($chat,$user,$text); return;
         }
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;

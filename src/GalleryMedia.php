@@ -71,7 +71,7 @@ abstract class GalleryMedia
         $pool=static::pool($this->config); $jars=$pool->order(3);
         // Anonymous first when cookies are only a last resort; otherwise rotate through the jars.
         $attempts=!$jars?[null]:($this->config->cookieFallback?array_merge([null],$jars):$jars);
-        $output=''; $failure=null;
+        $output=''; $failure=null; $refused=[];
         foreach($attempts as $jar) {
             $arguments=[];
             if($jar!==null) {
@@ -90,10 +90,11 @@ abstract class GalleryMedia
                 if(preg_match('/login|authentication|authorization|unauthorized|forbidden|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) $e=new MediaFailure('blocked',$e->getMessage());
                 $failure=$e;
                 if($e->reason!=='blocked') throw $e;
-                if($jar!==null) $pool->markFailed($jar['id']);
+                // A refusal may be the server's IP; it only counts against a jar once another jar got through.
+                if($jar!==null) $refused[]=$jar['id'];
                 continue;
             }
-            if($jar!==null) $pool->markWorking($jar['id']);
+            if($jar!==null) { $pool->markWorking($jar['id']); foreach($refused as $id) $pool->markFailed($id); }
             break;
         }
         if($failure!==null) throw $failure;

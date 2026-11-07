@@ -187,6 +187,7 @@ try {
     $failure='';
     try { $runner->inspect($url,$setup([$idA=>'Sign in to confirm you are not a bot',$idB=>'Sign in to confirm you are not a bot'])); } catch(Zero\MediaFailure $e) { $failure=$e->reason; }
     poolCheck($failure==='blocked'&&count($seen())===2,'when every jar is refused the request fails with the blocked diagnosis');
+    poolCheck(array_keys($yt->failures())===[$yt->jars()[0]['id']],'a refusal of every jar is the server\'s problem: no jar is newly blamed');
     $failure='';
     try { $runner->inspect($url,$setup([$idA=>'connection refused',$idB=>'connection refused'])); } catch(Zero\MediaFailure $e) { $failure=$e->reason; }
     poolCheck($failure==='network'&&count($seen())===1,'a network failure is not retried with other jars');

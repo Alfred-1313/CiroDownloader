@@ -70,7 +70,9 @@ try {
     waitParallel(fn()=>(int)$store->query("SELECT COUNT(*) FROM jobs WHERE update_id IN (2,3,4) AND status='waiting_quality'")->fetchColumn()===3,'three further links get independent quality menus while the first upload is still blocked');
     foreach([1,2,3] as $i) $choose($i);
     waitParallel(fn()=>is_file($temp.'/upload-'.$ids[1])&&is_file($temp.'/upload-'.$ids[2]),'three 1080p videos for the same user actually upload concurrently');
-    parallelCheck(!is_file($temp.'/upload-'.$ids[3])&&$store->query("SELECT status FROM jobs WHERE update_id=4")->fetchColumn()==='queued','a fourth selected video is queued safely at the configured process capacity');
+    // The choice is confirmed asynchronously, so wait for 'queued' instead of sampling a transient status.
+    waitParallel(fn()=>$store->query("SELECT status FROM jobs WHERE update_id=4")->fetchColumn()==='queued','a fourth selected video is queued at the configured process capacity');
+    parallelCheck(!is_file($temp.'/upload-'.$ids[3])&&$store->query("SELECT status FROM jobs WHERE update_id=4")->fetchColumn()==='queued','the fourth video stays queued and is not uploaded');
     $link(4);
     waitParallel(fn()=>$store->query("SELECT status FROM jobs WHERE update_id=5")->fetchColumn()==='waiting_quality','the reserved inspection slot still creates a fifth menu with all media slots occupied');
     parallelCheck(!is_file($temp.'/upload-'.$ids[4]),'unchosen media is never downloaded or uploaded');

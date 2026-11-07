@@ -126,7 +126,7 @@ final class Download
         if(!$jars&&$forceCookies) throw new MediaFailure('cookies','Configured YouTube cookie file does not exist');
         // Anonymous first when the administrator prefers cookies only as a last resort.
         $attempts=!$jars?[null]:($this->config->cookieFallback&&!$forceCookies?array_merge([null],$jars):$jars);
-        $failure=null;
+        $failure=null; $refused=[];
         foreach($attempts as $jar) {
             try {
                 $access=$this->access($folder,$jar);
@@ -136,10 +136,12 @@ final class Download
                 $failure=$e;
                 // Only a refusal that a login could fix is retried with the next cookie jar.
                 if(!in_array($e->reason,$jar===null?['blocked','restricted']:['blocked','cookies'],true)) throw $e;
-                if($jar!==null) $pool->markFailed($jar['id']);
+                // An unreadable or expired jar is its own fault. A plain refusal may be the server's IP, so
+                // it only counts against a jar once another jar got through where it did not.
+                if($jar!==null) { if($e->reason==='cookies') $pool->markFailed($jar['id']); else $refused[]=$jar['id']; }
                 continue;
             }
-            if($jar!==null) { $pool->markWorking($jar['id']); $this->refresh($access); }
+            if($jar!==null) { $pool->markWorking($jar['id']); foreach($refused as $id) $pool->markFailed($id); $this->refresh($access); }
             return $result;
         }
         throw $failure??new MediaFailure('process','YouTube download did not start');

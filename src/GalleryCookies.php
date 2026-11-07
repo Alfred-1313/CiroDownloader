@@ -56,20 +56,7 @@ abstract class GalleryCookies
         if($chat!==$user||!$this->bot->admin($user)) return;
         $state=$this->bot->store->query('SELECT key FROM states WHERE user_id=?',[$user])->fetchColumn();
         if($state!==static::PREFIX.'.upload') return;
-        $notice=$this->bot->text(static::PREFIX.'_failed');
-        try {
-            $summary=isset($message['document'])?CookieJars::ingest($this->bot->api,$message['document'],$this->pool(),$this->bot->config->storage)
-                :CookieJars::ingestContent((string)($message['text']??''),$this->pool());
-            $notice=(new CookieJars($this->bot))->result($this->code(),$summary);
-        } catch(\InvalidArgumentException) { $notice=$this->bot->text('cookie_file_invalid'); }
-        catch(\Throwable) { /* Keep the current jars; the administrator may try another file. */ }
         // The upload stays open so several exports can follow; Back ends it.
-        $id=(int)$this->bot->store->get(static::PREFIX.'_menu.'.$user,'0');
-        try { $this->bot->send($chat,$notice,[],$id); }
-        catch(\Throwable) { $this->bot->send($chat,$notice); }
-        if(isset($message['message_id'])) {
-            try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$message['message_id']]); }
-            catch(\Throwable) { $this->bot->send($chat,$this->bot->text('cookie_delete_failed')); }
-        }
+        (new CookieJars($this->bot))->receive($chat,$user,$message,$this->code(),static::PREFIX.'_menu.'.$user,$this->bot->text(static::PREFIX.'_failed'));
     }
 }

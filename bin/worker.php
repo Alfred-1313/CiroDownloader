@@ -40,7 +40,7 @@ try {
                 // Expired jars are dropped and administrators are warned once per situation.
                 // A separate short-lived process keeps a slow Telegram call from delaying downloads.
                 if(isset($healthPid)&&pcntl_waitpid($healthPid,$healthStatus,WNOHANG)!==0) unset($healthPid);
-                if(!isset($healthPid)&&(new Zero\CookieHealth($config,$store,new Zero\Telegram($config)))->due()) {
+                if(!isset($healthPid)&&Zero\CookieHealth::dueAt($store)) {
                     $pid=pcntl_fork();
                     if($pid===0) {
                         try { (new Zero\CookieHealth($config,new Zero\Store($config->storage),new Zero\Telegram($config)))->sweep(); exit(0); }

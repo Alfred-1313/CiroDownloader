@@ -48,7 +48,7 @@ final class CookieHealth
     }
     private function jarName(array $jar,int $position): string
     {
-        return $jar['label']!==''?'«'.Ui::escape($jar['label']).'»':(string)$position;
+        return $jar['label']!==''?$this->ui->text('cookie_jar_named',['label'=>$jar['label']]):(string)$position;
     }
     /**
      * Run one pass. Returns the number of alerts sent. Pruning always happens;
@@ -81,12 +81,13 @@ final class CookieHealth
         }
         return $sent;
     }
-    /** For the worker loop: run at most once per interval. */
-    public function due(?int $now=null): bool
+    /** For the worker loop: true at most once per interval. Static so it costs no objects between passes. */
+    public static function dueAt(Store $store,?int $now=null): bool
     {
         $now??=time();
-        if($now-(int)$this->store->get('cookie_sweep_last','0')<self::INTERVAL) return false;
-        $this->store->set('cookie_sweep_last',(string)$now);
+        if($now-(int)$store->get('cookie_sweep_last','0')<self::INTERVAL) return false;
+        $store->set('cookie_sweep_last',(string)$now);
         return true;
     }
+    public function due(?int $now=null): bool { return self::dueAt($this->store,$now); }
 }

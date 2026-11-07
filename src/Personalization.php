@@ -116,7 +116,7 @@ final class Personalization
     private function marked(string $kind,string $key,array $saved): array
     {
         $ui=$this->bot->ui; $changed=$this->customized($kind,$key,$saved);
-        $button=$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>($changed?($kind==='button'?'🔘 ':'✏️ '):'').$ui->definition($kind,$key)['label']]);
+        $button=$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>$changed?$ui->plainWith($kind==='button'?'mark_button':'mark_text',['label'=>$ui->definition($kind,$key)['label']]):$ui->definition($kind,$key)['label']]);
         if($changed) $button['style']='success';
         return $button;
     }
@@ -130,7 +130,7 @@ final class Personalization
     private function choice(string $key,string $data,bool $selected): array
     {
         $button=$this->bot->ui->button($key,$data);
-        if($selected) { $button['text']='✅ '.$button['text']; $button['style']='success'; }
+        if($selected) { $button['text']=$this->bot->ui->plainWith('mark_chosen',['label'=>$button['text']]); $button['style']='success'; }
         return $button;
     }
     private function limits(int $chat,int $message,string $notice=''): void
