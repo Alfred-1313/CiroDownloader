@@ -4,7 +4,7 @@ namespace Zero;
 
 final class Ui
 {
-    public const REPLY_KEYS=['help','admin','health','update','cookies','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back'];
+    public const REPLY_KEYS=['help','admin','health','update','cookies','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back','cookie_pinterest','pin_cookie_upload','pin_cookie_view','pin_cookie_export','pin_cookie_remove','pin_cookie_confirm','pin_cookie_back'];
     private static ?array $definitions=null;
     private array $preview=[];
     public function __construct(private Store $store) {}
@@ -97,11 +97,13 @@ final class Ui
         if(preg_match('/^\d{5,24}$/D',$icon)) $button['icon_custom_emoji_id']=$icon;
         return $button;
     }
-    public function instagramSourceEnabled(): bool { return $this->get('instagram.source_button','0')==='1'; }
-    public function instagramSourceRows(string $url): array
+    public function instagramSourceEnabled(): bool { return $this->gallerySourceEnabled('instagram'); }
+    public function instagramSourceRows(string $url): array { return $this->gallerySourceRows('instagram',$url); }
+    public function gallerySourceEnabled(string $service): bool { return $this->get($service.'.source_button','0')==='1'; }
+    public function gallerySourceRows(string $service,string $url): array
     {
-        if(!$this->instagramSourceEnabled()) return [];
-        $button=$this->button('source_instagram'); $button['url']=$url;
+        if(!$this->gallerySourceEnabled($service)) return [];
+        $button=$this->button('source_'.$service); $button['url']=$url;
         return [[$button]];
     }
     public function coverCaption(string $title,string $maxSize): string

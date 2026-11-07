@@ -29,7 +29,7 @@ try {
         $bot->handle(scopeCallback('custom:groups:'.$kind)); $pending=[];
         foreach(scopeActions($api) as $action) if(str_starts_with($action,'custom:list:')) {
             $group=explode(':',$action)[3];
-            scopeCheck(in_array($group,['public','download','instagram','errors'],true),'only user groups appear in '.$kind.': '.$group);
+            scopeCheck(in_array($group,['public','download','instagram','pinterest','errors'],true),'only user groups appear in '.$kind.': '.$group);
             $pending[]=$action;
         }
         $visited=[];

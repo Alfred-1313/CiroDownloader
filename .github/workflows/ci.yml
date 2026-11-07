@@ -28,6 +28,7 @@ jobs:
           php tests/cookies.php
           php tests/cookie_manager.php
           php tests/instagram.php
+          php tests/pinterest.php
           php tests/article_transport.php
           php tests/jobs.php
           php tests/customization.php
@@ -52,6 +53,7 @@ jobs:
           python3 -m venv /tmp/ciro-gallery-tests
           /tmp/ciro-gallery-tests/bin/pip install 'gallery-dl==1.32.19'
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_media.php
+          GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php
 
       - name: Verify portrait video conversion and multipart upload
         run: |

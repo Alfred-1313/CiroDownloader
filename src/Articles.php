@@ -74,8 +74,9 @@ final class Articles
     }
     public function publish(array $items,string $source,Ui $ui,callable $authorized): string
     {
-        $source=instagramUrl($source);
-        if(!$source||count($items)<2||count($items)>Instagram::MAX_ITEMS) throw new MediaFailure('format','Invalid article source or slide count');
+        $service=galleryService($source);
+        $source=$service==='pinterest'?pinterestUrl($source):instagramUrl($source);
+        if(!$source||count($items)<2||count($items)>GalleryMedia::MAX_ITEMS) throw new MediaFailure('format','Invalid article source or slide count');
         if(!$authorized()) throw new MediaFailure('restricted','Article publication no longer authorized');
         $token=$this->token(); $nodes=[]; $fallback=false;
         $description=mb_substr((string)($items[0]['description']??''),0,10000);
@@ -85,17 +86,17 @@ final class Articles
             if(!is_file($item['path'])||filesize($item['path'])<1||filesize($item['path'])>min($this->config->maxBytes,200000000)) throw new MediaFailure('size','Article media exceeds hosting size limit');
             $video=$item['type']==='video';
             $url=$this->upload($item,$fallback,$authorized);
-            $label=html_entity_decode(strip_tags($ui->text('instagram_article_slide',['index'=>$item['index'],'count'=>count($items)])),ENT_QUOTES|ENT_HTML5,'UTF-8');
+            $label=html_entity_decode(strip_tags($ui->text($service.'_article_slide',['index'=>$item['index'],'count'=>count($items)])),ENT_QUOTES|ENT_HTML5,'UTF-8');
             $nodes[]=['tag'=>'figure','children'=>[
                 ['tag'=>$video?'video':'img','attrs'=>['src'=>$url]],['tag'=>'figcaption','children'=>[$label]],
             ]];
         }
-        $nodes[]=['tag'=>'p','children'=>[['tag'=>'a','attrs'=>['href'=>$source],'children'=>[$ui->label('source_instagram')]]]];
+        $nodes[]=['tag'=>'p','children'=>[['tag'=>'a','attrs'=>['href'=>$source],'children'=>[$ui->label('source_'.$service)]]]];
         $content=json_encode($nodes,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
         if(strlen($content)>64000) throw new MediaFailure('format','Article content is too long');
         if(!$authorized()) throw new MediaFailure('restricted','Article publication no longer authorized');
-        $page=$this->request('telegraph','createPage',$this->telegraph.'/createPage',['access_token'=>$token,'title'=>mb_substr($ui->plain('instagram_article_title'),0,256),
-            'author_name'=>mb_substr($ui->plain('instagram_article_author'),0,128),'content'=>$content,'return_content'=>'false']);
+        $page=$this->request('telegraph','createPage',$this->telegraph.'/createPage',['access_token'=>$token,'title'=>mb_substr($ui->plain($service.'_article_title'),0,256),
+            'author_name'=>mb_substr($ui->plain($service.'_article_author'),0,128),'content'=>$content,'return_content'=>'false']);
         $url=$page['url']??'';
         if(!is_string($url)||!preg_match('~^https://telegra\.ph/[^\s<>?#]+$~uD',$url)) throw new MediaFailure('article','Article service did not return a confirmed page URL');
         return $url;

@@ -49,6 +49,8 @@ final class Personalization
             [$ui->button('reaction_settings','custom:reaction')],
             [$this->heading($ui->label('section_instagram'))],
             [$ui->button('section_instagram','custom:section:instagram')],
+            [$this->heading($ui->label('section_pinterest'))],
+            [$ui->button('section_pinterest','custom:section:pinterest')],
             [$ui->button('back_admin','custom:back')],
         ],$message);
     }
@@ -100,6 +102,7 @@ final class Personalization
     {
         $screens=[
             'instagram'=>[['text','instagram_queued'],['text','instagram_downloading'],['text','instagram_uploading'],['text','instagram_caption'],['text','instagram_page_caption'],['button','instagram_prev'],['button','instagram_next'],['button','source_instagram'],['button','open_instagram_article']],
+            'pinterest'=>[['text','pinterest_queued'],['text','pinterest_downloading'],['text','pinterest_uploading'],['text','pinterest_caption'],['text','pinterest_page_caption'],['button','pinterest_prev'],['button','pinterest_next'],['button','source_pinterest'],['button','open_pinterest_article']],
             'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
@@ -112,13 +115,13 @@ final class Personalization
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
         if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
-        if($section==='instagram') foreach($this->entries('text','instagram') as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
+        if(in_array($section,['instagram','pinterest'],true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
         return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
     }
     private function sections(int $chat,int $message): void
     {
         $ui=$this->bot->ui; $rows=[[$this->heading($ui->label('sections'))]];
-        foreach(['cover','video','audio','instagram','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
+        foreach(['cover','video','audio','instagram','pinterest','help','group','access','progress','errors'] as $section) $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
         $rows[]=[$ui->button('back_custom','custom:home')];
         $this->send($chat,$ui->text('section_info',['title'=>$ui->label('sections')]),$rows,$message);
     }
@@ -127,12 +130,13 @@ final class Personalization
         $ui=$this->bot->ui; $items=$this->sectionItems($section);
         if(!$items) { $this->sections($chat,$message); return; }
         $this->bot->store->set('custom.section.'.$chat,$section); $rows=[[$this->heading($ui->label('section_'.$section))]];
-        if($section==='instagram') {
-            $rows[]=[$this->heading($ui->label('instagram_output'))];
-            $rows[]=[$ui->button('instagram_mode_pages','custom:igmode:pages')];
-            $rows[]=[$ui->button('instagram_mode_article','custom:igmode:article')];
-            $rows[]=[$this->heading($ui->label('instagram_source_heading'))];
-            $rows[]=[$ui->button('instagram_source_toggle','custom:igsource',['state'=>$ui->plain($ui->instagramSourceEnabled()?'state_on':'state_off')])];
+        if(in_array($section,['instagram','pinterest'],true)) {
+            $prefix=$section==='pinterest'?'pin':'ig';
+            $rows[]=[$this->heading($ui->label($section.'_output'))];
+            $rows[]=[$ui->button($section.'_mode_pages','custom:'.$prefix.'mode:pages')];
+            $rows[]=[$ui->button($section.'_mode_article','custom:'.$prefix.'mode:article')];
+            $rows[]=[$this->heading($ui->label($section.'_source_heading'))];
+            $rows[]=[$ui->button($section.'_source_toggle','custom:'.$prefix.'source',['state'=>$ui->plain($ui->gallerySourceEnabled($section)?'state_on':'state_off')])];
         }
         foreach($items as [$kind,$key]) $rows[]=[$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>$ui->definition($kind,$key)['label']])];
         if($section==='cover') {
@@ -145,7 +149,7 @@ final class Personalization
             $rows[]=[$ui->button('cover_use_legacy','custom:mediamode:'.$section.':legacy')];
         }
         $rows[]=[$ui->button('back','custom:sections')];
-        $text=$section==='instagram'?$ui->text('instagram_mode_info',['mode'=>$ui->label($this->bot->store->get('instagram.carousel_mode','pages')==='article'?'instagram_mode_article':'instagram_mode_pages')]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]));
+        $text=in_array($section,['instagram','pinterest'],true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]));
         $this->send($chat,$text,$rows,$message);
     }
     private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void
@@ -449,13 +453,15 @@ final class Personalization
         }
         elseif($op==='sections') $this->sections($chat,$message);
         elseif($op==='section') $this->section($chat,$kind,$message);
-        elseif($op==='igmode'&&in_array($kind,['pages','article'],true)) {
-            $this->bot->store->set('instagram.carousel_mode',$kind);
-            $this->section($chat,'instagram',$message);
+        elseif(in_array($op,['igmode','pinmode'],true)&&in_array($kind,['pages','article'],true)) {
+            $service=$op==='pinmode'?'pinterest':'instagram';
+            $this->bot->store->set($service.'.carousel_mode',$kind);
+            $this->section($chat,$service,$message);
         }
-        elseif($op==='igsource') {
-            $this->bot->store->set('instagram.source_button',$ui->instagramSourceEnabled()?'0':'1');
-            $this->section($chat,'instagram',$message);
+        elseif(in_array($op,['igsource','pinsource'],true)) {
+            $service=$op==='pinsource'?'pinterest':'instagram';
+            $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
+            $this->section($chat,$service,$message);
         }
         elseif($op==='covermode'&&in_array($kind,['parts','legacy'],true)) $this->coverMode($chat,$message,$kind);
         elseif($op==='mediamode'&&in_array($kind,['video','audio'],true)&&in_array($key,['parts','legacy'],true)) $this->mediaMode($chat,$message,$kind,$key);

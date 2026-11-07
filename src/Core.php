@@ -13,7 +13,7 @@ final class Config
         public string $api = 'https://api.telegram.org', public int $maxBytes = 49000000,
         public string $ytDlp = '/opt/yt/bin/yt-dlp', public int $timeout = 600,
         public string $youtubeCookies = '', public string $youtubeProxy = '', public int $workerConcurrency = 3,
-        public string $galleryDl = '/opt/yt/bin/gallery-dl', public string $instagramCookies = '',
+        public string $galleryDl = '/opt/yt/bin/gallery-dl', public string $instagramCookies = '', public string $pinterestCookies = '',
     ) {}
 
     public static function load(): self
@@ -49,10 +49,11 @@ final class Config
             getenv('STORAGE_DIR') ?: dirname(__DIR__) . '/storage', $api, $max,
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
-            getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'');
+            getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'');
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }
+    public function pinterestCookiePath(): string { return $this->pinterestCookies!==''?$this->pinterestCookies:$this->storage.'/pinterest-cookies.txt'; }
     public function instagramCookiePath(): string { return $this->instagramCookies!==''?$this->instagramCookies:$this->storage.'/instagram-cookies.txt'; }
 }
 
@@ -332,7 +333,7 @@ final class Store
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),instagramUrl($url)?'instagram':'inspect',$chat<0?max(0,$thread):0]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),galleryService($url)??'inspect',$chat<0?max(0,$thread):0]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -414,7 +415,24 @@ function instagramUrl(string $input): ?string
     return 'https://www.instagram.com/'.($match[1]==='reels'?'reel':$match[1]).'/'.$match[2].'/';
 }
 
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input); }
+function pinterestUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(!str_contains($input,'://')) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return null;
+    $host=strtolower($parts['host']??''); $path=$parts['path']??'';
+    if($host==='pin.it') return preg_match('~^/([A-Za-z0-9]{1,64})/?$~D',$path,$match)?'https://pin.it/'.$match[1]:null;
+    static $domains=null;
+    $domains??=json_decode((string)file_get_contents(dirname(__DIR__).'/resources/pinterest-domains.json'),true,512,JSON_THROW_ON_ERROR);
+    $host=preg_replace('/^(?:www|[a-z]{2})\./','',$host);
+    if(!in_array($host,array_map(fn($suffix)=>'pinterest.'.$suffix,$domains),true)||!preg_match('~^/pin/(?:[^/?#]+--)?([0-9]{1,30})/?$~D',$path,$match)) return null;
+    return 'https://www.pinterest.com/pin/'.$match[1].'/';
+}
+
+function galleryService(string $input): ?string { return pinterestUrl($input)?'pinterest':(instagramUrl($input)?'instagram':null); }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input); }
 
 function lockProcess(string $path): mixed
 {
