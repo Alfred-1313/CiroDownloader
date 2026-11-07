@@ -148,7 +148,7 @@ final class Bot
     {
         $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=0 WHERE id=?",
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),$job['id']]);
-        $rows=[]; $row=[];
+        $rows=[]; $row=[]; $perRow=max(1,min(3,(int)$this->store->get('cover.per_row','2')));
         foreach($this->ui->coverOrder() as $height) {
             if(empty($media['options'][$height])) continue;
             if($height==='audio') {
@@ -157,7 +157,7 @@ final class Bot
                 continue;
             }
             $row[]=$this->ui->button(Ui::qualityKey($height),'quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
-            if(count($row)===2) { $rows[]=$row; $row=[]; }
+            if(count($row)===$perRow) { $rows[]=$row; $row=[]; }
         }
         if($row) $rows[]=$row;
         $caption=$this->ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));

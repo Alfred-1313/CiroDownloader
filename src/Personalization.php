@@ -67,8 +67,9 @@ final class Personalization
         foreach(['text','button'] as $kind) foreach(Ui::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) {
             if(!$ui->customizable($kind,$key)) continue;
             if($kind==='text') $names[]='text.'.$key;
-            else array_push($names,'button.'.$key,'button.style.'.$key,'button.icon.'.$key);
+            else array_push($names,'button.'.$key,'button.style.'.$key,'button.icon.'.$key,'button.emoji.'.$key,'button.pos.'.$key,'button.plain.'.$key,'button.hidden.'.$key);
         }
+        $names[]='cover.per_row';
         $store->db->exec('BEGIN IMMEDIATE');
         try {
             foreach($names as $name) $store->query('DELETE FROM settings WHERE key=?',[$name]);
@@ -105,7 +106,7 @@ final class Personalization
         if($kind==='text') return isset($saved['text.'.$key])&&$saved['text.'.$key]!==$definition['value'];
         if(isset($saved['button.'.$key])&&$saved['button.'.$key]!==$definition['value']) return true;
         if(isset($saved['button.style.'.$key])&&$saved['button.style.'.$key]!==($definition['style']??'')) return true;
-        return !empty($saved['button.icon.'.$key]);
+        return !empty($saved['button.icon.'.$key])||!empty($saved['button.emoji.'.$key])||($saved['button.plain.'.$key]??'')==='1'||($saved['button.hidden.'.$key]??'')==='1';
     }
     private function sectionCustomized(string $section,array $saved): bool
     {
@@ -125,6 +126,14 @@ final class Personalization
         $ui=$this->bot->ui;
         $button=$ui->button($key,$data,['state'=>$ui->plain($on?'switch_on':'switch_off')]);
         $button['style']=$on?'success':'danger';
+        return $button;
+    }
+    /** A toggle whose label carries its state; "on" is not a success colour here. */
+    private function switchLabel(string $key,string $data,bool $on,bool $colour=true): array
+    {
+        $ui=$this->bot->ui;
+        $button=$ui->button($key,$data,['state'=>$ui->plain($on?'switch_on':'switch_off')]);
+        if($colour) $button['style']=$on?'success':'danger';
         return $button;
     }
     private function choice(string $key,string $data,bool $selected): array
@@ -256,6 +265,7 @@ final class Personalization
             if($index<count($order)-1) $row[]=$ui->button('move_down','custom:move:'.$quality.':down');
             $rows[]=$row;
         }
+        $rows[]=[$ui->button('cover_per_row','custom:perrow',['n'=>max(1,min(3,(int)$this->bot->store->get('cover.per_row','2')))])];
         $rows[]=[$ui->button('reset_order','custom:orderreset')];
         $rows[]=[$ui->button('back','custom:section:cover')];
         $this->send($chat,$ui->text('reorder_info').($notice!==''?"\n\n".$notice:''),$rows,$message);
@@ -369,7 +379,7 @@ final class Personalization
         if(!$definition) return false;
         if($kind==='text') { $value=$ui->setting('text.'.$key); return $value!==''&&$value!==$definition['value']; }
         $label=$ui->setting('button.'.$key); $style=$ui->setting('button.style.'.$key,'-');
-        return ($label!==''&&$label!==$definition['value'])||($style!=='-'&&$style!==($definition['style']??''))||$ui->setting('button.icon.'.$key)!=='';
+        return ($label!==''&&$label!==$definition['value'])||($style!=='-'&&$style!==($definition['style']??''))||$ui->setting('button.icon.'.$key)!==''||$ui->setting('button.emoji.'.$key)!==''||$ui->setting('button.plain.'.$key)==='1'||$ui->setting('button.hidden.'.$key)==='1';
     }
     public function item(int $chat,string $kind,string $key,int $message=0,string $notice='',bool $strictPreview=false): void
     {
@@ -380,18 +390,27 @@ final class Personalization
         elseif($key==='quality_high') $samples['quality']='1080p';
         $value=$kind==='button'?Ui::escape($ui->label($key,$samples)):$ui->text($key,$samples);
         $changed=$ui->plain($this->itemChanged($kind,$key)?'state_custom':'state_default'); $color='';
+        $reply=$kind==='button'&&in_array($key,Ui::REPLY_KEYS,true); $required=$kind==='button'&&$ui->required($key);
         if($kind==='button') {
             $current=$ui->button($key);
             $color=$ui->label(match($current['style']??'') {'primary'=>'color_primary','success'=>'color_success','danger'=>'color_danger',default=>'color_default'});
-            $state=$ui->text('custom_state_button',['state'=>$changed,'color'=>$color,'icon'=>$ui->plain(isset($current['icon_custom_emoji_id'])?'state_has':'state_none')]);
+            $emoji=Ui::singleEmoji($ui->setting('button.emoji.'.$key));
+            $hidden=!$required&&$ui->setting('button.hidden.'.$key)==='1';
+            $state=$ui->text('custom_state_button',['state'=>$changed,'emoji'=>$reply?$ui->plain('state_none'):($ui->setting('button.plain.'.$key)==='1'?$ui->plain('state_none'):($emoji??$ui->plain('state_none'))),
+                'pos'=>$ui->plain($ui->setting('button.pos.'.$key,'start')==='end'?'pos_end':'pos_start'),'icon'=>$ui->plain(isset($current['icon_custom_emoji_id'])?'state_has':'state_none'),
+                'color'=>$color,'visible'=>$ui->plain($required?'state_required':($hidden?'state_hidden':'state_visible'))]);
         } else $state=$ui->text('custom_state_text',['state'=>$changed]);
         $text=$ui->text('custom_item',['title'=>$definition['label'],'state'=>$state,'value'=>$value],['state','value']).($notice!==''?"\n\n".$notice:'');
         $rows=[];
-        if($kind==='button') $rows[]=[$ui->button($key,'custom:noop',$samples)];
-        $rows[]=$kind==='text'?[$ui->button('default_text',"custom:default:text:$key"),$ui->button('edit',"custom:edit:$kind:$key")]:[$ui->button('edit',"custom:edit:$kind:$key")];
-        if($kind==='button') {
-            $rows[]=[$ui->button('color','custom:color:'.$key,['color'=>$color]),$ui->button('icon','custom:icon:'.$key)];
+        if($kind==='button') { $sample=$ui->button($key,'custom:noop',$samples); unset($sample['_hidden']); $rows[]=[$sample]; }
+        if($kind==='text') $rows[]=[$ui->button('default_text',"custom:default:text:$key"),$ui->button('edit',"custom:edit:$kind:$key")];
+        else {
+            $rows[]=$reply?[$ui->button('btn_name',"custom:edit:$kind:$key")]:[$ui->button('btn_name',"custom:edit:$kind:$key"),$ui->button('btn_emoji','custom:emoji:'.$key)];
+            if(!$reply) $rows[]=[$ui->button('btn_pos','custom:pos:'.$key,['pos'=>$ui->plain($ui->setting('button.pos.'.$key,'start')==='end'?'pos_end':'pos_start')]),
+                $this->switchLabel('btn_plain','custom:plain:'.$key,$ui->setting('button.plain.'.$key)==='1',false)];
+            $rows[]=[$ui->button('color','custom:cyclecolor:'.$key,['color'=>$color]),$ui->button('icon','custom:icon:'.$key)];
             $rows[]=[$ui->button('remove_icon','custom:clearicon:'.$key)];
+            if(!$required) $rows[]=[$ui->button($hidden?'btn_show':'btn_hide','custom:hide:'.$key)];
         }
         $rows[]=[$ui->button('reset',"custom:reset:$kind:$key")];
         $listKind=!empty($definition['caption'])?'caption':$kind;
@@ -434,12 +453,12 @@ final class Personalization
     }
     public function begin(int $chat,int $user,string $kind,string $key,int $message=0): void
     {
-        $ui=$this->bot->ui; $definition=$ui->definition($kind==='icon'?'button':$kind,$key);
-        if(!$ui->customizable($kind==='icon'?'button':$kind,$key)) { $this->home($chat,$message); return; }
+        $ui=$this->bot->ui; $base=in_array($kind,['icon','emoji'],true)?'button':$kind; $definition=$ui->definition($base,$key);
+        if(!$ui->customizable($base,$key)) { $this->home($chat,$message); return; }
         $variables=empty($definition['variables'])?'':$ui->text('custom_variables',['variables'=>implode(', ',array_map(fn($name)=>'{'.$name.'}',$definition['variables']))]);
         if(!empty($definition['inline'])) $variables.="\n".$ui->text('custom_inline_hint');
-        $text=$kind==='icon'?$ui->text('custom_icon_prompt'):$ui->text('custom_prompt',['title'=>$definition['label'],'variables'=>$variables],['variables']);
-        $message=$this->send($chat,$text,[[$ui->button('cancel','custom:item:'.($kind==='icon'?'button':$kind).':'.$key)]],$message);
+        $text=$kind==='icon'?$ui->text('custom_icon_prompt'):($kind==='emoji'?$ui->text('custom_emoji_prompt'):$ui->text('custom_prompt',['title'=>$definition['label'],'variables'=>$variables],['variables']));
+        $message=$this->send($chat,$text,[[$ui->button('cancel','custom:item:'.$base.':'.$key)]],$message);
         $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>$kind,'key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
     }
     private function commit(int $chat,string $kind,string $key,int $message,array $values,array $remove=[]): bool
@@ -523,13 +542,13 @@ final class Personalization
             $this->limits($chat,(int)$menu,$ui->text('custom_saved'));
             return;
         }
-        if(!$ui->customizable($kind==='icon'?'button':$kind,$key)) {
+        if(!$ui->customizable(in_array($kind,['icon','emoji'],true)?'button':$kind,$key)) {
             $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
             $this->home($chat,(int)$menu); return;
         }
         $values=[];
         try {
-            $definition=$ui->definition($kind==='icon'?'button':$kind,$key);
+            $definition=$ui->definition(in_array($kind,['icon','emoji'],true)?'button':$kind,$key);
             if(!$definition) throw new \RuntimeException('Unknown customization item');
             if($kind==='text') {
                 $value=TextFormat::fromMessage($message);
@@ -545,12 +564,17 @@ final class Personalization
                 $value=TextFormat::emoji($message)??trim((string)($message['text']??''));
                 if(!preg_match('/^\d{5,24}$/D',$value)) throw new \RuntimeException('Invalid custom emoji ID');
                 $values['button.icon.'.$key]=$value;
+            } elseif($kind==='emoji') {
+                $emoji=Ui::singleEmoji((string)($message['text']??''));
+                if($emoji===null||TextFormat::emoji($message)!==null) throw new \RuntimeException('Invalid emoji');
+                // A plain emoji replaces a no-emoji choice and sits at the chosen end of the label.
+                $values['button.emoji.'.$key]=$emoji; $values['button.plain.'.$key]='0';
             } else throw new \RuntimeException('Invalid customization kind');
         } catch(\Throwable) {
-            $this->send($chat,$ui->text('custom_invalid'),[[$ui->button('cancel','custom:item:'.($kind==='icon'?'button':$kind).':'.$key)]],(int)$menu);
+            $this->send($chat,$ui->text($kind==='emoji'?'custom_emoji_invalid':'custom_invalid'),[[$ui->button('cancel','custom:item:'.(in_array($kind,['icon','emoji'],true)?'button':$kind).':'.$key)]],(int)$menu);
             return;
         }
-        if($this->commit($chat,$kind==='icon'?'button':$kind,$key,(int)$menu,$values)) $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        if($this->commit($chat,in_array($kind,['icon','emoji'],true)?'button':$kind,$key,(int)$menu,$values)) $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
     }
     public function handle(int $chat,int $user,string $action,int $message): bool
     {
@@ -559,7 +583,7 @@ final class Personalization
         $op=$parts[1]??''; $kind=$parts[2]??''; $key=$parts[3]??'';
         $target=match($op) {
             'item','edit','reset','default'=>[$kind,$key],
-            'icon','color','setcolor','clearicon'=>['button',$kind],
+            'icon','emoji','pos','plain','hide','cyclecolor','color','setcolor','clearicon'=>['button',$kind],
             default=>null,
         };
         if($target&&!$ui->customizable($target[0],$target[1])) { $this->home($chat,$message); return true; }
@@ -609,8 +633,13 @@ final class Personalization
             try { $this->reorder($chat,$message,$order); $this->bot->store->set('cover.order',json_encode($order,JSON_THROW_ON_ERROR)); }
             catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $this->reorder($chat,$message,$ui->coverOrder(),$ui->text('custom_preview_failed'),true); }
         }
+        elseif($op==='perrow') {
+            $next=max(1,min(3,(int)$this->bot->store->get('cover.per_row','2')))%3+1;
+            try { $this->reorder($chat,$message,$ui->coverOrder()); $this->bot->store->set('cover.per_row',(string)$next); $this->reorder($chat,$message,$ui->coverOrder()); }
+            catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $this->reorder($chat,$message,$ui->coverOrder(),$ui->text('custom_preview_failed'),true); }
+        }
         elseif($op==='orderreset') {
-            try { $this->reorder($chat,$message,['360','480','720','1080','audio']); $this->bot->store->query('DELETE FROM settings WHERE key=?',['cover.order']); }
+            try { $this->reorder($chat,$message,['360','480','720','1080','audio']); $this->bot->store->query('DELETE FROM settings WHERE key IN (?,?)',['cover.order','cover.per_row']); }
             catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $this->reorder($chat,$message,$ui->coverOrder(),$ui->text('custom_preview_failed'),true); }
         }
         elseif($op==='groups') { $this->bot->store->set('custom.section.'.$chat,''); $this->groups($chat,$kind,$message); }
@@ -618,6 +647,22 @@ final class Personalization
         elseif($op==='item') $this->item($chat,$kind,$key,$message);
         elseif($op==='edit') $this->begin($chat,$user,$kind,$key,$message);
         elseif($op==='icon') $this->begin($chat,$user,'icon',$kind,$message);
+        elseif($op==='emoji') $this->begin($chat,$user,'emoji',$kind,$message);
+        elseif($op==='pos') $this->commit($chat,'button',$kind,$message,['button.pos.'.$kind=>$ui->setting('button.pos.'.$kind,'start')==='end'?'start':'end','button.plain.'.$kind=>'0']);
+        elseif($op==='plain') $this->commit($chat,'button',$kind,$message,['button.plain.'.$kind=>$ui->setting('button.plain.'.$kind)==='1'?'0':'1']);
+        elseif($op==='cyclecolor') {
+            $order=['','primary','success','danger']; $current=$ui->button($kind)['style']??'';
+            $this->commit($chat,'button',$kind,$message,['button.style.'.$kind=>$order[(array_search($current,$order,true)+1)%4]]);
+        } elseif($op==='hide') {
+            if($ui->required($kind)) { $this->item($chat,'button',$kind,$message,$ui->text('custom_hide_required')); return true; }
+            $hide=$ui->setting('button.hidden.'.$kind)!=='1';
+            // The quality menu needs at least one choice, or nobody could pick a download.
+            $qualities=['quality_360','quality_480','quality_720','quality_high'];
+            if($hide&&in_array($kind,$qualities,true)&&!array_filter($qualities,fn($other)=>$other!==$kind&&$ui->setting('button.hidden.'.$other)!=='1')) {
+                $this->item($chat,'button',$kind,$message,$ui->text('custom_hide_last')); return true;
+            }
+            $this->commit($chat,'button',$kind,$message,['button.hidden.'.$kind=>$hide?'1':'0']);
+        }
         elseif($op==='access') {
             $this->bot->store->set('admins_only',$this->bot->store->get('admins_only','0')==='1'?'0':'1');
             $this->features($chat,$message);
@@ -639,7 +684,7 @@ final class Personalization
             if($kind==='button') {
                 $parent=$definition['inherits']??''; $parentButton=$parent!==''?$ui->button($parent):[];
                 if($parent!=='') $values['button.'.$key]=$ui->label($parent);
-                $values+=['button.style.'.$key=>$parentButton['style']??($definition['style']??''),'button.icon.'.$key=>$parentButton['icon_custom_emoji_id']??''];
+                $values+=['button.style.'.$key=>$parentButton['style']??($definition['style']??''),'button.icon.'.$key=>$parentButton['icon_custom_emoji_id']??'']; foreach(['emoji','pos','plain','hidden'] as $extra) $values['button.'.$extra.'.'.$key]='';
             }
             $this->commit($chat,$kind,$key,$message,$values,array_keys($values));
         }

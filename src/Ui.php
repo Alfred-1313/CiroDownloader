@@ -93,6 +93,26 @@ final class Ui
         $text=mb_strtolower(strtr($text,['ي'=>'ی','ك'=>'ک']));
         return preg_replace('/[^\p{L}\p{N}]+/u','',$text)??'';
     }
+    /** One emoji: keycap, flag, or a pictograph with its modifiers and joined parts. */
+    private const EMOJI='(?:[0-9#*]\x{FE0F}?\x{20E3}|[\x{1F1E6}-\x{1F1FF}]{2}|\p{Extended_Pictographic}[\x{FE0F}\x{1F3FB}-\x{1F3FF}]*(?:\x{200D}\p{Extended_Pictographic}[\x{FE0F}\x{1F3FB}-\x{1F3FF}]*)*)';
+    /** Text without the emoji at either end of the label. */
+    public static function stripEmoji(string $text): string
+    {
+        $clean=preg_replace('/^(?:'.self::EMOJI.'\s*)+/u','',$text)??$text;
+        $clean=trim(preg_replace('/(?:\s*'.self::EMOJI.')+$/u','',$clean)??$clean);
+        return $clean!==''?$clean:$text;
+    }
+    /** One emoji and nothing else. */
+    public static function singleEmoji(string $text): ?string
+    {
+        $text=trim($text);
+        return strlen($text)<=64&&preg_match('/^'.self::EMOJI.'$/Du',$text)===1?$text:null;
+    }
+    /** Navigation, article and reply-keyboard buttons keep working only if they stay visible and keep their label. */
+    public function required(string $key): bool
+    {
+        return !empty($this->definition('button',$key)['required'])||in_array($key,self::REPLY_KEYS,true);
+    }
     public function button(string $key,?string $data=null,array $values=[]): array
     {
         $item=$this->definition('button',$key);
@@ -102,7 +122,17 @@ final class Ui
         $style=$this->get('button.style.'.$key,$parent!==''?$this->get('button.style.'.$parent,$this->definition('button',$parent)['style']??''):($item['style']??''));
         if(in_array($style,['primary','success','danger'],true)) $button['style']=$style;
         $icon=$this->get('button.icon.'.$key,$parent!==''?$this->get('button.icon.'.$parent):'');
-        if(preg_match('/^\d{5,24}$/D',$icon)) $button['icon_custom_emoji_id']=$icon;
+        $premium=preg_match('/^\d{5,24}$/D',$icon)===1;
+        if($premium) $button['icon_custom_emoji_id']=$icon;
+        // Reply-keyboard labels are matched against what Telegram sends back, so only inline buttons are restyled.
+        if(!in_array($key,self::REPLY_KEYS,true)) {
+            $plain=$this->get('button.plain.'.$key)==='1'; $emoji=self::singleEmoji($this->get('button.emoji.'.$key));
+            if($plain) $button['text']=self::stripEmoji($button['text']);
+            elseif($premium) $button['text']=self::stripEmoji($button['text']);
+            elseif($emoji!==null) $button['text']=$this->get('button.pos.'.$key,'start')==='end'?self::stripEmoji($button['text']).' '.$emoji:$emoji.' '.self::stripEmoji($button['text']);
+        }
+        // Telegram::call removes hidden buttons just before sending, so every screen honours the switch.
+        if(!$this->required($key)&&$this->get('button.hidden.'.$key)==='1') $button['_hidden']=true;
         return $button;
     }
     public function instagramSourceEnabled(): bool { return $this->gallerySourceEnabled('instagram'); }
