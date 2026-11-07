@@ -58,6 +58,7 @@ jobs:
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php
           /tmp/ciro-gallery-tests/bin/python -B tests/pinterest_redirects.py
           /tmp/ciro-gallery-tests/bin/python -B tests/social_links.py
+          /tmp/ciro-gallery-tests/bin/python -B tests/tiktok_codec.py
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/social_media.php tiktok
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/social_media.php twitter
 
@@ -65,6 +66,7 @@ jobs:
         run: |
           php tests/parallel_worker.php
           php tests/parallel_worker.php --group
+          php tests/speed.php
           php tests/cookie_pool.php
           php tests/cookie_formats.php
           php tests/cookie_health.php

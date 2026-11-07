@@ -4,11 +4,12 @@ import re
 import sys
 from urllib.parse import urljoin, urlsplit
 
-from gallery_dl import exception, main
+from gallery_dl import config, exception, main
 from gallery_dl.extractor.message import Message
 from gallery_dl.extractor.tiktok import TiktokExtractor, TiktokPostExtractor, TiktokVmpostExtractor
 
 original_items = TiktokExtractor.items
+original_video_urls = TiktokExtractor._extract_video_urls
 SHORT_HOSTS = {"vm.tiktok.com", "vt.tiktok.com"}
 WEB_HOSTS = {"www.tiktok.com", "tiktok.com", "m.tiktok.com"}
 
@@ -89,7 +90,28 @@ def visual_post(self):
         raise exception.ExtractionError("TikTok returned incomplete visual media")
 
 
+def h264_first(self, video):
+    """List H.264 streams before HEVC ones.
+
+    gallery-dl takes the largest picture, which on TikTok is usually HEVC at 1080p. Telegram
+    plays H.264 everywhere and it can be remuxed in a fraction of a second, while HEVC has to be
+    re-encoded on the server: tens of seconds for a short clip on one CPU. HEVC stays in the
+    list, so a post without any H.264 stream still downloads.
+    """
+    info = video.get("bitrateInfo")
+    if not config.get(("extractor", "tiktok"), "prefer-h264", True) or info is None:
+        return original_video_urls(self, video)
+    entries = info if isinstance(info, list) else [info]
+    modern = [entry for entry in entries if str(entry.get("CodecType", "")).lower().startswith("h264")]
+    other = [entry for entry in entries if entry not in modern]
+    if not modern or not other:
+        return original_video_urls(self, video)
+    urls = original_video_urls(self, dict(video, bitrateInfo=modern)) + original_video_urls(self, dict(video, bitrateInfo=other))
+    return list(dict.fromkeys(urls))
+
+
 if __name__ == "__main__":
+    TiktokExtractor._extract_video_urls = h264_first
     TiktokPostExtractor.items = visual_post
     TiktokVmpostExtractor.items = single_short_post
     sys.exit(main())

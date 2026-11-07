@@ -66,6 +66,7 @@ abstract class GalleryMedia
             '-o','extractor.twitter.quoted=false','-o','extractor.twitter.conversations=false','-o','extractor.twitter.cards=false','-o','extractor.twitter.articles=false',
             '--range','1-'.(static::MAX_ITEMS+1),'--Print','after:CIRO|{num}|{count}|{_path}',
             '--Print','post:CIRO_META|{description!j}']);
+        if(static::SERVICE==='tiktok'&&!$this->config->tiktokPreferH264) $command=array_merge($command,['-o','extractor.tiktok.prefer-h264=false']);
         // Instagram, Pinterest, TikTok and X may need a cleaner exit address than the server's.
         if($this->config->galleryProxy!=='') $command=array_merge($command,['--proxy',$this->config->galleryProxy]);
         $pool=static::pool($this->config); $jars=$pool->order(3);
@@ -150,10 +151,16 @@ abstract class GalleryMedia
         $ready=$folder.'/ready.mp4';
         $args=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$source,'-map','0:v:0','-map','0:a:0?'];
         $copy=($video['codec_name']??'')==='h264'&&($video['pix_fmt']??'')==='yuv420p';
-        $args=array_merge($args,$copy?['-c:v','copy']:['-c:v','libx264','-preset','veryfast','-crf','23','-threads','2','-pix_fmt','yuv420p']);
+        $args=array_merge($args,$copy?['-c:v','copy']:["-vf","scale='if(gt(iw,ih),min(1280,iw),-2)':'if(gt(iw,ih),-2,min(1280,ih))'",'-c:v','libx264','-preset','veryfast','-crf','23','-threads','2','-pix_fmt','yuv420p']);
         if($audio) $args=array_merge($args,($audio['codec_name']??'')==='aac'?['-c:a','copy']:['-c:a','aac','-b:a','128k']);
         $runner->run(array_merge($args,['-movflags','+faststart',$ready]),$folder,$this->config->timeout);
         if(!is_file($ready)||filesize($ready)<1||filesize($ready)>$this->config->maxBytes) throw new MediaFailure('size','Prepared '.static::NAME.' video exceeds file size limit');
-        return ['type'=>'video','path'=>$ready,'width'=>(int)$video['width'],'height'=>(int)$video['height'],'duration'=>(int)ceil($duration)];
+        $width=(int)$video['width']; $height=(int)$video['height'];
+        if(!$copy) {
+            // The picture was scaled, so Telegram must be told the size of the file it receives.
+            $out=json_decode($runner->run(['ffprobe','-v','error','-select_streams','v:0','-show_entries','stream=width,height','-of','json',$ready],$folder,30),true)['streams'][0]??[];
+            $width=(int)($out['width']??$width); $height=(int)($out['height']??$height);
+        }
+        return ['type'=>'video','path'=>$ready,'width'=>$width,'height'=>$height,'duration'=>(int)ceil($duration)];
     }
 }

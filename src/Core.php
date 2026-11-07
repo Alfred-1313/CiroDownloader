@@ -12,6 +12,8 @@ final class Config
     public bool $cookieFallback=false;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
     public string $galleryProxy='';
+    /** TikTok: prefer H.264 streams so videos are remuxed instead of re-encoded (much faster). */
+    public bool $tiktokPreferH264=true;
     /** Optional PO Token provider for YouTube, for example http://pot:4416. */
     public string $youtubePotUrl='';
 
@@ -67,6 +69,7 @@ final class Config
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
             getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'',getenv('TIKTOK_COOKIES_FILE')?:'',getenv('TWITTER_COOKIES_FILE')?:'');
+        $config->tiktokPreferH264=(getenv('TIKTOK_PREFER_H264')?:'1')!=='0';
         $config->galleryProxy=$galleryProxy; $config->youtubePotUrl=rtrim($potUrl,'/');
         return $config;
     }
@@ -180,21 +183,32 @@ function diagnosticMessage(string $message): string
 
 final class Telegram implements FileApi
 {
+    /** @var array<int,\CurlHandle> one connection per process, reused so each call skips a new TCP and TLS handshake */
+    private static array $handles = [];
     public function __construct(private Config $config) {}
+    private static function handle(): \CurlHandle
+    {
+        // A forked job must not share its parent's socket.
+        $pid = getmypid();
+        if (!isset(self::$handles[$pid])) self::$handles = [$pid => curl_init()];
+        else curl_reset(self::$handles[$pid]);
+        return self::$handles[$pid];
+    }
     public function call(string $method, array $params = []): mixed
     {
         foreach ($params as &$value) {
             if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         }
         unset($value);
-        $ch = curl_init($this->config->api . '/bot' . $this->config->token . '/' . $method);
-        curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
+        $ch = self::handle();
+        curl_setopt_array($ch, [CURLOPT_URL => $this->config->api . '/bot' . $this->config->token . '/' . $method, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
+            // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
+            CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 524288, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
             CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
-        curl_close($ch);
-        if ($body === false) throw new \RuntimeException('Telegram transport error ' . $errno);
+        if ($body === false) { self::$handles = []; throw new \RuntimeException('Telegram transport error ' . $errno); }
         $result = json_decode($body, true);
         if (!($result['ok'] ?? false)) {
             if(str_starts_with($method,'editMessage')&&str_contains((string)($result['description']??''),'message is not modified')) return true;
