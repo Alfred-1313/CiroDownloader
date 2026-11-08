@@ -16,6 +16,7 @@ require_once __DIR__.'/Administrators.php';
 require_once __DIR__.'/Reactions.php';
 require_once __DIR__.'/CookieJars.php';
 require_once __DIR__.'/CookieHealth.php';
+require_once __DIR__.'/Reports.php';
 
 final class Bot
 {
@@ -118,7 +119,7 @@ final class Bot
             [$this->replyButton('back_home')],
         ]);
     }
-    public function health(int $chat): void
+    public function health(int $chat,int $message=0): void
     {
         $now=time(); $running=(int)$this->store->query("SELECT COUNT(*) FROM jobs WHERE status='running'")->fetchColumn();
         $this->send($chat,$this->text('health',[
@@ -134,7 +135,7 @@ final class Bot
             'gproxy'=>$this->text($this->config->galleryProxy!==''?'configured':'not_configured'),
             'pot'=>$this->text($this->config->youtubePotUrl!==''?'configured':'not_configured'),
             'error'=>$this->lastErrorMessage(),
-        ],['state','poller','worker','cookies','proxy','gproxy','pot']));
+        ],['state','poller','worker','cookies','proxy','gproxy','pot']),Reports::homeRows($this->ui),$message);
     }
     private function lastErrorMessage(): string
     {
@@ -359,6 +360,7 @@ final class Bot
             elseif($action==='admin') $this->panel($chat,$menu);
             elseif($action==='admins:cancel') $this->panel($chat,$menu);
             elseif($action==='health') $this->health($chat);
+            elseif(str_starts_with($action,'rp:')) (new Reports($this))->show($chat,substr($action,3),$menu);
             elseif($action==='cookies') (new Cookies($this))->handle($chat,$user,'cookies');
             elseif(in_array($action,['cookies:info','cookies:import'],true)) {
                 (new Cookies($this))->handle($chat,$user,'cookie_youtube');

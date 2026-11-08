@@ -86,6 +86,7 @@ try {
     chmod($stub,0700);
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created,message_id,phase,expires) VALUES(4,88,88,?,'choosing',?,700,'inspect',?)",[$url,time()-31*86400,time()-30*86400]);
     $bot->handle(['update_id'=>3,'message'=>['from'=>['id'=>99],'chat'=>['id'=>99,'type'=>'private'],'text'=>$url]]);
+    $store->set('cookies.keepalive','0');
     $environment=array_merge(getenv(),['BOT_TOKEN'=>$config->token,'ADMIN_IDS'=>'42','STORAGE_DIR'=>$storage,
         'BOT_API_URL'=>$config->api,'YT_DLP_BIN'=>$stub,'YOUTUBE_COOKIES_FILE'=>'','YOUTUBE_PROXY'=>'']);
     $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],

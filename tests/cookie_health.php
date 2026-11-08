@@ -95,7 +95,7 @@ try {
     $health->sweep($now+50);
     healthCheck(count($api->sent())===$count&&!is_file($config->instagramCookiePath().'.d/'.$second.'.txt'),'with alerts off expired jars are still removed but nothing is sent');
     $store->set('cookies.alerts','1');
-    healthCheck($health->due($now+100000)===true&&$health->due($now+100001)===false&&$health->due($now+100000+Zero\CookieHealth::INTERVAL+1)===true,'the periodic pass runs once per interval');
+    healthCheck($health->due($now+100000)===true&&$health->due($now+100001)===false&&$health->due($now+100000+Zero\CookieHealth::minutes($store)*60+1)===true,'the periodic pass runs once per interval');
     healthCheck(str_contains($health->summary(),'اینستاگرام 3')||str_contains($health->summary(),'اینستاگرام'),'the health summary lists each service');
 
     // Telegram: naming, testing and the alerts switch.
@@ -164,6 +164,22 @@ try {
     healthCheck($store->get('cookies.keepalive')!==$before&&str_contains($api->last('sendMessage')['text'],'نگه‌دارندهٔ کوکی'),'the keep-alive switch flips and the menu shows its state');
     $send($bot->label('cookie_keepalive'),7); healthCheck($store->get('cookies.keepalive')==='0','ordinary users cannot flip it');
     $store->set('cookies.keepalive','1');
+    // The interval is the administrator's choice and "check now" makes the next pass due at once.
+    $store->set('cookie_sweep_last',(string)time());
+    healthCheck(Zero\CookieHealth::dueAt($store)===false,'a pass is not due right after one');
+    $seen=[]; for($i=0;$i<7;$i++) { $send($bot->label('cookies')); $send($bot->label('cookie_interval')); $seen[]=$store->get('cookies.check_minutes'); }
+    healthCheck($seen===['720','1440','30','60','180','360','720']&&str_contains((string)$api->last('sendMessage')['text'],'هر'),'the interval button cycles 30 minutes, 1, 3, 6, 12 and 24 hours and the menu shows it');
+    $store->set('cookies.check_minutes','30'); $store->set('cookie_sweep_last',(string)(time()-31*60));
+    healthCheck(Zero\CookieHealth::dueAt($store)===true,'a shorter interval makes the pass due sooner');
+    $send($bot->label('cookie_check_now'),7); healthCheck($store->get('cookie_sweep_last')!=='0','ordinary users cannot start a check');
+    $send($bot->label('cookie_check_now')); healthCheck($store->get('cookie_sweep_last')==='0'&&Zero\CookieHealth::dueAt($store)===true,'"check now" makes the next pass due immediately');
+    $store->set('cookies.check_minutes','360');
+    // When every YouTube jar meets the bot check, the administrators hear it once a day.
+    $yt->markWorking($id); file_put_contents($mode,'Sign in to confirm you are not a bot'); $before=count($api->sent());
+    $health=new Zero\CookieHealth($config,$store,$api); $t=time()+9*86400; $health->keepAlive($t);
+    $new=array_slice($api->sent(),$before); healthCheck($new&&count(array_filter($new,fn($c)=>str_contains($c[1]['text'],'IP سرور')))===count($new),'a bot check on every jar is reported as the server\'s address');
+    $yt->markWorking($id); $health->keepAlive($t+7*3600);
+    healthCheck(count($api->sent())===$before+count($new),'and only once a day');
     $before=$store->get('cookies.alerts'); $send($bot->label('cookies')); $send($bot->label('cookie_alerts'));
     healthCheck($store->get('cookies.alerts')!==$before&&str_contains($api->last('sendMessage')['text'],'هشدار کوکی'),'the alerts switch flips and the menu shows its state');
     $send($bot->label('cookie_alerts'),7); $state=$store->get('cookies.alerts'); $send($bot->label('cookie_alerts'),7);

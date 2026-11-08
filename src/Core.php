@@ -297,6 +297,7 @@ final class Store
         $this->db->exec("CREATE TABLE IF NOT EXISTS user_profiles (user_id INTEGER PRIMARY KEY,username TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS profile_username ON user_profiles(username) WHERE username<>'';
             CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY,added_by INTEGER NOT NULL,created INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS stats (day TEXT NOT NULL,service TEXT NOT NULL,ok INTEGER NOT NULL DEFAULT 0,failed INTEGER NOT NULL DEFAULT 0,ms INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,service));
             CREATE TABLE IF NOT EXISTS music_menus (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,
                 message_id INTEGER NOT NULL DEFAULT 0,service TEXT NOT NULL,kind TEXT NOT NULL,data TEXT NOT NULL DEFAULT '{}',view TEXT NOT NULL DEFAULT '{}',
                 sent TEXT NOT NULL DEFAULT '{}',created INTEGER NOT NULL,expires INTEGER NOT NULL);");
@@ -396,6 +397,20 @@ final class Store
             if($added) $this->query('INSERT INTO bot_admins(user_id,added_by,created) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET added_by=excluded.added_by,created=excluded.created',[$user,$actor,time()]);
             $this->db->exec('COMMIT'); return $added;
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
+    /** One finished request, counted per day and service for the status report (kept 90 days). */
+    public function record(string $service,bool $ok,int $ms): void
+    {
+        $day=gmdate('Y-m-d');
+        $this->query('INSERT INTO stats(day,service,ok,failed,ms) VALUES(?,?,?,?,?) ON CONFLICT(day,service) DO UPDATE SET ok=ok+excluded.ok,failed=failed+excluded.failed,ms=ms+excluded.ms',[$day,$service,$ok?1:0,$ok?0:1,max(0,$ms)]);
+        if(random_int(1,50)===1) $this->query('DELETE FROM stats WHERE day<?',[gmdate('Y-m-d',time()-90*86400)]);
+    }
+    /** The last ten failures, newest first: [time, service, reason, sources]. */
+    public function pushError(string $service,string $reason,string $sources=''): void
+    {
+        $list=json_decode($this->get('recent_errors','[]'),true); $list=is_array($list)?$list:[];
+        array_unshift($list,['t'=>time(),'s'=>$service,'r'=>$reason,'c'=>$sources]);
+        $this->set('recent_errors',json_encode(array_slice($list,0,10),JSON_THROW_ON_ERROR));
     }
     public function groupsEnabled(): bool { return $this->get('groups_enabled','1')==='1'; }
     /**

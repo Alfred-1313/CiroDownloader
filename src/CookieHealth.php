@@ -10,10 +10,16 @@ namespace Zero;
  */
 final class CookieHealth
 {
-    public const EXPIRING_SECONDS=259200, INTERVAL=21600, KEEPALIVE_SECONDS=43200;
+    public const EXPIRING_SECONDS=259200, INTERVALS=[30,60,180,360,720,1440], DEFAULT_MINUTES=360;
     private Ui $ui;
     public function __construct(private Config $config,private Store $store,private Api $api) { $this->ui=new Ui($store); }
     public function alertsEnabled(): bool { return $this->store->get('cookies.alerts','1')==='1'; }
+    /** Minutes between two checks of every cookie; one of INTERVALS. */
+    public static function minutes(Store $store): int
+    {
+        $value=(int)$store->get('cookies.check_minutes',(string)self::DEFAULT_MINUTES);
+        return in_array($value,self::INTERVALS,true)?$value:self::DEFAULT_MINUTES;
+    }
     public function keepAliveEnabled(): bool { return $this->store->get('cookies.keepalive','1')==='1'; }
     /** @return array<string,CookiePool> */
     public function pools(): array
@@ -91,31 +97,40 @@ final class CookieHealth
     public function keepAlive(?int $now=null): int
     {
         if(!$this->keepAliveEnabled()) return 0;
-        $now??=time(); $done=0; $pool=youtubeCookiePool($this->config);
+        $now??=time(); $done=0; $blocked=0; $checked=0; $pool=youtubeCookiePool($this->config);
         $url=$this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318');
         foreach($pool->describe() as $jar) {
-            if($jar['ok']!==null&&$now-(int)$jar['ok']<self::KEEPALIVE_SECONDS) continue;
-            if($now-$pool->warned('ka:'.$jar['id'])<self::KEEPALIVE_SECONDS) continue;
-            $pool->markWarned('ka:'.$jar['id'],$now);
+            // A jar that worked, or was just checked, within one interval needs no request.
+            $interval=self::minutes($this->store)*60-60;
+            if($jar['ok']!==null&&$now-(int)$jar['ok']<$interval) continue;
+            if($now-$pool->warned('ka:'.$jar['id'])<$interval) continue;
+            $pool->markWarned('ka:'.$jar['id'],$now); $checked++;
             $folder=$this->config->storage.'/.keepalive-'.bin2hex(random_bytes(6));
             if(!mkdir($folder,0700)) continue;
             try {
                 (new Download($this->config))->keepAlive($folder,['id'=>$jar['id'],'path'=>$jar['path']],$url);
-                $pool->markWorking($jar['id']); $done++;
+                $pool->markWorking($jar['id']); $done++; $pool->markWarned('blocked',0);
             } catch(MediaFailure $e) {
-                // A refusal of the cookie is the cookie's fault; "blocked" may be the server's address, so it proves nothing.
+                // A refusal of the cookie is the cookie's fault; "blocked" may be the server's address, so the jar is not blamed.
                 if($e->reason==='cookies') $pool->markFailed($jar['id']);
+                elseif($e->reason==='blocked') $blocked++;
                 error_log('YouTube cookie keep-alive: jar='.$jar['id'].' reason='.$e->reason);
             } catch(\Throwable $e) { error_log('YouTube cookie keep-alive failed: '.get_class($e)); }
             finally { Download::clean($folder); }
         }
+        // Every jar that was tried got YouTube's bot check: the cookies are not the problem, the server's address is.
+        // Tell the administrators once a day, because music and every YouTube link depend on it.
+        if($checked>0&&$blocked===$checked&&$this->alertsEnabled()&&$now-$pool->warned('blocked')>=86400) {
+            $pool->markWarned('blocked',$now);
+            $this->notify($this->ui->text('cookie_alert_blocked'));
+        }
         return $done;
     }
-    /** For the worker loop: true at most once per interval. Static so it costs no objects between passes. */
+    /** For the worker loop: true when the next check of all cookies is due (the interval is the administrator's choice). */
     public static function dueAt(Store $store,?int $now=null): bool
     {
         $now??=time();
-        if($now-(int)$store->get('cookie_sweep_last','0')<self::INTERVAL) return false;
+        if($now-(int)$store->get('cookie_sweep_last','0')<self::minutes($store)*60) return false;
         $store->set('cookie_sweep_last',(string)$now);
         return true;
     }

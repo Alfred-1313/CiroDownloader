@@ -47,6 +47,7 @@ final class Worker
         if($music===null&&is_array($track)&&in_array($job['phase'],musicServices(),true)) $music=$job['phase'];
         if($music!==null&&$job['phase']!==$music) $music=null;
         $collection=$job['phase']==='inspect'?collectionUrl($job['url']):null;
+        $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':'youtube')));
         $started=hrtime(true); $timings=[];
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
@@ -161,6 +162,7 @@ final class Worker
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
             $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':'youtube')));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+            try { $store->pushError($label,$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'),$store->get('last_job_sources')); } catch(Throwable) {}
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($gallery) $key=$service.'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
@@ -169,6 +171,11 @@ final class Worker
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally {
             $timings['total_ms']=(int)round((hrtime(true)-$started)/1e6);
+            // A finished request is counted for the status report; a quality menu or a stopped batch is not a result yet.
+            try {
+                $end=$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+                if(in_array($end,['done','failed'],true)&&!($job['phase']==='inspect'&&$collection===null)) $store->record($label,$end==='done',$timings['total_ms']);
+            } catch(Throwable) {}
             error_log('Job '.$job['id'].' timings '.json_encode($timings,JSON_THROW_ON_ERROR));
             Download::clean($folder);
         }
