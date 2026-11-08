@@ -41,8 +41,22 @@
 | `refused`, `unreachable`, `reset`, `timeout` | اتصال قطع، رد یا خیلی کند است | پراکسی؛ اگر موقتی است بعداً دوباره |
 | `region` | سایت در منطقهٔ سرور در دسترس نیست (451) | پراکسی در منطقهٔ دیگر |
 | `forbidden`, `ratelimit` | سایت این IP را رد یا محدود کرده است | پراکسی با IP دیگر |
-| `gone` | ویدیو حذف شده | — |
+| `gone` | سایت «410 Gone» داده: یا ویدیو حذف شده، یا (رایج‌تر) سایت **این IP یا منطقه** را رد کرده است. اگر همان لینک روی گوشی باز می‌شود، سرور مسدود است | پراکسی در منطقه‌ای که سایت در آن باز است |
 | `unavailable` | خطای سمت سایت (5xx) | بعداً دوباره |
 | `page` | ساختار صفحه یا تأیید سن تغییر کرده؛ yt-dlp را به‌روز کن | به‌روزرسانی |
 
 پراکسی را با `GALLERY_PROXY` در `.env` بده ([network.md](network.md)). این پراکسی برای Pornhub، اینستاگرام، پینترست، تیک‌تاک و X استفاده می‌شود و برای تلگرام نه. بعد از تغییر `.env` سرویس را دوباره راه‌اندازی کن.
+
+### آزمایش مستقیم روی سرور
+
+```bash
+docker compose exec worker /opt/yt/bin/yt-dlp --ignore-config --no-playlist --skip-download --no-warnings --print title "LINK"
+```
+
+اگر `Unable to download webpage: HTTP Error 410: Gone` آمد ولی لینک روی گوشی باز می‌شود، سایت منطقهٔ سرور را مسدود کرده است. با پراکسی امتحان کن:
+
+```bash
+docker compose exec worker /opt/yt/bin/yt-dlp --ignore-config --no-playlist --skip-download --no-warnings --proxy "socks5h://HOST:PORT" --print title "LINK"
+```
+
+اگر این عنوان را چاپ کرد، همان آدرس را در `GALLERY_PROXY` بگذار.
