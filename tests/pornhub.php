@@ -36,6 +36,14 @@ $info=['title'=>'Fixture','duration'=>100,'thumbnail'=>'https://ei.phncdn.com/vi
 ]];
 $options=Zero\Download::sizedOptions($info,49000000);
 phCheck(array_keys($options)===[480,720]&&array_column($options[480],'id')===['480p','hls-480p']&&array_column($options[720],'id')===['hls-720p'],'the menu offers the heights that fit: 1080p (about 112 MB) and 240p are left out, and video without sound is never offered');
+// Pornhub states no size and no bitrate, but its file names carry the bitrate: 1002 s at 2000 kbps is ~250 MB, so 480p and up are left out.
+$real=['duration'=>1002,'formats'=>[
+    ['format_id'=>'240p','height'=>240,'url'=>'https://ev.phncdn.com/c1/videos/1/2/240P_1000K_67504295.mp4?x=1'],
+    ['format_id'=>'480p','height'=>480,'url'=>'https://ev.phncdn.com/c1/videos/1/2/480P_2000K_67504295.mp4?x=1']]];
+try { Zero\Download::sizedOptions($real,49000000); $failure=null; } catch(Zero\MediaFailure $e) { $failure=$e->reason; }
+phCheck($failure==='size','a long video is judged by the bitrate in its file names: nothing fits, so the person is told before anything is downloaded');
+$short=$real; $short['duration']=100;
+phCheck(array_keys(Zero\Download::sizedOptions($short,49000000))===[480],'a short one (100 s at 2000 kbps is 25 MB) fits');
 $big=['duration'=>3600,'formats'=>[['format_id'=>'hls-480p','height'=>480,'tbr'=>2000]]];
 try { Zero\Download::sizedOptions($big,49000000); $failure=null; } catch(Zero\MediaFailure $e) { $failure=$e->reason; }
 phCheck($failure==='size','a video too large in every quality says so before anything is downloaded');
@@ -108,6 +116,21 @@ try {
     phCheck($downloadArgs[array_search('-f',$downloadArgs,true)+1]==='480p/hls-480p'&&!in_array('--cookies',$downloadArgs,true),'the saved 480p formats are downloaded, without cookies');
     phCheck((int)$store->query("SELECT ok FROM stats WHERE service='pornhub'")->fetchColumn()===1,'the status report counts it as Pornhub');
 
+    // The administrator is told WHY a page could not be reached (one clean word), never the raw output.
+    $broken=$temp.'/yt-broken';
+    file_put_contents($broken,"#!/usr/bin/env php\n<?php\nfwrite(STDERR,'ERROR: [PornHub] x: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (https://secret.example/token=ABC)');exit(1);");
+    chmod($broken,0700); $config->ytDlp=$broken; $store->set('adult.pornhub','1'); $store->query('UPDATE users SET last_request=0'); $send($link,42);
+    $job=$store->claim('inspect'); $worker->process($job);
+    $texts=array_map(fn($call)=>(string)($call[1]['text']??$call[1]['caption']??''),array_filter($api->calls,fn($call)=>str_starts_with($call[0],'edit')));
+    phCheck($store->get('last_job_sources')==='pornhub=certificate'&&$store->get('last_job_service')==='pornhub'&&str_contains(end($texts),'اتصال سرور به سایت برقرار نشد'),'an unreachable site shows the person the network message and records "pornhub=certificate" for the administrator');
+    $recent=json_decode($store->get('recent_errors','[]'),true);
+    phCheck($recent[0]['s']==='pornhub'&&$recent[0]['r']==='network'&&$recent[0]['c']==='pornhub=certificate'&&!str_contains(json_encode($recent),'secret.example'),'the recent-errors list keeps the service, the reason and that word, and nothing from the downloader output');
+    $api->calls=[]; $bot->handle(['update_id'=>9999,'message'=>['message_id'=>1,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
+    $health=(string)end($api->calls)[1]['text'];
+    phCheck(str_contains($health,'اتصال سرور به سایت برقرار نشد')&&str_contains($health,'pornhub=certificate')&&!str_contains($health,'secret.example'),'the administrator\'s status message shows the Pornhub text and the cause');
+    foreach(['<urlopen error [Errno -2] Name or service not known>'=>'dns','<urlopen error [Errno 111] Connection refused>'=>'refused','<urlopen error timed out>'=>'timeout','HTTP Error 451: Unavailable For Legal Reasons'=>'region','HTTP Error 503: Service Unavailable'=>'unavailable','something else'=>'unknown'] as $text=>$word)
+        phCheck(Zero\Download::siteCause($text)===$word,'the cause of "'.$text.'" is "'.$word.'"');
+    $config->ytDlp=$stub;
     // 6. Turned off after the link was accepted: nothing is fetched.
     $store->query('UPDATE users SET last_request=0'); $send($link,42); $store->set('adult.pornhub','0'); $lines=count(file($trace));
     $job=$store->claim('inspect'); $worker->process($job);

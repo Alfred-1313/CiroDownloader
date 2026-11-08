@@ -233,7 +233,32 @@ final class Download
     /** Runs yt-dlp for a video page: YouTube through its cookie jars, anything else plainly (with the social proxy when set). */
     private function videoRun(string $site,string $canonical,array $options,string $folder,int $seconds,bool $forceCookies=false): string
     {
-        return $site==='youtube'?$this->youtube($canonical,$options,$folder,$seconds,$forceCookies):$this->plain($canonical,$options,$folder,$seconds);
+        if($site==='youtube') return $this->youtube($canonical,$options,$folder,$seconds,$forceCookies);
+        try { return $this->plain($canonical,$options,$folder,$seconds); }
+        catch(MediaFailure $e) {
+            // The administrator sees WHY ("pornhub=dns", "pornhub=certificate"), never the raw downloader output.
+            throw new MediaFailure($e->reason,$e->getMessage().' ['.$site.'='.self::siteCause($e->getMessage()).']');
+        }
+    }
+    /** A one-word cause of a failed request to a site, from the downloader's error text (letters only, safe to show). */
+    public static function siteCause(string $detail): string
+    {
+        return match(true) {
+            preg_match('/CERTIFICATE_VERIFY_FAILED|certificate verify|self.signed|hostname.*mismatch|SSL:|TLS|handshake/i',$detail)===1=>'certificate',
+            preg_match('/name resolution|Temporary failure in name|nodename nor servname|Name or service not known|getaddrinfo|No address associated/i',$detail)===1=>'dns',
+            preg_match('/connection refused|Errno 111/i',$detail)===1=>'refused',
+            preg_match('/network is unreachable|no route to host|Errno 101|Errno 113/i',$detail)===1=>'unreachable',
+            preg_match('/connection reset|Errno 104|remote end closed|IncompleteRead|EOF occurred/i',$detail)===1=>'reset',
+            preg_match('/timed out|timeout|exit 124/i',$detail)===1=>'timeout',
+            preg_match('/HTTP Error 451|legal reasons|not available in your (?:country|region)|geo.?(?:restrict|block)|blocked in your/i',$detail)===1=>'region',
+            preg_match('/HTTP Error 429|too many requests/i',$detail)===1=>'ratelimit',
+            preg_match('/HTTP Error 40[13]|forbidden|cloudflare|just a moment|captcha/i',$detail)===1=>'forbidden',
+            preg_match('/HTTP Error 4(?:04|10)|not found|\bgone\b|removed|deleted/i',$detail)===1=>'gone',
+            preg_match('/HTTP Error 5\d\d|bad gateway|service unavailable|gateway time/i',$detail)===1=>'unavailable',
+            preg_match('/HTTP Error 30\d|too many redirects|redirect/i',$detail)===1=>'redirect',
+            preg_match('/Unable to extract|unsupported url|no video formats|age.?verif/i',$detail)===1=>'page',
+            default=>'unknown',
+        };
     }
     public function inspect(string $url,string $folder,bool $forceCookies=false): array
     {
@@ -269,7 +294,10 @@ final class Download
             if(!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)||in_array($format['vcodec']??'',['none','images'],true)||($format['acodec']??'')==='none'||!empty($format['has_drm'])||($format['protocol']??'')==='mhtml') continue;
             $height=(int)($format['height']??0); $width=(int)($format['width']??0); $height=$width>0?min($width,$height):$height;
             if(!in_array($height,Config::VIDEO_QUALITIES,true)) continue;
-            $size=is_numeric($format['filesize']??null)?(float)$format['filesize']:(is_numeric($format['filesize_approx']??null)?(float)$format['filesize_approx']:((float)($format['tbr']??0)>0&&$duration>0?(float)$format['tbr']*125*$duration:null));
+            // Stated size, else bitrate x length. Pornhub states neither, but its file names carry the bitrate (480P_2000K_...).
+            $kbps=(float)($format['tbr']??0);
+            if($kbps<=0&&preg_match('~/\d+P_(\d{3,5})K_~',(string)($format['url']??''),$bitrate)) $kbps=(float)$bitrate[1];
+            $size=is_numeric($format['filesize']??null)?(float)$format['filesize']:(is_numeric($format['filesize_approx']??null)?(float)$format['filesize_approx']:($kbps>0&&$duration>0?$kbps*125*$duration:null));
             if($size!==null&&$size>$maxBytes*0.95) { $tooBig=true; continue; }
             if(count($options[$height]??[])<8) $options[$height][]=['id'=>$id,'audio'=>true];
         }

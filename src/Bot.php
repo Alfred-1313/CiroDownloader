@@ -159,7 +159,7 @@ final class Bot
             $reason=MediaFailure::process(1,$detail)->reason;
         }
         $service=$this->store->get('last_job_service');
-        $key=(in_array($service,[...galleryServices(),...musicServices()],true)?$service.'_':'').'error_'.$reason;
+        $key=(in_array($service,[...galleryServices(),...musicServices(),'pornhub'],true)?$service.'_':'').'error_'.$reason;
         // Only a clean list written by the bot itself ("youtube=blocked, soundcloud=format"), never raw downloader output.
         $sources=$this->store->get('last_job_sources');
         return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed').(preg_match('/^[a-z]+=[a-z]+(?:, [a-z]+=[a-z]+){0,4}$/D',$sources)===1?"\n".$sources:'');
