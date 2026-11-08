@@ -264,7 +264,9 @@ final class Worker
                         file_put_contents($dir.'/'.$index.'.json',json_encode($meta,JSON_THROW_ON_ERROR));
                     } catch(Throwable $e) {
                         error_log('Batch track '.($index+1).' skipped: '.($e instanceof MediaFailure?$e->reason:get_class($e)));
-                        file_put_contents($dir.'/'.$index.'.fail',$e instanceof MediaFailure?$e->reason:'process');
+                        // The reason and what each source said ("youtube=blocked, soundcloud=format"), never the raw message.
+                        $sources=preg_match('/\[((?:[a-z]+=[a-z]+)(?:, [a-z]+=[a-z]+){0,4})\]/',$e->getMessage(),$said)?$said[1]:'';
+                        file_put_contents($dir.'/'.$index.'.fail',json_encode(['reason'=>$e instanceof MediaFailure?$e->reason:'process','sources'=>$sources]));
                     }
                     Download::clean($dir.'/work-'.$index);
                     exit(0);
@@ -306,8 +308,12 @@ final class Worker
         $pending=fn()=>array_values(array_filter(array_keys($tracks),fn($i)=>!is_file($dir.'/'.$i.'.json')&&!is_file($dir.'/'.$i.'.fail')));
         // The names of the tracks that failed so far, so the person sees which ones are missing.
         $failedNames=function() use($dir,$tracks,$bot): array {
-            $names=[]; foreach(glob($dir.'/*.fail')?:[] as $file) { $i=(int)basename($file,'.fail'); $names[$i]=(string)($tracks[$i]['n']??''); }
-            ksort($names); return array_values(array_filter($names,fn($name)=>$name!==''));
+            $names=[];
+            foreach(glob($dir.'/*.fail')?:[] as $file) {
+                $i=(int)basename($file,'.fail'); $name=(string)($tracks[$i]['n']??'');
+                if($name!=='') $names[$i]=['name'=>$name,'why'=>$this->failureText($bot,self::failure($file))];
+            }
+            ksort($names); return array_values($names);
         };
         $progress=function(bool $force=false,array $working=[],float $every=1.2) use($bot,$job,$title,$total,$tracks,$stop,$pending,$failedNames,$dir,&$shown,$started): void {
             // Telegram allows about one edit a second per chat; the last state is always shown.
@@ -323,16 +329,30 @@ final class Worker
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) { $denied=true; return false; }
             return true;
         };
+        $prepare=function(array $todo) use($tracks,$service,$dir,$gate,$progress,&$checked): void {
+            $this->preparePool($todo,$tracks,$service,$dir,function(array $working) use($gate,$progress): bool { $progress(false,$working); return $gate(); },
+                // While waiting: every three seconds the elapsed time and the tracks in work, and a quick answer to "stop".
+                function(array $working) use($gate,$progress,&$checked): bool {
+                    if(microtime(true)-$checked<1.0) return true;
+                    $checked=microtime(true); $progress(false,$working,3.0); return $gate();
+                });
+        };
         if($todo=$pending()) {
             if($gate()) {
                 Download::ensureSpace($config->storage.'/downloads');
                 $progress(true);
-                $this->preparePool($todo,$tracks,$service,$dir,function(array $working) use($gate,$progress): bool { $progress(false,$working); return $gate(); },
-                    // While waiting: every three seconds the elapsed time and the tracks in work, and a quick answer to "stop".
-                    function(array $working) use($gate,$progress,&$checked): bool {
-                        if(microtime(true)-$checked<1.0) return true;
-                        $checked=microtime(true); $progress(false,$working,3.0); return $gate();
-                    });
+                $this->probeYouTube($service,$folder);
+                $prepare($todo);
+                // A track that failed for a passing reason (the network, a crashed tool) gets one more try.
+                $again=[];
+                foreach(glob($dir.'/*.fail')?:[] as $file) if(in_array(self::failure($file)['reason'],['network','process'],true)) { $again[]=(int)basename($file,'.fail'); @unlink($file); }
+                sort($again);
+                if($again&&!$stopped&&!$denied) $prepare($again);
+                // Each track that is still missing is reported to the administrators' list of recent errors, once.
+                foreach(glob($dir.'/*.fail')?:[] as $file) {
+                    $why=self::failure($file);
+                    try { $store->pushError('batch',$why['reason'],$why['sources']); } catch(Throwable) {}
+                }
             }
         }
         if($denied) {
@@ -371,11 +391,50 @@ final class Worker
         $menus->delivered($menuId,$batch,$ids,count($items),$failed,(int)end($ids));
     }
 
-    /** A quote with the names of the tracks that could not be prepared (at most six), or nothing. */
+    /** What a .fail file says: the reason and the clean list of what each source said (older files hold only the reason). */
+    private static function failure(string $file): array
+    {
+        $raw=trim((string)@file_get_contents($file)); $data=json_decode($raw,true);
+        $reason=is_array($data)?(string)($data['reason']??''):$raw; $sources=is_array($data)?(string)($data['sources']??''):'';
+        return ['reason'=>preg_match('/^[a-z]{2,20}$/D',$reason)?$reason:'process','sources'=>preg_match('/^[a-z]+=[a-z]+(?:, [a-z]+=[a-z]+){0,4}$/D',$sources)?$sources:''];
+    }
+    /** "YouTube: refused the server, SoundCloud: no safe version", or the reason alone. */
+    private function failureText(Bot $bot,array $why): string
+    {
+        $ui=$bot->ui; $say=fn(string $reason)=>$ui->definition('text','batch_reason_'.$reason)?$ui->plain('batch_reason_'.$reason):$ui->plain('batch_reason_process');
+        if($why['sources']==='') return $say($why['reason']);
+        $parts=[];
+        foreach(explode(', ',$why['sources']) as $pair) {
+            [$source,$reason]=explode('=',$pair);
+            $parts[]=($ui->definition('text','batch_source_'.$source)?$ui->plain('batch_source_'.$source):$source).': '.$say($reason);
+        }
+        return implode('، ',$parts);
+    }
+    /**
+     * Before a whole list from Spotify's sources: one light YouTube request when nothing recent says how YouTube treats
+     * this server. A refusal is remembered, so every track goes to SoundCloud first instead of each waiting for the same
+     * refusal; a success fills the cache, so the tracks do not all solve YouTube's challenge at the same moment.
+     */
+    private function probeYouTube(string $service,string $folder): void
+    {
+        if($service!=='spotify'||Spotify::youtubeKnown($this->config)) return;
+        $probe=$folder.'/probe'; @mkdir($probe,0700);
+        try {
+            (new Download($this->config))->probeYouTube($probe,$this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
+            @touch($this->config->storage.'/.youtube-ok');
+        } catch(MediaFailure $e) {
+            if($e->reason==='blocked') { @touch($this->config->storage.'/.youtube-blocked'); @unlink($this->config->storage.'/.youtube-ok'); }
+            error_log('YouTube probe before a batch: reason='.$e->reason);
+        } catch(Throwable $e) { error_log('YouTube probe before a batch failed: '.get_class($e)); }
+        finally { Download::clean($probe); }
+    }
+    /** A quote with the names of the tracks that could not be prepared and why (at most six), or nothing. */
     private function failedBlock(Bot $bot,array $names): string
     {
         if(!$names) return '';
-        $shown=array_slice($names,0,6); $lines=array_map(fn($name)=>'• '.Ui::escape(mb_strlen($name)>60?mb_substr($name,0,59).'…':$name),$shown);
+        $shown=array_slice($names,0,6);
+        $lines=array_map(fn($item)=>is_array($item)?'• <b>'.Ui::escape(mb_strlen($item['name'])>50?mb_substr($item['name'],0,49).'…':$item['name']).'</b> — '.Ui::escape($item['why'])
+            :'• '.Ui::escape(mb_strlen($item)>60?mb_substr($item,0,59).'…':$item),$shown);
         if(count($names)>6) $lines[]='• '.Ui::escape($bot->ui->plainWith('batch_more',['n'=>(string)(count($names)-6)]));
         return "\n<blockquote>".implode("\n",$lines).'</blockquote>';
     }

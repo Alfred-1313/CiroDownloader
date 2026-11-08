@@ -43,7 +43,7 @@ try {
                 if(!isset($healthPid)&&Zero\CookieHealth::dueAt($store)) {
                     $pid=pcntl_fork();
                     if($pid===0) {
-                        try { $health=new Zero\CookieHealth($config,new Zero\Store($config->storage),new Zero\Telegram($config)); $health->keepAlive(); $health->sweep(); exit(0); }
+                        try { Zero\Download::pruneCache($config); $health=new Zero\CookieHealth($config,new Zero\Store($config->storage),new Zero\Telegram($config)); $health->keepAlive(); $health->sweep(); exit(0); }
                         catch(Throwable $e) { error_log('Cookie health pass failed: '.get_class($e)); exit(1); }
                     } elseif($pid>0) $healthPid=$pid;
                 }

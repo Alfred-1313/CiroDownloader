@@ -8,6 +8,8 @@ $mode=json_decode((string)@file_get_contents(FIXTURE_ROOT.'/mode.json'),true)?:[
 if(str_starts_with($target,'ytsearch')) {
     $text=substr($target,(int)strpos($target,':')+1);
     // Pool test: a "Slow" track holds its slot for a while; start and end times show how tracks overlap.
+    // A named flaky track fails once with a network error, then works.
+    if(!empty($mode['flaky'])&&str_contains($text,(string)$mode['flaky'])&&!is_file(FIXTURE_ROOT.'/flaky.done')) { touch(FIXTURE_ROOT.'/flaky.done'); fwrite(STDERR,'ERROR: Unable to download webpage: The read operation timed out'); exit(1); }
     // A named slow track keeps its search busy, so the progress can be seen while it waits.
     if(!empty($mode['slow'])&&str_contains($text,(string)$mode['slow'])) usleep(4500000);
     if(!empty($mode['pool'])) {
@@ -28,6 +30,12 @@ if(in_array('--flat-playlist',$args,true)) {
     if(str_ends_with($path,'/albums')||str_ends_with($path,'/sets')) { echo json_encode(['title'=>'fixture-artist (Albums)','entries'=>[['id'=>'9','url'=>'https://soundcloud.com/fixture-artist/sets/mixtape','title'=>'Mixtape']]]); exit(0); }
     echo json_encode(['title'=>'Fixture Artist (Tracks)','entries'=>[['id'=>'5','url'=>'https://soundcloud.com/fixture-artist/fixture-song','title'=>'Fixture Song'],['id'=>'6','url'=>'https://soundcloud.com/fixture-artist/other-song','title'=>'Other Song']]]);
     exit(0);
+}
+// The probe before a whole list: details of one video, or YouTube's bot check.
+if(in_array('--dump-single-json',$args,true)&&str_contains($target,'youtube.com/watch')) {
+    file_put_contents(FIXTURE_ROOT.'/probe.log','probe'.PHP_EOL,FILE_APPEND);
+    if(($mode['probe']??'ok')==='blocked') { fwrite(STDERR,'ERROR: Sign in to confirm you are not a bot'); exit(1); }
+    echo json_encode(['id'=>'ybNMMK5Q318','title'=>'Probe','duration'=>10]); exit(0);
 }
 $template=$args[array_search('-o',$args,true)+1];
 copy(FIXTURE_ROOT.'/source.m4a',str_replace('%(ext)s','m4a',$template));

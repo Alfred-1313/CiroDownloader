@@ -193,6 +193,21 @@ try {
     $slow=array_values(array_filter($live,fn($call)=>str_contains($call['params']['caption'],'Album Cut Two')));
     menuCheck($job['status']==='done'&&$slow&&preg_match('/⏱ \d{2}:\d{2}/u',end($slow)['params']['caption'])===1&&str_contains((string)end($slow)['params']['reply_markup'],'mb:'.$job['id']),'while a slow track is prepared, the status shows the elapsed time and the track in work, with the stop button');
     file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
+    // Before a whole list, one probe tells whether YouTube refuses this server; a refusal sends every track to SoundCloud first.
+    $flags=[$config->storage.'/.youtube-ok',$config->storage.'/.youtube-blocked']; foreach($flags as $flag) @unlink($flag); @unlink($temp.'/probe.log');
+    file_put_contents($mode,json_encode(['probe'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,'');
+    $tap('mm:'.$id.':a:each',12); $job=$run('media');
+    $searchOrder=array_values(array_filter(array_map(fn($args)=>end($args),$yt()),fn($target)=>preg_match('/^(?:yt|sc)search/',$target)));
+    menuCheck($job['status']==='done'&&count(file($temp.'/probe.log'))===1&&str_starts_with($searchOrder[0],'scsearch')&&count($called('sendAudio'))===3,'a refusing probe sends the tracks to SoundCloud first, and YouTube still gets the ones SoundCloud does not have');
+    menuCheck(!is_file($flags[1])&&is_file($flags[0]),'a YouTube download that works afterwards forgets the refusal');
+    $tap('mm:'.$id.':r',12,$anchor($id)); file_put_contents($mode,'{}'); $tap('mm:'.$id.':a:each',12); $run('media');
+    menuCheck(count(file($temp.'/probe.log'))===1,'while YouTube\'s state is known, the next list runs without a probe');
+    $tap('mm:'.$id.':r',12,$anchor($id));
+    // A track that failed for a passing reason gets one more try.
+    @unlink($temp.'/flaky.done'); file_put_contents($mode,json_encode(['flaky'=>'Album Cut Two'])); file_put_contents($log,'');
+    $tap('mm:'.$id.':a:each',12); $job=$run('media');
+    menuCheck($job['status']==='done'&&is_file($temp.'/flaky.done')&&count($called('sendAudio'))===3&&!glob($config->storage.'/music-batches/*/*.fail'),'a track that failed with a network error is tried again and arrives');
+    file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
 
     // A single needs no "download all".
     $fresh(); $send('https://open.spotify.com/artist/'.$artistId,14); $run('inspect');
@@ -205,7 +220,10 @@ try {
     $media=array_map(fn($call)=>$call['params'],$called('sendAudio')); $lastCaption=(string)(end($media)['caption']??'');
     $notes=array_values(array_filter(array_merge($called('editMessageCaption'),$called('editMessageText')),fn($call)=>str_contains((string)($call['params']['caption']??$call['params']['text']??''),'Missing Song')));
     menuCheck($job['status']==='done'&&count($media)===3&&str_contains($lastCaption,'• Album Cut Three')&&!str_contains($lastCaption,'Missing Song')&&!str_contains($lastCaption,'⚠️'),'the found tracks are sent together and the missing one is not in the caption');
-    menuCheck($notes&&str_contains((string)($notes[0]['params']['caption']??$notes[0]['params']['text']),'• Missing Song')&&str_contains((string)($notes[0]['params']['caption']??$notes[0]['params']['text']),'<blockquote>'),'the status message names the track that could not be found, in a quote');
+    $note=(string)($notes[0]['params']['caption']??$notes[0]['params']['text']);
+    menuCheck($notes&&str_contains($note,'• <b>Missing Song</b> — یوتیوب: نسخهٔ مطمئنی نداشت، ساوندکلاود: نسخهٔ مطمئنی نداشت')&&str_contains($note,'<blockquote>'),'the status message names the track that could not be found and why, per source, in a quote');
+    $recent=json_decode($store->get('recent_errors','[]'),true);
+    menuCheck($recent&&$recent[0]['s']==='batch'&&$recent[0]['r']==='format'&&$recent[0]['c']==='youtube=format, soundcloud=format','the missing track is in the administrators\' list of recent errors with what each source said');
     $fresh(); $send('https://open.spotify.com/album/'.$albumId,13); $run('inspect'); $album=$lastMenu();
     menuCheck($album['photo']==='https://image-cdn-fa.spotifycdn.com/image/album-'.$albumId&&!array_filter($album['data'],fn($value)=>str_contains($value,':t:'))&&in_array('mm:'.(int)$store->query('SELECT id FROM music_menus')->fetchColumn().':a:zip',$album['data'],true),'an album page opens with its cover, its tracks and "download all"');
 

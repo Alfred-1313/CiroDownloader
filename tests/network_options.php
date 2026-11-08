@@ -24,10 +24,25 @@ try {
     loadConfig([],$temp);
     // Music: how many tracks of an album are prepared at once.
     putenv('MUSIC_PARALLEL');
-    netCheck(loadConfig([],$temp)->musicParallel===6,'whole albums prepare six tracks at once by default');
+    netCheck(loadConfig([],$temp)->musicParallel===Zero\Config::musicSlots(Zero\Config::cgroupCpus(),Zero\Config::cgroupMemory()),'without MUSIC_PARALLEL the number follows the container');
+    // The container of compose.yaml (1 CPU, 768 MB) prepares three at once; a bigger server up to six, a tiny one two.
+    $cg=$temp.'/cgroup'; mkdir($cg); file_put_contents($cg.'/cpu.max','100000 100000'); file_put_contents($cg.'/memory.max',(string)(768*1048576));
+    netCheck(Zero\Config::cgroupCpus($cg)===1.0&&Zero\Config::cgroupMemory($cg)===768*1048576&&Zero\Config::musicSlots(1.0,768*1048576)===3,'a 1 CPU, 768 MB container prepares three tracks at once');
+    file_put_contents($cg.'/cpu.max','max 100000'); file_put_contents($cg.'/memory.max','max');
+    netCheck(Zero\Config::cgroupCpus($cg)===null&&Zero\Config::cgroupMemory($cg)===null&&Zero\Config::musicSlots(4.0,null)===6&&Zero\Config::musicSlots(0.5,512*1048576)===2,'no limit means the CPUs decide, at most six; a tiny server still gets two');
+    mkdir($cg.'/v1/cpu',0700,true); mkdir($cg.'/v1/memory'); file_put_contents($cg.'/v1/cpu/cpu.cfs_quota_us','200000'); file_put_contents($cg.'/v1/cpu/cpu.cfs_period_us','100000'); file_put_contents($cg.'/v1/memory/memory.limit_in_bytes',(string)(2048*1048576));
+    netCheck(Zero\Config::cgroupCpus($cg.'/v1')===2.0&&Zero\Config::cgroupMemory($cg.'/v1')===2048*1048576,'older cgroup files are read too');
     putenv('MUSIC_PARALLEL=3'); netCheck(loadConfig([],$temp)->musicParallel===3,'MUSIC_PARALLEL sets how many');
     $bad=0; foreach(['0','9','x','2.5'] as $value) { putenv('MUSIC_PARALLEL='.$value); try { loadConfig([],$temp); } catch(RuntimeException) { $bad++; } }
     putenv('MUSIC_PARALLEL'); netCheck($bad===4,'MUSIC_PARALLEL outside 1 to 8 is refused');
+
+    // yt-dlp keeps its cache in storage (the image is read-only), and old entries are removed.
+    $cacheConfig=new Zero\Config('123:fixture',[42],$temp.'/cache-store'); mkdir($temp.'/cache-store',0700);
+    $base=(new ReflectionMethod(Zero\Download::class,'base'))->invoke(new Zero\Download($cacheConfig));
+    netCheck(in_array('--cache-dir',$base,true)&&$base[array_search('--cache-dir',$base,true)+1]===$temp.'/cache-store/yt-cache'&&!in_array('--no-cache-dir',$base,true)&&(fileperms($temp.'/cache-store/yt-cache')&0777)===0700,'yt-dlp keeps a private cache in storage');
+    mkdir($temp.'/cache-store/yt-cache/youtube-nsig'); file_put_contents($temp.'/cache-store/yt-cache/youtube-nsig/old.json','{}'); touch($temp.'/cache-store/yt-cache/youtube-nsig/old.json',time()-8*86400); file_put_contents($temp.'/cache-store/yt-cache/youtube-nsig/new.json','{}');
+    Zero\Download::pruneCache($cacheConfig);
+    netCheck(!is_file($temp.'/cache-store/yt-cache/youtube-nsig/old.json')&&is_file($temp.'/cache-store/yt-cache/youtube-nsig/new.json'),'cache entries older than a week are removed');
 
     // YouTube: the provider is only passed to yt-dlp when configured.
     $trace=$temp.'/yt-args'; $stub=$temp.'/yt';

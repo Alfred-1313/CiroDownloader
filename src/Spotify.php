@@ -49,6 +49,12 @@ final class Spotify
     /** How long (seconds) YouTube is asked second after it refused the server. */
     public const REFUSED_SECONDS=900;
     /** True while YouTube's last answer to this server was its bot check (shared by every worker process through a file). */
+    /** True when YouTube's state was learned in the last minutes (refused, or a download worked), so no probe is needed. */
+    public static function youtubeKnown(Config $config): bool
+    {
+        $ok=$config->storage.'/.youtube-ok'; clearstatcache(true,$ok);
+        return self::youtubeRefused($config)||(is_file($ok)&&time()-(int)filemtime($ok)<self::REFUSED_SECONDS);
+    }
     public static function youtubeRefused(Config $config): bool
     {
         $flag=$config->storage.'/.youtube-blocked'; clearstatcache(true,$flag);
@@ -60,6 +66,29 @@ final class Spotify
         $text=mb_strtolower($text);
         if($dropBrackets) $text=preg_replace('/[\(\[\{].*?[\)\]\}]/u',' ',$text)??$text;
         return trim(preg_replace('/[^\p{L}\p{N}]+/u',' ',$text)??$text);
+    }
+    /**
+     * The consonants of a name, the same for its Latin spellings and its Persian script: "Ahle Naa Ahli", "Ahle Na Ahli"
+     * and «اهل نا اهلی» all become "hlnhl". Vowels, y/w/v and doubled letters are dropped and sh/kh/gh/ch/zh, q and the
+     * Persian letters map to one form each, because Persian names are written in many ways on these sites.
+     */
+    public static function skeleton(string $text): string
+    {
+        $text=mb_strtolower($text);
+        $text=strtr($text,['ب'=>'b','پ'=>'p','ت'=>'t','ث'=>'s','ج'=>'j','چ'=>'c','ح'=>'h','خ'=>'x','د'=>'d','ذ'=>'z','ر'=>'r','ز'=>'z','ژ'=>'Z','س'=>'s','ش'=>'S','ص'=>'s','ض'=>'z',
+            'ط'=>'t','ظ'=>'z','غ'=>'q','ف'=>'f','ق'=>'q','ک'=>'k','ك'=>'k','گ'=>'g','ل'=>'l','م'=>'m','ن'=>'n','ه'=>'h','ة'=>'h','۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9']);
+        $text=strtr($text,['sh'=>'S','kh'=>'x','gh'=>'q','ch'=>'c','zh'=>'Z','ph'=>'f','ck'=>'k','th'=>'t']);
+        // Vowels in both scripts, and the letters that are vowels in one spelling and consonants in another.
+        $text=preg_replace('/[aeiouyvw\x{0627}\x{0622}\x{0623}\x{0625}\x{0621}\x{0626}\x{0624}\x{06CC}\x{064A}\x{0648}\x{0639}]|[^\p{L}\p{N}]/u','',$text)??'';
+        return preg_replace('/(.)\1+/u','$1',$text)??$text;
+    }
+    /** Whether $needle shows in $haystack, as written or by its consonants (long enough to mean something). */
+    private static function shows(string $needle,string $haystack,int $least): bool
+    {
+        if($needle==='') return false;
+        if(str_contains(self::normalize($haystack),self::normalize($needle))) return true;
+        $bones=self::skeleton(self::normalize($needle));
+        return mb_strlen($bones)>=$least&&str_contains(self::skeleton(self::normalize($haystack,false)),$bones);
     }
     /**
      * How well a YouTube result matches the track: its length must be close and its title or channel
@@ -76,10 +105,11 @@ final class Spotify
         $raw=(string)($candidate['title']??''); $channelRaw=(string)($candidate['channel']??$candidate['uploader']??'');
         $title=self::normalize($raw); $full=self::normalize($raw,false); $channel=self::normalize($channelRaw);
         $name=self::normalize($meta['title']); $artist=self::normalize($meta['artists'][0]);
-        $nameHit=$name!==''&&str_contains($title,$name);
-        $artistHit=$artist!==''&&str_contains($title,$artist);
+        // Written the same, or with the same consonants (another transliteration, or Persian script).
+        $nameHit=$name!==''&&(str_contains($title,$name)||self::shows($meta['title'],$raw,4));
+        $artistHit=$artist!==''&&(str_contains($title,$artist)||self::shows($meta['artists'][0],$raw,3));
         $topic=str_ends_with(mb_strtolower(trim($channelRaw)),'- topic')&&$artist!==''&&str_contains($channel,$artist);
-        $channelHit=$artist!==''&&($channel===$artist||str_contains($channel,$artist));
+        $channelHit=$artist!==''&&($channel===$artist||str_contains($channel,$artist)||self::shows($meta['artists'][0],$channelRaw,3));
         if(!$nameHit&&!$artistHit&&!$channelHit) return -1000;
         if($strict&&!($nameHit&&($artistHit||$channelHit))) return -1000;
         $score=70-6*$difference+($nameHit?30:0)+($artistHit?15:0)+($topic?40:($channelHit?30:0));
@@ -190,13 +220,13 @@ final class Spotify
                 // The search already compared lengths; this guards against a different file being served.
                 if(abs($audio['duration']-$meta['duration'])>30) throw new MediaFailure('format','Downloaded length does not match the track');
                 error_log('Spotify source='.$source);
-                if($source==='youtube'&&is_file($flag)) @unlink($flag);
+                if($source==='youtube') { if(is_file($flag)) @unlink($flag); @touch($this->config->storage.'/.youtube-ok'); }
                 break;
             } catch(MediaFailure $e) {
                 // Too big or no disk space is the same everywhere; anything else may work from another source.
                 if(in_array($e->reason,['size','storage'],true)) throw $e;
                 error_log('Spotify source='.$source.' failed reason='.$e->reason);
-                if($source==='youtube'&&$e->reason==='blocked') @touch($flag);
+                if($source==='youtube'&&$e->reason==='blocked') { @touch($flag); @unlink($this->config->storage.'/.youtube-ok'); }
                 $tried[$source]=$e->reason; $audio=null;
                 foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
                 // Report the most useful cause: a refusal says more than "not found".

@@ -12,8 +12,8 @@ final class Config
     public bool $cookieFallback=false;
     /** Music keeps MP3 and AAC (M4A) sources as they are: faster and smaller. Off converts everything to MP3. */
     public bool $musicCopy=true;
-    /** How many tracks of a whole album are prepared at the same time (MUSIC_PARALLEL, 1 to 8). */
-    public int $musicParallel=6;
+    /** How many tracks of a whole album are prepared at the same time (MUSIC_PARALLEL, 1 to 8; unset: sized to the container). */
+    public int $musicParallel=3;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
     public string $galleryProxy='';
     /** TikTok: prefer H.264 streams so videos are remuxed instead of re-encoded (much faster). */
@@ -75,10 +75,41 @@ final class Config
             getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'',getenv('TIKTOK_COOKIES_FILE')?:'',getenv('TWITTER_COOKIES_FILE')?:'');
         $parallel=getenv('MUSIC_PARALLEL');
         if($parallel!==false&&$parallel!==''&&!preg_match('/^[1-8]$/D',$parallel)) throw new \RuntimeException('MUSIC_PARALLEL must be between 1 and 8');
-        if($parallel!==false&&$parallel!=='') $config->musicParallel=(int)$parallel;
+        $config->musicParallel=$parallel!==false&&$parallel!==''?(int)$parallel:self::musicSlots(self::cgroupCpus(),self::cgroupMemory());
         $config->tiktokPreferH264=(getenv('TIKTOK_PREFER_H264')?:'1')!=='0';
         $config->galleryProxy=$galleryProxy; $config->youtubePotUrl=rtrim($potUrl,'/');
         return $config;
+    }
+
+    /**
+     * Tracks prepared at once when MUSIC_PARALLEL is not set: about three per CPU (most of the time is spent waiting on
+     * the network) and one per 128 MB above a 256 MB base, between 2 and 6. The container of compose.yaml (1 CPU,
+     * 768 MB) gets 3; six processes there fight for the one CPU and the memory and every track gets slower.
+     */
+    public static function musicSlots(?float $cpus,?int $memory): int
+    {
+        $cpus??=(float)max(1,(int)(@shell_exec('nproc 2>/dev/null')?:1));
+        $byCpu=(int)floor($cpus*3);
+        $byMemory=$memory!==null?(int)floor(($memory/1048576-256)/128):6;
+        return max(2,min(6,$byCpu,$byMemory));
+    }
+    /** The CPU quota of this container (cgroup v2, then v1), or null when there is none. */
+    public static function cgroupCpus(string $root='/sys/fs/cgroup'): ?float
+    {
+        $max=@file_get_contents($root.'/cpu.max');
+        if(is_string($max)&&preg_match('/^(\d+)\s+(\d+)/',trim($max),$m)&&(int)$m[2]>0) return max(0.1,(int)$m[1]/(int)$m[2]);
+        $quota=@file_get_contents($root.'/cpu/cpu.cfs_quota_us'); $period=@file_get_contents($root.'/cpu/cpu.cfs_period_us');
+        if(is_string($quota)&&is_string($period)&&(int)$quota>0&&(int)$period>0) return max(0.1,(int)$quota/(int)$period);
+        return null;
+    }
+    /** The memory limit of this container in bytes (cgroup v2, then v1), or null when there is none. */
+    public static function cgroupMemory(string $root='/sys/fs/cgroup'): ?int
+    {
+        foreach([$root.'/memory.max',$root.'/memory/memory.limit_in_bytes'] as $file) {
+            $value=trim((string)@file_get_contents($file));
+            if(preg_match('/^\d+$/D',$value)&&(int)$value>0&&(int)$value<(1<<50)) return (int)$value;
+        }
+        return null;
     }
 
     public function cookiePath(): string { return $this->youtubeCookies!==''?$this->youtubeCookies:$this->storage.'/youtube-cookies.txt'; }

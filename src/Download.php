@@ -151,6 +151,17 @@ final class Download
         throw $failure??new MediaFailure('process','YouTube download did not start');
     }
     /**
+     * One light YouTube request through the usual cookie order, before a whole album is prepared: it fills the cache
+     * once (instead of every track solving the same challenge at the same time) and tells whether YouTube refuses this
+     * server right now. Throws MediaFailure like any YouTube request.
+     */
+    public function probeYouTube(string $folder,string $url): void
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        $this->youtube($canonical,['--skip-download','--dump-single-json','--no-warnings'],$folder,min(90,$this->config->timeout));
+    }
+    /**
      * One light request with one jar, so YouTube's rotated session cookies are saved even on days nobody downloads.
      * Throws MediaFailure when the request fails; the reason says whether the cookie itself or the server is at fault.
      */
@@ -172,8 +183,13 @@ final class Download
     }
     private function base(): array
     {
+        // A private cache in storage (the image itself is read-only) keeps YouTube's player code and solved challenges, so
+        // every call does not download the player again and run its JavaScript challenge through node, which is slow on
+        // a small server and slower still when several tracks are prepared at once.
+        $cache=$this->config->storage.'/yt-cache';
+        if(!is_dir($cache)) @mkdir($cache,0700,true);
         return [$this->config->ytDlp,'--ignore-config','--no-playlist','--no-progress','--quiet',
-            '--no-cache-dir','--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
+            ...(is_dir($cache)&&is_writable($cache)?['--cache-dir',$cache]:['--no-cache-dir']),'--js-runtimes','node','--socket-timeout','20','--retries','2','--fragment-retries','2',
         ];
     }
     public static function qualityOptions(array $info): array
@@ -487,6 +503,18 @@ final class Download
     {
         $probe=$this->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$file],$folder,30);
         return json_decode($probe,true,512,JSON_THROW_ON_ERROR);
+    }
+    /** Old entries of yt-dlp's cache (player code of past YouTube versions) are removed; the cache rebuilds itself. */
+    public static function pruneCache(Config $config,int $days=7): void
+    {
+        $root=$config->storage.'/yt-cache';
+        if(!is_dir($root)) return;
+        $files=new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root,\FilesystemIterator::SKIP_DOTS),\RecursiveIteratorIterator::CHILD_FIRST);
+        foreach($files as $file) {
+            if($file->isLink()) { @unlink($file->getPathname()); continue; }
+            if($file->isFile()&&$file->getMTime()<time()-$days*86400) @unlink($file->getPathname());
+            elseif($file->isDir()) @rmdir($file->getPathname());
+        }
     }
     public static function clean(string $folder): void
     {

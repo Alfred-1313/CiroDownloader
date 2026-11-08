@@ -29,7 +29,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'music'=>[...musicServices(),'menu'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'music'=>[...musicServices(),'menu','batch'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -204,9 +204,12 @@ final class Personalization
         ];
         foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
         $screens['menu']=array_merge(array_map(fn($key)=>['text','menu_'.$key],['queued','loading','head','info','limited','empty','failed','expired','owner','sent','again','untitled']),
-            array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','more','failed','stopping']),
             array_map(fn($key)=>['button','menu_tab_'.$key],['popular','albums','singles','eps','compilations','playlists','related','tracks','sets','reposts','likes']),
-            array_map(fn($key)=>['button','menu_'.$key],['track','album','playlist','artist','all','zip','prev','next','back','close','page']),[['button','batch_stop'],['button','batch_resume'],['button','batch_back']]);
+            array_map(fn($key)=>['button','menu_'.$key],['track','album','playlist','artist','all','zip','prev','next','back','close','page']));
+        // "Download all" has its own screen: progress, why a track failed, the captions and its buttons.
+        $screens['batch']=array_merge(array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','more','failed','stopping',
+                'source_youtube','source_soundcloud','source_original','reason_blocked','reason_format','reason_network','reason_cookies','reason_size','reason_storage','reason_restricted','reason_duration','reason_process']),
+            [['button','batch_stop'],['button','batch_resume'],['button','batch_back']]);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
@@ -272,7 +275,7 @@ final class Personalization
         if($page+1<$pages) $navigation[]=$ui->button('next',$this->sectionAddress($section,$page+1));
         if($navigation) $rows[]=$navigation;
         $rows[]=[$ui->button('back_custom','custom:home'),$ui->button('close','custom:close')];
-        $text=$section==='menu'?$ui->text('menu_section_info'):(in_array($section,musicServices(),true)?$ui->text($section.'_section_info'):(in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]))));
+        $text=$section==='menu'?$ui->text('menu_section_info'):($section==='batch'?$ui->text('batch_section_info'):(in_array($section,musicServices(),true)?$ui->text($section.'_section_info'):(in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)])))));
         $this->send($chat,$text,$rows,$message);
     }
     private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void

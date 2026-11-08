@@ -219,6 +219,12 @@ try {
     spotifyCheck(str_contains($report,'youtube=blocked, soundcloud=format')&&str_contains($report,'ساوندکلاود هم نسخهٔ مطمئنی'),'the administrator\'s health report shows the reason and what the user was told');
     file_put_contents($mode,'{}');
     // Strict matching and the social-media proxy.
+    // Persian names are written in many ways: the same consonants match across spellings and scripts.
+    $persian=['title'=>'Ahle Naa Ahli','artists'=>['Shayea'],'duration'=>200,'year'=>'','cover'=>''];
+    spotifyCheck(Zero\Spotify::skeleton('Ahle Naa Ahli')===Zero\Spotify::skeleton('اهل نا اهلی')&&Zero\Spotify::skeleton('Maghroor')===Zero\Spotify::skeleton('مغرور')&&Zero\Spotify::skeleton('Ehtiaj Daram')===Zero\Spotify::skeleton('Ehtiyaj Daram'),'transliterations and Persian script share one skeleton');
+    spotifyCheck(Zero\Spotify::score($persian,['id'=>'aaaaaaaaaaa','title'=>'شایع - اهل نا اهلی','duration'=>200.0,'channel'=>'Random'])>=0&&Zero\Spotify::score($persian,['id'=>'aaaaaaaaaaa','title'=>'Shayea - Ahle Na Ahli','duration'=>201.0,'channel'=>'x'])>=0,'a title in Persian script or another spelling is recognised as the track');
+    spotifyCheck(count(Zero\Spotify::ranked($persian,[['id'=>'111','title'=>'Shayea Ahle Na Ahli','duration'=>200.0,'channel'=>'Shayea']],true))===1&&!Zero\Spotify::ranked($persian,[['id'=>'111','title'=>'اهل نا اهلی','duration'=>200.0,'channel'=>'Somebody']],true),'on SoundCloud the other spelling counts with the artist, and a title alone from an unrelated account still does not');
+    spotifyCheck(Zero\Spotify::score($persian,['id'=>'aaaaaaaaaaa','title'=>'Totally Different Song','duration'=>200.0,'channel'=>'Random'])<0&&Zero\Spotify::skeleton('Na')==='n','a different title is still refused, and very short names do not match by consonants');
     $strictMeta=['title'=>'Fixture Song','artists'=>['Fixture Artist'],'duration'=>12,'year'=>'','cover'=>''];
     $nameOnly=['id'=>'222000222','title'=>'Fixture Song','duration'=>12.0,'channel'=>'Random Upload'];
     $cover=['id'=>'555000555','title'=>'Fixture Artist - Fixture Song (Dylan Cover)','duration'=>12.0,'channel'=>'Cover Band']; $longer=['id'=>'777000777','title'=>'Fixture Artist - Fixture Song','duration'=>19.0,'channel'=>'Long Edit'];
