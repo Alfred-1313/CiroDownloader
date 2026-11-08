@@ -4,7 +4,7 @@ namespace Zero;
 
 final class Cookies
 {
-    public const REPLIES=['cookies','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_mode','cookie_guide','cookie_alerts'];
+    public const REPLIES=['cookies','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_mode','cookie_guide','cookie_alerts','cookie_keepalive'];
     public function __construct(private Bot $bot) {}
     private function keyboard(array $keys): array
     {
@@ -14,7 +14,8 @@ final class Cookies
     {
         $mode=$this->bot->ui->plain($this->bot->store->get('cookies.fallback','0')==='1'?'cookie_mode_fallback':'cookie_mode_always');
         $alerts=$this->bot->ui->plain($this->bot->store->get('cookies.alerts','1')==='1'?'cookie_alerts_on':'cookie_alerts_off');
-        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['mode'=>$mode,'alerts'=>$alerts]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_mode'],['cookie_alerts'],['cookie_guide'],['cookie_back_admin']]));
+        $keepalive=$this->bot->ui->plain($this->bot->store->get('cookies.keepalive','1')==='1'?'cookie_keepalive_on':'cookie_keepalive_off');
+        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['mode'=>$mode,'alerts'=>$alerts,'keepalive'=>$keepalive]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_mode'],['cookie_alerts'],['cookie_keepalive'],['cookie_guide'],['cookie_back_admin']]));
     }
     private function youtube(int $chat,string $notice=''): void
     {
@@ -42,6 +43,10 @@ final class Cookies
         elseif(in_array($action,['cookie_view','cookie_export'],true)) (new CookieJars($this->bot))->view($chat,'yt');
         elseif($action==='cookie_alerts') {
             $this->bot->store->set('cookies.alerts',$this->bot->store->get('cookies.alerts','1')==='1'?'0':'1');
+            $this->services($chat);
+        }
+        elseif($action==='cookie_keepalive') {
+            $this->bot->store->set('cookies.keepalive',$this->bot->store->get('cookies.keepalive','1')==='1'?'0':'1');
             $this->services($chat);
         }
         elseif($action==='cookie_guide') $this->bot->send($chat,$this->bot->text('cookie_guide'));

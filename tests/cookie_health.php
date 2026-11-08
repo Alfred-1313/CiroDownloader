@@ -141,6 +141,29 @@ try {
         healthCheck(str_contains($text,$result==='ok'?'کار می‌کند':$needle)&&($state==='fail'?$failedNow:!$failedNow),'a live YouTube test reports '.($result==='ok'?'success':$result));
     }
 
+    // Keep-alive: a YouTube jar nobody used lately makes one light request that saves the rotated cookies.
+    $runLog=$temp.'/probe-log'; file_put_contents($probe,"#!/usr/bin/env php\n<?php\n\$m=file_get_contents(".var_export($mode,true).");file_put_contents(".var_export($runLog,true).",json_encode(array_slice(\$argv,1)).PHP_EOL,FILE_APPEND);if(\$m!==\"ok\"){fwrite(STDERR,\$m);exit(1);}".
+        "\$c=\$argv[array_search('--cookies',\$argv,true)+1];file_put_contents(\$c,str_replace('YT','ROTATED',file_get_contents(\$c)));echo ".var_export(json_encode(['title'=>'P','formats'=>[['format_id'=>'18','vcodec'=>'avc1','acodec'=>'aac']]]),true).";");
+    $yt->markFailed($yt->jars()[0]['id']); $yt->markWorking($yt->jars()[0]['id']); file_put_contents($mode,'ok'); file_put_contents($runLog,'');
+    $health=new Zero\CookieHealth($config,$store,$api); $id=$yt->jars()[0]['id']; $now=time();
+    healthCheck($health->keepAlive($now)===0&&file_get_contents($runLog)==='','a jar that worked within twelve hours is left alone');
+    $yt->markWorking($id); $state=$temp.'/ka'; $health=new Zero\CookieHealth($config,$store,$api);
+    healthCheck($health->keepAlive($now+13*3600)===1,'a jar idle for twelve hours gets one request');
+    $runs=array_map(fn($line)=>json_decode($line,true),file($runLog,FILE_IGNORE_NEW_LINES));
+    healthCheck(count($runs)===1&&in_array('--skip-download',$runs[0],true)&&count(array_keys($runs[0],'--cookies',true))===1,'it is one metadata request with that jar only');
+    healthCheck(str_contains((string)file_get_contents($yt->jars()[0]['path']),'ROTATED'),'the cookies YouTube rotated are saved back');
+    healthCheck($health->keepAlive($now+14*3600)===0,'it does not repeat within twelve hours');
+    file_put_contents($mode,'cookies are no longer valid'); $yt->markWorking($id);
+    healthCheck($health->keepAlive($now+40*3600)===0&&$yt->describe()[0]['failed'],'a cookie YouTube refuses is marked failed, so the usual alert follows');
+    file_put_contents($mode,'Sign in to confirm you are not a bot'); $yt->markWorking($id);
+    healthCheck($health->keepAlive($now+80*3600)===0&&!$yt->describe()[0]['failed'],'a bot check may be the server\'s address, so the cookie is not blamed');
+    $store->set('cookies.keepalive','0'); file_put_contents($runLog,'');
+    healthCheck($health->keepAlive($now+200*3600)===0&&file_get_contents($runLog)==='','the switch turns it off');
+    $store->set('cookies.keepalive','1');
+    $before=$store->get('cookies.keepalive'); $send($bot->label('cookies')); $send($bot->label('cookie_keepalive'));
+    healthCheck($store->get('cookies.keepalive')!==$before&&str_contains($api->last('sendMessage')['text'],'نگه‌دارندهٔ کوکی'),'the keep-alive switch flips and the menu shows its state');
+    $send($bot->label('cookie_keepalive'),7); healthCheck($store->get('cookies.keepalive')==='0','ordinary users cannot flip it');
+    $store->set('cookies.keepalive','1');
     $before=$store->get('cookies.alerts'); $send($bot->label('cookies')); $send($bot->label('cookie_alerts'));
     healthCheck($store->get('cookies.alerts')!==$before&&str_contains($api->last('sendMessage')['text'],'هشدار کوکی'),'the alerts switch flips and the menu shows its state');
     $send($bot->label('cookie_alerts'),7); $state=$store->get('cookies.alerts'); $send($bot->label('cookie_alerts'),7);

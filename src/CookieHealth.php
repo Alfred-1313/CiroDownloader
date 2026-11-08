@@ -10,10 +10,11 @@ namespace Zero;
  */
 final class CookieHealth
 {
-    public const EXPIRING_SECONDS=259200, INTERVAL=21600;
+    public const EXPIRING_SECONDS=259200, INTERVAL=21600, KEEPALIVE_SECONDS=43200;
     private Ui $ui;
     public function __construct(private Config $config,private Store $store,private Api $api) { $this->ui=new Ui($store); }
     public function alertsEnabled(): bool { return $this->store->get('cookies.alerts','1')==='1'; }
+    public function keepAliveEnabled(): bool { return $this->store->get('cookies.keepalive','1')==='1'; }
     /** @return array<string,CookiePool> */
     public function pools(): array
     {
@@ -80,6 +81,35 @@ final class CookieHealth
             }
         }
         return $sent;
+    }
+    /**
+     * YouTube rotates its session cookies every few hours and the downloader saves the new ones after each use, so a jar
+     * nobody used for a while is the one that dies. Every twelve hours each YouTube jar that has not worked since then
+     * makes one light request; a refusal because of the cookie itself is reported like any other failure.
+     * @return int jars that were kept alive
+     */
+    public function keepAlive(?int $now=null): int
+    {
+        if(!$this->keepAliveEnabled()) return 0;
+        $now??=time(); $done=0; $pool=youtubeCookiePool($this->config);
+        $url=$this->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318');
+        foreach($pool->describe() as $jar) {
+            if($jar['ok']!==null&&$now-(int)$jar['ok']<self::KEEPALIVE_SECONDS) continue;
+            if($now-$pool->warned('ka:'.$jar['id'])<self::KEEPALIVE_SECONDS) continue;
+            $pool->markWarned('ka:'.$jar['id'],$now);
+            $folder=$this->config->storage.'/.keepalive-'.bin2hex(random_bytes(6));
+            if(!mkdir($folder,0700)) continue;
+            try {
+                (new Download($this->config))->keepAlive($folder,['id'=>$jar['id'],'path'=>$jar['path']],$url);
+                $pool->markWorking($jar['id']); $done++;
+            } catch(MediaFailure $e) {
+                // A refusal of the cookie is the cookie's fault; "blocked" may be the server's address, so it proves nothing.
+                if($e->reason==='cookies') $pool->markFailed($jar['id']);
+                error_log('YouTube cookie keep-alive: jar='.$jar['id'].' reason='.$e->reason);
+            } catch(\Throwable $e) { error_log('YouTube cookie keep-alive failed: '.get_class($e)); }
+            finally { Download::clean($folder); }
+        }
+        return $done;
     }
     /** For the worker loop: true at most once per interval. Static so it costs no objects between passes. */
     public static function dueAt(Store $store,?int $now=null): bool

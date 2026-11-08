@@ -61,7 +61,7 @@ try {
         foreach(['ui_html_version'=>'1','text.video_caption'=>"<b>🎬 ویدیوی شما آماده است</b>\n\n<blockquote>{title}</blockquote>\nکیفیت: <b>{quality}</b>\n{url}"] as $key=>$value) $database->prepare('INSERT INTO settings VALUES(?,?)')->execute([$key,$value]);
         $database=null;
     }
-    $store=new Zero\Store($storage); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
+    $store=new Zero\Store($storage); $store->set("cookies.keepalive","0"); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
     if(!$legacy) {
         $store->set('text.video_caption','<b>{title}</b> — {quality} <blockquote>{duration}</blockquote> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
         $store->set('text.audio_caption','<blockquote><b>{title}</b> {duration}</blockquote> {format} <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');

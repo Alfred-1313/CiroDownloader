@@ -150,6 +150,18 @@ final class Download
         }
         throw $failure??new MediaFailure('process','YouTube download did not start');
     }
+    /**
+     * One light request with one jar, so YouTube's rotated session cookies are saved even on days nobody downloads.
+     * Throws MediaFailure when the request fails; the reason says whether the cookie itself or the server is at fault.
+     */
+    public function keepAlive(string $folder,array $jar,string $url): void
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        $access=$this->access($folder,$jar);
+        $this->run(array_merge($this->base(),['--skip-download','--dump-single-json','--no-warnings'],$access['args'],['--',$canonical]),$folder,min(120,$this->config->timeout));
+        $this->refresh($access);
+    }
     private function refresh(array $access): void
     {
         $snapshot=$access['snapshot'];

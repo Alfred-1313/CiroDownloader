@@ -45,7 +45,7 @@ try {
     waitParallel(function() use($address) { $connection=@stream_socket_client('tcp://'.$address,$errno,$error,0.05); if(!$connection) return false; fclose($connection); return true; },'concurrent local API starts');
     $config=new Zero\Config('123:fixture',[42],$storage,'http://'.$address,49000000,$stub);
     if(!$anonymous) Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_COOKIE\n");
-    $store=new Zero\Store($storage); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
+    $store=new Zero\Store($storage); $store->set("cookies.keepalive","0"); $bot=new Zero\Bot($config,$store,new Zero\Telegram($config));
     $store->set('text.video_caption','{title}');
     $ids=['firstVideo1','secondVideo','thirdVideo3','fourthVideo','fifthVideo5','sixthVideo6'];
     $link=function(int $i) use($bot,$ids,$chat,$thread): void {

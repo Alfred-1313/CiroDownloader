@@ -60,3 +60,7 @@
 ## Guest cookies
 
 An export taken while **logged out** holds only visitor cookies (`VISITOR_INFO1_LIVE`, `YSC`, `PREF`, `VISITOR_PRIVACY_METADATA`). The bot accepts the format (JSON, Netscape or header string) but marks the import as a guest cookie: such cookies do not get a blocked server past YouTube's "confirm you're not a bot" check. Sign in to the Google account in the browser, open a video, and export again; a useful export contains `SID`, `SAPISID` or `__Secure-3PSID`.
+
+## Keep-alive
+
+YouTube rotates its session cookies every few hours and the downloader saves the new ones after each use, so a jar that nobody used for a while is the one that dies. Every twelve hours, each YouTube jar that has not worked in that time makes **one light request** (details of one public video, no download) so the rotated cookies are saved. A refusal caused by the cookie itself marks the jar failed and raises the usual alert; a "confirm you're not a bot" answer is not blamed on the cookie, because it may be the server's address. Turn it off with **🔄 تغییر نگه‌دارندهٔ کوکی** in the cookie menu (setting `cookies.keepalive`, on by default). It cannot keep a session alive forever: Google ends sessions after a password change, a sign-out, a long idle time or when it sees the cookie used from an unusual place. Creating cookies automatically by logging in is deliberately not offered.
