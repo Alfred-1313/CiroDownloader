@@ -312,24 +312,58 @@ final class Worker
             $meta=json_decode((string)file_get_contents($dir.'/'.$i.'.json'),true);
             $items[]=$meta+['path'=>$dir.'/'.$i.'.'.$meta['extension'],'thumbnail'=>$meta['cover']?$dir.'/'.$i.'.jpg':null,'order'=>$position+1];
         }
-        $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder):$this->sendGroups($job,$bot,$items,$title);
+        $back=[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]];
+        $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder,$failed,$back):$this->sendGroups($job,$bot,$items,$title,$failed,$back);
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
-        $menus->delivered($menuId,$batch,$ids,count($items),$failed);
+        // The last message carries the way back (when Telegram accepted it), so the old menu is no longer needed.
+        $menus->delivered($menuId,$batch,$ids['ids'],count($items),$failed,$ids['marked']?end($ids['ids']):0);
     }
 
-    /** Sends the prepared tracks as media groups of at most ten audios (balanced sizes); one caption per group. @return list<int> message IDs */
-    private function sendGroups(array $job,Bot $bot,array $items,string $title): array
+    /**
+     * The caption of one group: a bold quote with the title, a quote with one "• performer - title" line per track
+     * (as many as fit Telegram's limit, then "and N more") and, on the last group, a note about tracks that were not found.
+     */
+    private function groupCaption(Bot $bot,string $key,array $values,array $items,string $note): string
     {
-        $parts=(int)ceil(count($items)/10); $chunks=array_chunk($items,(int)ceil(count($items)/$parts)); $ids=[];
-        foreach($chunks as $part=>$chunk) {
-            $caption=$bot->ui->fitCaption($bot->text('batch_caption',['title'=>$title,'count'=>(string)count($items),'part'=>(string)($part+1),'parts'=>(string)count($chunks)]));
-            $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'audio',$chunk,$caption));
+        $ui=$bot->ui; $plain=fn(string $html)=>html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        $render=fn(string $tracks)=>$ui->text($key,['tracks'=>$tracks,'note'=>$note]+$values,['tracks','note']);
+        $room=1000-TextFormat::length($plain($render('')));
+        $lines=[];
+        foreach($items as $item) {
+            $name=trim((string)($item['performer']??'')) !== '' ? trim((string)$item['performer']).' - '.$item['title'] : (string)$item['title'];
+            $lines[]='• '.(mb_strlen($name)>64?mb_substr($name,0,63).'…':$name);
         }
-        return $ids;
+        $need=fn(array $list)=>TextFormat::length(implode("\n",$list));
+        if($need($lines)>$room) {
+            $kept=[];
+            foreach($lines as $n=>$line) {
+                $more='• '.$ui->plainWith('batch_more',['n'=>(string)(count($lines)-$n)]);
+                if($need(array_merge($kept,[$line,$more]))>$room) { $kept[]=$more; break; }
+                $kept[]=$line;
+            }
+            $lines=$kept;
+        }
+        return $render(implode("\n",array_map([Ui::class,'escape'],$lines)));
     }
-    /** ZIP files of the prepared tracks, each below the upload limit, sent as groups of documents. @return list<int> */
-    private function sendZips(array $job,Bot $bot,array $items,string $title,string $folder): array
+    private function failedNote(Bot $bot,int $failed): string { return $failed>0?"\n".$bot->text('batch_failed_note',['failed'=>(string)$failed]):''; }
+    /**
+     * Sends the prepared tracks as media groups of at most ten audios (balanced sizes). Every group has one caption on its
+     * last track; the very last message gets the way back. @return array{ids:list<int>,marked:bool}
+     */
+    private function sendGroups(array $job,Bot $bot,array $items,string $title,int $failed,array $back): array
+    {
+        $parts=(int)ceil(count($items)/10); $chunks=array_chunk($items,(int)ceil(count($items)/$parts)); $ids=[]; $marked=false;
+        foreach($chunks as $part=>$chunk) {
+            $last=$part===count($chunks)-1;
+            $caption=$this->groupCaption($bot,'batch_caption',['title'=>$title,'count'=>(string)count($items),'part'=>(string)($part+1),'parts'=>(string)count($chunks)],$chunk,$last?$this->failedNote($bot,$failed):'');
+            $sent=$this->sendMediaGroup($job,$bot,'audio',$chunk,$caption,$last?$back:[]);
+            $ids=array_merge($ids,$sent['ids']); $marked=$sent['marked'];
+        }
+        return ['ids'=>$ids,'marked'=>$marked];
+    }
+    /** ZIP files of the prepared tracks, each below the upload limit, sent as groups of documents. @return array{ids:list<int>,marked:bool} */
+    private function sendZips(array $job,Bot $bot,array $items,string $title,string $folder,int $failed,array $back): array
     {
         $limit=max(262144,$this->config->maxBytes-2097152); $archives=[]; $current=[]; $bytes=0;
         $base=trim(preg_replace('/[\\\\\/:*?"<>|\x00-\x1F]+/u',' ',$title)??'')?:'music';
@@ -349,25 +383,31 @@ final class Worker
         $close();
         $parts=count($archives);
         foreach($archives as $n=>$archive) $archives[$n]['name']=mb_substr($base,0,80).($parts>1?' ('.($n+1).')':'').'.zip';
-        $ids=[]; $chunks=array_chunk($archives,(int)ceil($parts/max(1,(int)ceil($parts/10))));
-        foreach($chunks as $chunk) {
-            $caption=$bot->ui->fitCaption($bot->text('batch_zip_caption',['title'=>$title,'count'=>(string)count($items),'parts'=>(string)$parts]));
-            $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'document',$chunk,$caption));
+        $ids=[]; $marked=false; $chunks=array_chunk($archives,(int)ceil($parts/max(1,(int)ceil($parts/10))));
+        foreach($chunks as $n=>$chunk) {
+            $last=$n===count($chunks)-1;
+            $caption=$this->groupCaption($bot,'batch_zip_caption',['title'=>$title,'count'=>(string)count($items),'parts'=>(string)$parts],$items,$last?$this->failedNote($bot,$failed):'');
+            $sent=$this->sendMediaGroup($job,$bot,'document',$chunk,$caption,$last?$back:[]);
+            $ids=array_merge($ids,$sent['ids']); $marked=$sent['marked'];
         }
         foreach($archives as $archive) @unlink($archive['path']);
-        return $ids;
+        return ['ids'=>$ids,'marked'=>$marked];
     }
-    /** @return list<int> IDs of the messages Telegram created. A single item is sent on its own, since a group needs two. */
-    private function sendMediaGroup(array $job,Bot $bot,string $type,array $items,string $caption): array
+    /**
+     * The caption goes on the last item of a group (so it reads under the whole list). A single item is sent on its own,
+     * since a group needs two. $markup rows are attached to the last message: Telegram takes them on a single message
+     * directly and on a group through an edit. @return array{ids:list<int>,marked:bool}
+     */
+    private function sendMediaGroup(array $job,Bot $bot,string $type,array $items,string $caption,array $markup=[]): array
     {
         $topic=(int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0?['message_thread_id'=>(int)$job['thread_id']]:[];
         if(count($items)===1) {
             $item=$items[0]; $file=new \CURLFile($item['path'],$item['mime']??'application/octet-stream',$item['name']);
-            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML']+$topic;
+            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML']+$topic+($markup?['reply_markup'=>['inline_keyboard'=>$markup]]:[]);
             if($type==='audio') $params+=['audio'=>$file,'title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']]+($item['thumbnail']!==null?['thumbnail'=>new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg')]:[]);
             else $params['document']=$file;
             $result=$this->api->call($type==='audio'?'sendAudio':'sendDocument',$params);
-            return [(int)($result['message_id']??0)];
+            return ['ids'=>[(int)($result['message_id']??0)],'marked'=>$markup!==[]];
         }
         $media=[]; $params=['chat_id'=>(int)$job['chat_id']]+$topic;
         foreach($items as $n=>$item) {
@@ -377,12 +417,18 @@ final class Worker
                 $entry+=['title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']];
                 if($item['thumbnail']!==null) { $params['t'.$n]=new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg'); $entry['thumbnail']='attach://t'.$n; }
             }
-            if($n===0) $entry+=['caption'=>$caption,'parse_mode'=>'HTML'];
+            if($n===count($items)-1) $entry+=['caption'=>$caption,'parse_mode'=>'HTML'];
             $media[]=$entry;
         }
         $params['media']=$media;
         $result=$this->api->call('sendMediaGroup',$params);
-        return array_values(array_filter(array_map(fn($message)=>(int)($message['message_id']??0),is_array($result)?$result:[])));
+        $ids=array_values(array_filter(array_map(fn($message)=>(int)($message['message_id']??0),is_array($result)?$result:[])));
+        $marked=false;
+        if($markup&&$ids) {
+            try { $this->api->call('editMessageReplyMarkup',['chat_id'=>(int)$job['chat_id'],'message_id'=>end($ids),'reply_markup'=>['inline_keyboard'=>$markup]]); $marked=true; }
+            catch(Throwable $e) { error_log('Music batch: the back button could not be attached: '.get_class($e)); }
+        }
+        return ['ids'=>$ids,'marked'=>$marked];
     }
 
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void

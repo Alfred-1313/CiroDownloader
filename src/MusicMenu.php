@@ -358,14 +358,27 @@ final class MusicMenu
         $this->save($menu,$data,json_decode($menu['view'],true));
         $this->show($this->load($id),(int)$menu['chat_id']);
     }
-    /** Worker: everything was sent. The message now only offers the way back, which removes the sent messages. */
-    public function delivered(int $id,array $batch,array $ids,int $count,int $failed): void
+    /**
+     * Worker: everything was sent. When the last sent message carries the way back ($carrier), the old menu message is
+     * deleted and that message becomes the menu's anchor; otherwise the menu message itself turns into a short summary
+     * with the way back.
+     */
+    public function delivered(int $id,array $batch,array $ids,int $count,int $failed,int $carrier=0): void
     {
         if(!($menu=$this->load($id))) return;
-        $data=json_decode($menu['data'],true);
+        $chat=(int)$menu['chat_id']; $data=json_decode($menu['data'],true);
         $data['batch']=['state'=>'done','title'=>(string)$batch['title'],'count'=>$count,'failed'=>$failed,'delivered'=>$ids,'key'=>(string)$batch['key'],'address'=>$data['batch']['address']??''];
+        if($carrier>0) {
+            $data['batch']['carrier']=$carrier; $old=(int)$menu['message_id'];
+            $this->bot->store->query('UPDATE music_menus SET message_id=?,data=? WHERE id=?',[$carrier,json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$id]);
+            if($old>0&&$old!==$carrier) {
+                try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$old]); }
+                catch(\Throwable) { try { $this->bot->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$old,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {} }
+            }
+            return;
+        }
         $this->save($menu,$data,json_decode($menu['view'],true));
-        $this->show($this->load($id),(int)$menu['chat_id']);
+        $this->show($this->load($id),$chat);
     }
     /** "Back to the previous menu": the sent tracks are deleted and the menu is shown again where it was. */
     private function giveBack(array $menu,array $data,int $chat): void
@@ -376,8 +389,22 @@ final class MusicMenu
             catch(\Throwable) { foreach($chunk as $messageId) { try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$messageId]); } catch(\Throwable) {} } }
         }
         self::forgetBatches($this->bot->config,(int)$menu['id']);
+        $anchored=(int)($data['batch']['carrier']??0)>0;
         unset($data['batch']);
-        $this->show($this->save($menu,$data,json_decode($menu['view'],true)),$chat);
+        $menu=$this->save($menu,$data,json_decode($menu['view'],true));
+        if($anchored) $this->recreate($menu,$data,$chat); else $this->show($menu,$chat);
+    }
+    /** The old menu message was deleted when the tracks arrived, so the menu comes back as a new message (a photo when it had one). */
+    private function recreate(array $menu,array $data,int $chat): void
+    {
+        [$text,$rows]=$this->render($menu); $markup=['inline_keyboard'=>$rows];
+        $topic=$chat<0&&(int)$menu['thread_id']>0?['message_thread_id'=>(int)$menu['thread_id']]:[]; $result=null;
+        if(!empty($data['photo'])&&($data['shown']??'')!=='') {
+            try { $result=$this->bot->api->call('sendPhoto',['chat_id'=>$chat,'photo'=>$data['shown'],'caption'=>Ui::fitCaption($text),'parse_mode'=>'HTML','reply_markup'=>$markup]+$topic); }
+            catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $data['photo']=false; $data['shown']=''; }
+        }
+        if(!is_array($result)||empty($result['message_id'])) $result=$this->bot->api->call('sendMessage',['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,'reply_markup'=>$markup]+$topic);
+        $this->bot->store->query('UPDATE music_menus SET message_id=?,data=? WHERE id=?',[(int)($result['message_id']??0),json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$menu['id']]);
     }
     /** Removes the prepared tracks of a menu's batches. */
     public static function forgetBatches(Config $config,int $menu): void
