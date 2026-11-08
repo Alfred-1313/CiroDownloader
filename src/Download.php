@@ -230,6 +230,16 @@ final class Download
         }
         return $result;
     }
+    /** The details of a SoundCloud track even when it has nothing to download (DRM, preview only). */
+    public function soundCloudInfo(string $url,string $folder): array
+    {
+        if(!preg_match('~^https://(?:soundcloud\.com/[A-Za-z0-9_-]{1,64}/[A-Za-z0-9_-]{1,128}|api\.soundcloud\.com/tracks/soundcloud%3Atracks%3A[0-9]{1,20})$~D',$url)) throw new MediaFailure('format','Invalid SoundCloud track address');
+        $json=$this->plain($url,['--dump-single-json','--skip-download','--ignore-no-formats-error'],$folder,min(60,$this->config->timeout));
+        try { $data=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
+        catch(\JsonException) { throw new MediaFailure('format','SoundCloud details are invalid'); }
+        if(!is_array($data)) throw new MediaFailure('format','SoundCloud details are missing');
+        return $data;
+    }
     /** A SoundCloud profile, list or set as yt-dlp's flat listing (no per-track requests), at most $limit entries. */
     public function listSoundCloud(string $url,string $folder,int $limit=40): array
     {

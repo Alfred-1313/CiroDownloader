@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/Music.php';
+require_once __DIR__.'/Spotify.php';
 
 /**
  * A SoundCloud track link becomes an MP3 with the track's own title, artist and cover. Public tracks need
@@ -99,10 +100,30 @@ final class SoundCloud
     public function fetch(string $url,string $folder): array
     {
         $track=$this->resolve($url);
-        $result=(new Download($this->config))->fetchSoundCloudTrack($track,$folder);
-        $meta=self::metadata($result['info']);
-        // A 30 s preview of a longer track is not the track, even if a format slipped through.
-        if($result['audio']['duration']+30<$meta['duration']) throw new MediaFailure('format','Only a preview of the track was available');
+        $runner=new Download($this->config);
+        try {
+            $result=$runner->fetchSoundCloudTrack($track,$folder);
+            $meta=self::metadata($result['info']);
+            // A 30 s preview of a longer track is not the track, even if a format slipped through.
+            if($result['audio']['duration']+30<$meta['duration']) throw new MediaFailure('format','Only a preview of the track was available');
+        } catch(MediaFailure $direct) {
+            if(in_array($direct->reason,['size','storage'],true)) throw $direct;
+            // The file itself cannot be taken here (DRM on an official upload, a preview only, or SoundCloud refused):
+            // read its details and find the same recording on YouTube, exactly as for a Spotify track.
+            foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
+            error_log('SoundCloud direct download failed reason='.$direct->reason.'; trying the same recording on YouTube');
+            try {
+                $info=$runner->soundCloudInfo($track,$folder);
+                $meta=self::metadata($info);
+                $meta['artists']=array_values(array_filter(array_map('trim',explode(',',implode(',',$meta['artists'])))));
+                $media=(new Spotify($this->config))->fromDetails($meta,$folder,['youtube']);
+            } catch(MediaFailure $other) {
+                $reason=in_array($other->reason,['blocked','cookies','network'],true)?$other->reason:$direct->reason;
+                throw new MediaFailure($reason,'SoundCloud audio sources failed [soundcloud='.$direct->reason.', youtube='.$other->reason.']: '.mb_substr($other->getMessage(),0,240));
+            }
+            $page=soundcloudUrl((string)($info['webpage_url']??''));
+            return $media+['page'=>$page!==null&&!str_contains($page,'api.soundcloud.com')?$page:$track];
+        }
         $media=Music::finish($this->config,$result['audio'],$folder,$meta,'soundcloud');
         // The track's own page, for the source button, when it was reached through a bare API address.
         $page=soundcloudUrl((string)($result['info']['webpage_url']??''));

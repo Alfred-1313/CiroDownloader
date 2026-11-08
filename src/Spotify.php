@@ -139,7 +139,8 @@ final class Spotify
      * @param array{title:string,artists:list<string>,duration:int,year:string,cover:string} $meta
      * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} see Music::finish
      */
-    public function fromDetails(array $meta,string $folder): array
+    /** @param list<string> $only the sources to try, in order (SoundCloud tracks that cannot be taken directly use YouTube only) */
+    public function fromDetails(array $meta,string $folder,array $only=['youtube','soundcloud']): array
     {
         $title=trim((string)($meta['title']??'')); $artists=array_values(array_filter((array)($meta['artists']??[]),fn($name)=>is_string($name)&&trim($name)!==''));
         $duration=(int)($meta['duration']??0);
@@ -165,6 +166,7 @@ final class Spotify
                 return self::firstAudio($ranked,fn($match)=>$runner->fetchSoundCloudAudio((string)$match['id'],$folder),$folder);
             },
         ];
+        $sources=array_intersect_key($sources,array_flip($only));
         $audio=null; $failure=null; $tried=[]; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
         foreach($sources as $source=>$find) {
             try {

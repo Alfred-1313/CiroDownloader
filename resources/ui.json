@@ -420,7 +420,7 @@
     "soundcloud_uploading":{"audience":"user","label":"ارسال آهنگ ساوندکلاود","group":"soundcloud","value":"📤 آهنگ آماده شد؛ در حال ارسال به تلگرام…"},
     "soundcloud_caption":{"audience":"user","label":"کپشن آهنگ ساوندکلاود","group":"soundcloud","value":"<b>🎧 {title}</b>\n<blockquote>هنرمند: <b>{artist}</b>\nمدت: <b>{duration}</b></blockquote>","caption":true,"variables":["title","artist","year","duration","url"]},
     "soundcloud_error_cookies":{"audience":"user","label":"خطای دسترسی ساوندکلاود","group":"soundcloud","value":"⚠️ ساوندکلاود دسترسی به این آهنگ را نپذیرفت؛ جزئیات برای مدیر ثبت شد."},
-    "soundcloud_error_blocked":{"audience":"user","label":"خطای دسترسی آهنگ ساوندکلاود","group":"soundcloud","value":"⚠️ ساوندکلاود دسترسی سرور به این آهنگ را نپذیرفت؛ کمی بعد دوباره تلاش کن یا به مدیر خبر بده."},
+    "soundcloud_error_blocked":{"audience":"user","label":"خطای دسترسی آهنگ ساوندکلاود","group":"soundcloud","value":"⚠️ این آهنگ مستقیم از ساوندکلاود دریافت نشد و یوتیوب هم دسترسی سرور را نپذیرفت؛ کمی بعد دوباره تلاش کن یا به مدیر خبر بده."},
     "soundcloud_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال ساوندکلاود","group":"soundcloud","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
     "soundcloud_error_network":{"audience":"user","label":"خطای اتصال ساوندکلاود","group":"soundcloud","value":"⚠️ اتصال به ساوندکلاود برقرار نشد؛ کمی بعد دوباره تلاش کن."},
     "soundcloud_error_size":{"audience":"user","label":"حجم آهنگ ساوندکلاود","group":"soundcloud","value":"⚠️ حجم فایل این آهنگ از سقف ارسال ربات بیشتر است."},
@@ -440,10 +440,17 @@
     "menu_failed":{"audience":"user","label":"خطای منو","group":"menu","value":"⚠️ خواندن این صفحه انجام نشد؛ کمی بعد دوباره امتحان کن."},
     "menu_expired":{"audience":"user","label":"منوی منقضی","group":"menu","value":"این منو منقضی شده است؛ لینک را دوباره بفرست."},
     "menu_owner":{"audience":"user","label":"منوی دیگران","group":"menu","value":"این منو مخصوص فرستندهٔ لینک است."},
-    "menu_sent":{"audience":"user","label":"تأیید ثبت آهنگ","group":"menu","value":"✅ ثبت شد؛ آهنگ در پیام جدا می‌آید."},
+    "menu_sent":{"audience":"user","label":"تأیید ثبت آهنگ","group":"menu","value":"✅ ثبت شد؛ آهنگ به‌زودی ارسال می‌شود."},
     "menu_again":{"audience":"user","label":"آهنگ تکراری","group":"menu","value":"این آهنگ همین الان در راه است."},
-    "menu_section_info":{"audience":"admin","label":"راهنمای بخش منوی آهنگ‌ها","group":"custom","value":"<blockquote><b>🗂 منوی هنرمند و فهرست‌ها</b></blockquote>\n\nوقتی کاربر لینک صفحهٔ هنرمند، آلبوم یا پلی‌لیست اسپاتیفای، یا پروفایل و مجموعهٔ ساوندکلاود را می‌فرستد، یک منو باز می‌شود: بخش‌ها (محبوب‌ها، آلبوم‌ها، سینگل‌ها، EP، پلی‌لیست‌ها، هنرمندان مشابه)، صفحه‌بندی و با یک لمس روی هر آهنگ، همان آهنگ در پیام جدا ارسال می‌شود.\n\nمنو فقط مال فرستندهٔ لینک است و ۲۴ ساعت می‌ماند. فهرست آلبوم‌ها از Deezer خوانده می‌شود؛ هیچ حساب یا کلیدی لازم نیست."},
-    "menu_untitled":{"audience":"user","label":"نام آهنگ بی‌عنوان در منو","group":"menu","value":"آهنگ {n}","variables":["n"]}
+    "menu_section_info":{"audience":"admin","label":"راهنمای بخش منوی آهنگ‌ها","group":"custom","value":"<blockquote><b>🗂 منوی هنرمند و فهرست‌ها</b></blockquote>\n\nلینک صفحهٔ هنرمند، آلبوم یا پلی‌لیست اسپاتیفای، یا پروفایل و مجموعهٔ ساوندکلاود یک منو باز می‌کند: عکس هنرمند، بخش‌ها (محبوب‌ها، آلبوم‌ها، سینگل‌ها، EP، پلی‌لیست‌ها، مشابه)، و با باز کردن آلبوم، کاور همان آلبوم و آهنگ‌هایش در همان پیام می‌آید. دکمهٔ بازگشت قرمز است.\n\nداخل آلبوم، پلی‌لیست یا مجموعه می‌شود همه را یکجا گرفت: یکی‌یکی یا در فایل ZIP (حداکثر ۵۰ آهنگ).\n\nبا کلید زیر، انتخاب آهنگ منو را می‌بندد و همان پیام وضعیت دانلود می‌شود و بعد از ارسال پاک می‌شود. منو فقط مال فرستندهٔ لینک است و ۲۴ ساعت می‌ماند."},
+    "menu_untitled":{"audience":"user","label":"نام آهنگ بی‌عنوان در منو","group":"menu","value":"آهنگ {n}","variables":["n"]},
+    "batch_queued":{"audience":"user","label":"ثبت دانلود همه","group":"menu","value":"⏳ دانلود همهٔ آهنگ‌ها ثبت شد؛ پیشرفت در همین پیام نمایش داده می‌شود."},
+    "batch_progress":{"audience":"user","label":"پیشرفت دانلود همه","group":"menu","value":"<blockquote><b>📥 {title}</b></blockquote>\nدر حال آماده‌سازی آهنگ {done} از {total}…\nناموفق تا اینجا: {failed}","variables":["title","done","total","failed"]},
+    "batch_done":{"audience":"user","label":"نتیجهٔ دانلود همه","group":"menu","value":"<blockquote><b>📥 {title}</b></blockquote>\n✅ {done} از {total} آهنگ ارسال شد؛ {failed} آهنگ پیدا یا دریافت نشد.","variables":["title","done","total","failed"]},
+    "batch_stopped":{"audience":"user","label":"دانلود همهٔ متوقف‌شده","group":"menu","value":"<blockquote><b>⏹ {title}</b></blockquote>\nدانلود متوقف شد؛ {done} از {total} آهنگ ارسال شد.","variables":["title","done","total","failed"]},
+    "batch_zip_caption":{"audience":"user","label":"کپشن فایل ZIP","group":"menu","value":"<b>🗜 {title}</b>\nبخش {part} · {count} آهنگ","caption":true,"variables":["title","count","part"]},
+    "batch_failed":{"audience":"user","label":"خطای دانلود همه","group":"menu","value":"⚠️ دانلود همهٔ آهنگ‌ها انجام نشد؛ جزئیات برای مدیر ثبت شد."},
+    "batch_stopping":{"audience":"user","label":"تأیید توقف","group":"menu","value":"⏹ بعد از آهنگ فعلی متوقف می‌شود."}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},
@@ -679,10 +686,14 @@
     "menu_artist":{"audience":"user","label":"ردیف هنرمند مشابه","group":"menu","value":"👤 {label}","variables":["label"],"required":true},
     "menu_prev":{"audience":"user","label":"دکمهٔ قبلی منو","group":"menu","value":"◀️ قبلی","required":true},
     "menu_next":{"audience":"user","label":"دکمهٔ بعدی منو","group":"menu","value":"بعدی ▶️","required":true},
-    "menu_back":{"audience":"user","label":"دکمهٔ بازگشت منو","group":"menu","value":"↩️ بازگشت","required":true},
+    "menu_back":{"audience":"user","label":"دکمهٔ بازگشت منو","group":"menu","value":"↩️ بازگشت","required":true,"style":"danger"},
     "menu_close":{"audience":"user","label":"دکمهٔ بستن منو","group":"menu","value":"✖️ بستن","required":true},
     "menu_page":{"audience":"user","label":"عنوان شمارهٔ صفحه","group":"menu","value":"صفحه {page} از {pages}","variables":["page","pages"],"required":true},
     "section_menu":{"audience":"admin","label":"🗂 منوی هنرمند","group":"custom","value":"🗂 منوی هنرمند"},
-    "group_menu":{"audience":"admin","label":"منوی هنرمند","group":"custom","value":"منوی هنرمند"}
+    "group_menu":{"audience":"admin","label":"منوی هنرمند","group":"custom","value":"منوی هنرمند"},
+    "menu_all":{"audience":"user","label":"دکمهٔ دانلود همه (تکی)","group":"menu","value":"📥 دانلود همه"},
+    "menu_zip":{"audience":"user","label":"دکمهٔ دانلود همه در ZIP","group":"menu","value":"🗜 همه در ZIP"},
+    "batch_stop":{"audience":"user","label":"دکمهٔ توقف دانلود همه","group":"menu","value":"⏹ توقف","style":"danger","required":true},
+    "menu_close_toggle":{"audience":"admin","label":"روشن و خاموش‌کردن بستن منو پس از انتخاب","group":"custom","value":"بستن منو پس از انتخاب: {state}"}
   }
 }

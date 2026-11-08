@@ -227,13 +227,18 @@ final class Bot
     }
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
     /** @return string what happened: queued, duplicate, busy, full, cooldown, updating or denied */
-    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0,?string $phase=null,array $options=[],bool $menu=false): string
+    /**
+     * @param ?array{message:int,kind:string,poster:string} $adopt an existing message (a music menu) that becomes this
+     *        download's status message instead of a new one, so the menu closes into the download
+     */
+    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0,?string $phase=null,array $options=[],bool $menu=false,?array $adopt=null): string
     {
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return 'denied'; }
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
+            if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
             $service=galleryService($url)??$phase??musicService($url);
             try { $this->jobMessage($job,$this->text($service?$service.'_queued':(collectionUrl($url)!==null?'menu_queued':'queued'))); }
@@ -263,7 +268,7 @@ final class Bot
             $isPage=preg_match('/^(?:ig|pin|tt|x)page:(\d+):([1-9][0-9]?)(?::(\d+))?$/D',$action,$page)===1;
             $pageCounter=$action==='igpage:noop';
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back','update:close'],true);
-            $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1;
+            $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
@@ -285,6 +290,7 @@ final class Bot
                 elseif(in_array($action,['update:back','update:close'],true)) $updater->close($chat,$user,$menu);
                 return;
             }
+            if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }

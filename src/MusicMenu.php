@@ -6,20 +6,24 @@ require_once __DIR__.'/SoundCloud.php';
 
 /**
  * The menu a user gets for an artist, album, playlist or SoundCloud profile: tabs for each kind of list,
- * paged items, and one tap on a track queues it like a pasted link. One message is edited in place;
- * it belongs to the user, chat and topic that asked, and expires after a day.
+ * paged items, and one tap on a track queues it like a pasted link. One message is edited in place: when
+ * there is a picture it is a photo (the artist, then each album's own cover), otherwise text. It belongs to
+ * the user, chat and topic that asked, and expires after a day. A list of tracks can also be fetched whole,
+ * one audio message per track or in ZIP files.
  *
- * Callback data is "mm:ID:OP[:ARG]": t tab, p page, o open item, b back, x close, n title.
+ * Callback data is "mm:ID:OP[:ARG]": t tab, p page, o open item, b back, x close, n title, a all (each|zip).
  */
 final class MusicMenu
 {
-    public const PAGE=8, KEEP=8, TTL=86400, RECENT=120, VIEWS=6;
+    public const PAGE=8, KEEP=8, TTL=86400, RECENT=120, VIEWS=6, BATCH_MAX=50;
     private const TABS=['popular','albums','singles','eps','compilations','playlists','related','tracks','sets','reposts','likes'];
     private const ICONS=['artist'=>'🎤','album'=>'💿','playlist'=>'📻','profile'=>'🎧','set'=>'📻'];
 
     public function __construct(private Bot $bot,private ?MusicCatalog $catalog=null,private ?SoundCloud $soundcloud=null) {}
     private function catalog(): MusicCatalog { return $this->catalog??new MusicCatalog($this->bot->config); }
     private function soundcloud(): SoundCloud { return $this->soundcloud??new SoundCloud($this->bot->config); }
+    /** Whether choosing a track (or a whole list) turns the menu into that download's status message. On by default. */
+    public static function closesOnChoice(Store $store): bool { return $store->get('music.menu_close','1')==='1'; }
 
     /** Worker side: read the page and turn the job's status message into the menu. */
     public function open(array $job,array $collection,string $folder): void
@@ -35,6 +39,7 @@ final class MusicMenu
         $first=$tabs[0]??'tracks';
         if($collection['service']==='soundcloud'&&$collection['kind']==='profile'&&str_contains($collection['id'],'/')) $first=explode('/',$collection['id'])[1];
         $view=['tab'=>isset($data['tabs'][$first])?$first:$tabs[0],'page'=>0,'stack'=>[]];
+        $data['photo']=false; $data['shown']='';
         $store->db->exec('BEGIN IMMEDIATE');
         try {
             $store->query('DELETE FROM music_menus WHERE expires<?',[time()]);
@@ -47,9 +52,12 @@ final class MusicMenu
         } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
         $menu=$store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch();
         [$text,$rows]=$this->render($menu);
-        $bot->jobMessage($job,$text,$rows);
-        $message=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
-        $store->query('UPDATE music_menus SET message_id=? WHERE id=?',[$message,$id]);
+        // A picture makes the menu a photo; Telegram refusing it (a bad address) leaves the text menu.
+        if($data['image']!=='') $bot->jobPoster($job,$data['image'],$text,$rows);
+        else $bot->jobMessage($job,$text,$rows);
+        $saved=$store->query('SELECT message_id,message_kind FROM jobs WHERE id=?',[$job['id']])->fetch();
+        if($saved['message_kind']==='photo') { $data['photo']=true; $data['shown']=$data['image']; }
+        $store->query('UPDATE music_menus SET message_id=?,data=? WHERE id=?',[(int)$saved['message_id'],json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$id]);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
     }
 
@@ -57,10 +65,10 @@ final class MusicMenu
     {
         if($view['stack']) {
             $top=end($view['stack']); $sub=$data['views'][$top['ref']]??['items'=>[],'title'=>'','sub'=>''];
-            return ['items'=>$sub['items'],'title'=>$sub['title'],'sub'=>$sub['sub']??'','tab'=>''];
+            return ['items'=>$sub['items'],'title'=>$sub['title'],'sub'=>$sub['sub']??'','tab'=>'','image'=>$sub['image']??'','url'=>$sub['url']??''];
         }
         $tab=$data['tabs'][$view['tab']]??['items'=>[]];
-        return ['items'=>$tab['items']??[],'title'=>$data['title'],'sub'=>$data['subtitle']??'','tab'=>$view['tab']];
+        return ['items'=>$tab['items']??[],'title'=>$data['title'],'sub'=>$data['subtitle']??'','tab'=>$view['tab'],'image'=>$data['image']??'','url'=>$data['url']??''];
     }
     private function itemLabel(array $item,int $index,bool $withArtist): string
     {
@@ -72,6 +80,8 @@ final class MusicMenu
         } elseif(($item['k']??'')==='a'&&($item['y']??'')!=='') $label.=' · '.$item['y'];
         return mb_strlen($label)>56?mb_substr($label,0,55).'…':$label;
     }
+    /** @return list<array> the tracks of a list that can be fetched whole */
+    private static function tracksOf(array $items): array { return array_values(array_filter($items,fn($item)=>($item['k']??'')==='t')); }
 
     /** @return array{0:string,1:list<list<array>>} message text and keyboard */
     public function render(array $menu): array
@@ -95,6 +105,9 @@ final class MusicMenu
             }
             if($row) $rows[]=$row;
         }
+        // A list of tracks inside an album, playlist or set (or a page that is one) can be fetched whole.
+        $whole=($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1;
+        if($whole) $rows[]=[$ui->button('menu_all','mm:'.$id.':a:each'),$ui->button('menu_zip','mm:'.$id.':a:zip')];
         if($pages>1) $rows[]=[$ui->button('menu_page','mm:'.$id.':n',['page'=>(string)($page+1),'pages'=>(string)$pages])];
         $keys=['t'=>'menu_track','a'=>'menu_album','p'=>'menu_playlist','s'=>'menu_playlist','r'=>'menu_artist'];
         foreach(array_slice($items,$page*self::PAGE,self::PAGE,true) as $index=>$item) {
@@ -130,11 +143,27 @@ final class MusicMenu
         $menu['data']=json_encode($data,JSON_UNESCAPED_UNICODE); $menu['view']=json_encode($view);
         return $menu;
     }
+    /** Shows the current view: a new cover when the list has its own, otherwise only the caption and buttons change. */
     private function show(array $menu,int $chat): void
     {
-        [$text,$rows]=$this->render($menu);
-        try { $this->bot->send($chat,$text,$rows,(int)$menu['message_id']); }
-        catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; $this->bot->store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]); }
+        $api=$this->bot->api; [$text,$rows]=$this->render($menu);
+        $data=json_decode($menu['data'],true); $view=json_decode($menu['view'],true);
+        try {
+            if(empty($data['photo'])) { $this->bot->send($chat,$text,$rows,(int)$menu['message_id']); return; }
+            $markup=['inline_keyboard'=>$rows]; $caption=Ui::fitCaption($text);
+            $want=$this->listOf($data,$view)['image']?:($data['image']??'');
+            if($want!==''&&$want!==($data['shown']??'')) {
+                try {
+                    $api->call('editMessageMedia',['chat_id'=>$chat,'message_id'=>(int)$menu['message_id'],'media'=>['type'=>'photo','media'=>$want,'caption'=>$caption,'parse_mode'=>'HTML'],'reply_markup'=>$markup]);
+                    $data['shown']=$want; $this->bot->store->query('UPDATE music_menus SET data=? WHERE id=?',[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$menu['id']]);
+                    return;
+                } catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; /* Telegram could not fetch the cover: keep the old picture. */ }
+            }
+            $api->call('editMessageCaption',['chat_id'=>$chat,'message_id'=>(int)$menu['message_id'],'caption'=>$caption,'parse_mode'=>'HTML','reply_markup'=>$markup]);
+        } catch(\RuntimeException $e) {
+            if($e->getCode()!==404) throw $e;
+            $this->bot->store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]);
+        }
     }
 
     /** Bot side: one tap on a menu button. */
@@ -164,6 +193,10 @@ final class MusicMenu
                 catch(\Throwable) { try { $this->bot->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$message,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {} }
                 return;
             }
+            if($op==='a') {
+                $key=$this->requestAll($menu,$data,$view,$arg,(int)$update['update_id'],$thread);
+                $this->answer($cb,$key,!in_array($key,['menu_sent','menu_again'],true)); return;
+            }
             if($op==='t') {
                 if(!isset($data['tabs'][$arg])) { $this->answer($cb); return; }
                 if($data['tabs'][$arg]['items']===null) $data['tabs'][$arg]['items']=$this->soundcloud()->listing((string)$data['tabs'][$arg]['src'],$this->scratch())['items'];
@@ -180,11 +213,15 @@ final class MusicMenu
                     $key=$this->request($menu,$item,(int)$update['update_id'],$thread);
                     $this->answer($cb,$key,!in_array($key,['menu_sent','menu_again'],true)); return;
                 }
-                $ref=($item['k']??'').($item['id']??substr(hash('sha256',(string)($item['u']??'')),0,10));
-                $sub=['title'=>$item['n'],'sub'=>trim(($item['y']??'')!==''?(string)$item['y']:'')];
-                if($item['k']==='a') $sub['items']=$this->catalog()->deezerTracks('album',(int)$item['id'],$item);
-                elseif($item['k']==='p') $sub['items']=$this->catalog()->deezerTracks('playlist',(int)$item['id']);
-                else $sub['items']=$this->soundcloud()->listing((string)$item['u'],$this->scratch())['items'];
+                $ref=($item['k']??'').($item['src']??'').($item['id']??substr(hash('sha256',(string)($item['u']??'')),0,10));
+                $sub=['title'=>$item['n'],'sub'=>trim(($item['y']??'')!==''?(string)$item['y']:''),'image'=>(string)($item['c']??'')];
+                if($item['k']==='a'&&($item['src']??'')==='it') { $sub['items']=$this->catalog()->itunesTracks((int)$item['id'],$item); $sub['url']='https://music.apple.com/album/'.(int)$item['id']; }
+                elseif($item['k']==='a') { $sub['items']=$this->catalog()->deezerTracks('album',(int)$item['id'],$item); $sub['url']='https://www.deezer.com/album/'.(int)$item['id']; }
+                elseif($item['k']==='p') { $sub['items']=$this->catalog()->deezerTracks('playlist',(int)$item['id'],['c'=>$item['c']??'']); $sub['url']='https://www.deezer.com/playlist/'.(int)$item['id']; }
+                else {
+                    $sub['items']=$this->soundcloud()->listing((string)$item['u'],$this->scratch())['items']; $sub['url']=(string)$item['u'];
+                    $sub['image']=$this->catalog()->soundcloudImage((string)$item['u']);
+                }
                 $data['views'][$ref]=$sub;
                 $view['stack'][]=['ref'=>$ref,'back'=>(int)$view['page']]; $view['page']=0;
                 $view['stack']=array_slice($view['stack'],-2);
@@ -210,31 +247,84 @@ final class MusicMenu
         return $folder;
     }
 
+    /** The details a worker needs for one track of a menu: its address, or what Deezer or iTunes said about it. */
+    private static function trackJob(array $item): ?array
+    {
+        if(($item['u']??'')!=='') return ['u'=>(string)$item['u']];
+        $meta=is_array($item['m']??null)?$item['m']:[]; $artists=array_values(array_filter((array)($meta['artists']??[]),'is_string'));
+        if(!$artists||(int)($item['d']??0)<1) return null;
+        return ['m'=>['title'=>(string)$item['n'],'artists'=>$artists,'duration'=>(int)$item['d'],'year'=>(string)($meta['year']??''),'cover'=>(string)($meta['cover']??'')]];
+    }
+    /** The menu message, handed to a download that replaces the menu, or null when menus stay open. */
+    private function adoption(array $menu): ?array
+    {
+        if(!self::closesOnChoice($this->bot->store)||(int)$menu['message_id']<1) return null;
+        $data=json_decode($menu['data'],true);
+        return ['message'=>(int)$menu['message_id'],'kind'=>!empty($data['photo'])?'photo':'text','poster'=>(string)($data['shown']??'')];
+    }
+    private function queued(array $menu,string $key,array $sent,string $result,?array $adopt): string
+    {
+        if($result==='duplicate') return '';
+        if($result!=='queued') return match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance','denied'=>'denied',default=>'failed'};
+        // The menu became the download's status message, so it is gone as a menu.
+        if($adopt!==null) { $this->bot->store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]); return 'menu_sent'; }
+        $sent[$key]=time();
+        $this->bot->store->query('UPDATE music_menus SET sent=? WHERE id=?',[json_encode($sent,JSON_THROW_ON_ERROR),$menu['id']]);
+        return 'menu_sent';
+    }
+
     /**
      * Queue a tapped track like a pasted link, or open a similar artist as a new menu. Returns the key of the text
      * to show as the tap's answer.
      */
     private function request(array $menu,array $item,int $update,int $thread): string
     {
-        $store=$this->bot->store; $phase=null; $options=[];
+        $phase=null; $options=[]; $adopt=null;
         if(($item['k']??'')==='r') $address='https://www.deezer.com/artist/'.(int)$item['id'];
-        elseif(($item['u']??'')!=='') $address=(string)$item['u'];
         else {
-            // Tracks listed by Deezer carry their details; the audio is looked up from them like any Spotify track.
-            $meta=is_array($item['m']??null)?$item['m']:[]; $artists=array_values(array_filter((array)($meta['artists']??[]),'is_string'));
-            if(!$artists) return 'menu_failed';
-            $address='https://open.spotify.com/search/'.rawurlencode($artists[0].' '.$item['n']);
-            $phase='spotify';
-            $options=['track'=>['title'=>(string)$item['n'],'artists'=>$artists,'duration'=>(int)($item['d']??0),'year'=>(string)($meta['year']??''),'cover'=>(string)($meta['cover']??'')]];
+            $track=self::trackJob($item);
+            if($track===null) return 'menu_failed';
+            if(isset($track['u'])) $address=$track['u'];
+            else {
+                // Tracks listed by Deezer or iTunes carry their details; the audio is looked up from them like any Spotify track.
+                $address='https://open.spotify.com/search/'.rawurlencode($track['m']['artists'][0].' '.$track['m']['title']);
+                $phase='spotify'; $options=['track'=>$track['m']];
+            }
+            $adopt=$this->adoption($menu);
         }
         $key=substr(hash('sha256',$address),0,12);
         $sent=array_filter(json_decode($menu['sent'],true)?:[],fn($time)=>(int)$time>time()-self::RECENT);
         if(isset($sent[$key])) return 'menu_again';
-        $result=$this->bot->requestVideo($update,(int)$menu['user_id'],(int)$menu['chat_id'],$address,$thread,0,$phase,$options,true);
-        if($result==='duplicate') return '';
-        if($result!=='queued') return match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance','denied'=>'denied',default=>'failed'};
-        $sent[$key]=time();
-        $store->query('UPDATE music_menus SET sent=? WHERE id=?',[json_encode($sent,JSON_THROW_ON_ERROR),$menu['id']]);
-        return 'menu_sent';
+        $result=$this->bot->requestVideo($update,(int)$menu['user_id'],(int)$menu['chat_id'],$address,$thread,0,$phase,$options,true,$adopt);
+        return $this->queued($menu,$key,$sent,$result,$adopt);
+    }
+
+    /** Queue every track of the open list (up to BATCH_MAX) as one job: one audio message each, or ZIP files. */
+    private function requestAll(array $menu,array $data,array $view,string $mode,int $update,int $thread): string
+    {
+        if(!in_array($mode,['each','zip'],true)) return '';
+        $now=$this->listOf($data,$view);
+        $tracks=[];
+        foreach(self::tracksOf($now['items']) as $item) if(($track=self::trackJob($item))!==null) $tracks[]=$track+['n'=>(string)$item['n']];
+        if(count($tracks)<1) return 'menu_failed';
+        $tracks=array_slice($tracks,0,self::BATCH_MAX);
+        $address=$now['url']!==''?$now['url']:(string)($data['url']??'');
+        if($address==='') return 'menu_failed';
+        $key=substr(hash('sha256','all:'.$mode.':'.$address),0,12);
+        $sent=array_filter(json_decode($menu['sent'],true)?:[],fn($time)=>(int)$time>time()-self::RECENT);
+        if(isset($sent[$key])) return 'menu_again';
+        $adopt=$this->adoption($menu);
+        $options=['batch'=>['service'=>$data['service']==='soundcloud'?'soundcloud':'spotify','mode'=>$mode,'title'=>mb_substr($now['title'],0,100),'tracks'=>$tracks]];
+        $result=$this->bot->requestVideo($update,(int)$menu['user_id'],(int)$menu['chat_id'],$address,$thread,0,'batch',$options,true,$adopt);
+        return $this->queued($menu,$key,$sent,$result,$adopt);
+    }
+
+    /** A tap on "stop" under a running download of a whole list. Only its owner can stop it. */
+    public static function stop(Bot $bot,array $cb,int $chat,int $user,int $job): void
+    {
+        $row=$bot->store->query("SELECT * FROM jobs WHERE id=? AND phase='batch'",[$job])->fetch();
+        $mine=$row&&(int)$row['user_id']===$user&&(int)$row['chat_id']===$chat;
+        if($mine&&in_array($row['status'],['queued','running'],true)) $bot->store->set('batch.stop.'.$job,'1');
+        $bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>mb_substr($bot->ui->plain($mine?'batch_stopping':'menu_owner'),0,200),'show_alert'=>!$mine,'cache_time'=>0]);
     }
 }
