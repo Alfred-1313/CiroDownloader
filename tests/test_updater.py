@@ -233,7 +233,7 @@ class UpdaterTests(unittest.TestCase):
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertTrue(all(params['message_id'] == 99 for params in edits))
 
-        self.assertIn('مدیریت به‌روزرسانی', edits[-1]['text'])
+        self.assertIn('به‌روزرسانی ربات', edits[-1]['text'])
         self.assertNotIn('100%', edits[-1]['text'])
         self.assertIn('<blockquote><b>✅ با موفقیت نصب شد</b></blockquote>', edits[-1]['text'])
         self.assertIn('update:start', json.dumps(edits[-1]['reply_markup']))
@@ -389,6 +389,45 @@ class UpdaterTests(unittest.TestCase):
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertIn('راهنمای بهتر', edits[-1]['text'])
         self.assertIn('update:changes', json.dumps(edits[-1]['reply_markup']))
+
+    def test_structured_changes_are_deduplicated_by_title_and_keep_their_details(self):
+        entry = {'title': 'Buttons', 'what': 'Each button has controls.', 'example': 'Make Audio blue.', 'default': 'off', 'path': ['One', 'Two', 'Three']}
+        entries = [
+            {'version': '1.0.0', 'changes': [{'title': 'Installed', 'what': 'x'}]},
+            {'version': '1.2.0', 'changes': [entry, {'title': 'Installed', 'what': 'again'}, 'A plain note']},
+        ]
+        (self.project / 'CHANGELOG.json').write_text(json.dumps(entries))
+        self.assertEqual(updater.changes_since('1.0.0', '1.2.0'), [entry, 'A plain note'])
+
+    def test_whats_new_is_written_for_a_beginner_with_steps_and_default(self):
+        self.queue()
+        self.agent.claim()
+        text = self.agent.render_changes([
+            {'title': 'Buttons', 'what': 'Each button has controls.', 'example': 'Make <Audio> blue.', 'default': 'off', 'path': ['One', 'Two', 'Three']},
+            {'title': 'Second', 'what': 'More.', 'default': 'on'},
+            'Legacy note',
+        ])
+        self.assertIn('<b>1️⃣ Buttons</b>', text)
+        self.assertIn('Each button has controls.', text)
+        self.assertIn('Make &lt;Audio&gt; blue.', text)
+        self.assertIn('1️⃣ One ← 2️⃣ Two ← 3️⃣ Three', text)
+        self.assertIn('<b>2️⃣ Second</b>', text)
+        self.assertIn('• Legacy note', text)
+        self.assertEqual(text.count('📍'), 1)
+
+    def test_private_menu_has_back_and_close_and_shows_the_rollback_version(self):
+        self.queue()
+        self.agent.claim()
+        self.agent.set('update_previous_version', '1.2.3')
+        self.agent.finish('✅ ok')
+        edits = [params for method, params in self.agent.calls if method == 'editMessageText']
+        buttons = [button for row in edits[-1]['reply_markup']['inline_keyboard'] for button in row]
+        actions = [button['callback_data'] for button in buttons]
+        self.assertIn('update:back', actions)
+        self.assertIn('update:close', actions)
+        self.assertIn('1.2.3', edits[-1]['text'])
+        start = next(button for button in buttons if button['callback_data'] == 'update:start')
+        self.assertEqual(start.get('style'), 'success')
 
 
 if __name__ == '__main__':

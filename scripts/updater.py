@@ -60,7 +60,7 @@ def release_notes(project=None):
     try:
         entries = json.loads((project / 'CHANGELOG.json').read_text())
         changes = next(entry['changes'] for entry in entries if entry['version'] == version)
-        changes = [str(item)[:240] for item in changes[:8]]
+        changes = [str(item.get('title', '') if isinstance(item, dict) else item)[:240] for item in changes[:8]]
     except (OSError, ValueError, KeyError, StopIteration, TypeError):
         changes = ['فهرست تغییرات این نسخه ثبت نشده است.']
     return version, changes
@@ -83,9 +83,10 @@ def changes_since(installed, target, project=None):
         if version is None or version > last:
             continue
         for change in entry.get('changes', []):
-            if not isinstance(change, str):
+            title = change.get('title') if isinstance(change, dict) else change
+            if not isinstance(title, str) or not title.strip():
                 continue
-            normalized = ' '.join(change.split()).casefold()
+            normalized = ' '.join(title.split()).casefold()
             if version > first and normalized not in known:
                 additions.append(change)
             known.add(normalized)
@@ -206,6 +207,29 @@ class Agent:
         if re.fullmatch(r'\d{5,24}', icon):
             result['icon_custom_emoji_id'] = icon
         return result
+
+    KEYCAPS = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣']
+
+    def plain(self, key):
+        return html.unescape(re.sub(r'<[^>]+>', '', self.ui(key, _raw=())))
+
+    def render_change(self, change, position):
+        """One what's-new entry: what it is, an example, its default and the steps to find it."""
+        if isinstance(change, str):
+            return '• ' + html.escape(change[:240])
+        keys = self.KEYCAPS
+        lines = [self.ui('update_item', n=keys[position - 1] if position <= len(keys) else '▫️', title=str(change['title'])[:80], what=str(change.get('what', ''))[:220])]
+        if isinstance(change.get('example'), str) and change['example']:
+            lines.append(self.ui('update_item_example', example=change['example'][:200]))
+        if change.get('default') in ('on', 'off'):
+            lines.append(self.ui('update_item_default', state=self.plain('update_state_on' if change['default'] == 'on' else 'update_state_off')))
+        steps = [self.ui('update_path_step', n=keys[index], label=label[:40]) for index, label in enumerate([x for x in change.get('path', []) if isinstance(x, str)][:6])]
+        if steps:
+            lines.append(self.ui('update_item_path', path=self.plain('update_path_sep').join(steps), _raw=('path',)))
+        return '\n'.join(line for line in lines if re.sub(r'<[^>]+>', '', line).strip())
+
+    def render_changes(self, changes, limit=6):
+        return '\n\n'.join(self.render_change(change, index) for index, change in enumerate(changes[:limit], 1))
 
     def beat(self):
         if time.time() - self.last_beat >= 8:
@@ -361,17 +385,24 @@ class Agent:
         self.set('update_new_changes', json.dumps({'from': from_version, 'to': version, 'changes': additions}, ensure_ascii=False) if additions else '')
         previous = STATE / 'previous.json'
         buttons = [[self.button('update_start', 'update:start')]]
-        if previous.is_file():
-            buttons.append([self.button('update_rollback', 'update:rollback')])
+        secondary = []
         if additions:
-            buttons.append([self.button('update_changes', 'update:changes')])
-        buttons.append([self.button('close_update' if self.job['chat_id'] < 0 else 'back_admin', 'update:back')])
+            secondary.append(self.button('update_changes', 'update:changes'))
+        if previous.is_file():
+            secondary.append(self.button('update_rollback', 'update:rollback'))
+        if secondary:
+            buttons.append(secondary)
+        if self.job['chat_id'] < 0:
+            buttons.append([self.button('close_update', 'update:back')])
+        else:
+            buttons.append([self.button('back_admin', 'update:back'), self.button('update_close', 'update:close')])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
-        notes = '\n'.join('• ' + html.escape(item[:240]) for item in additions[:12])
+        notes = self.render_changes(additions)
         notice = self.ui('update_notice', title=title, detail='\n' + detail if failed and detail else '', _raw=('title', 'detail')) if title else ''
         if additions:
             notice += self.ui('update_changes', changes=notes, _raw=('changes',)) + '\n\n'
-        text = self.ui('update_menu', version=version, checked=stamp, notice=notice, _raw=('notice',))
+        shown_previous = self.setting('update_previous_version') or self.plain('update_none')
+        text = self.ui('update_menu', version=version, checked=stamp, notice=notice, previous=shown_previous, _raw=('notice',))
         self.set('last_update_at', stamp)
         with self.db() as db:
             db.execute('UPDATE update_requests SET status=? WHERE id=?', ('failed' if failed else 'done', self.job['id']))

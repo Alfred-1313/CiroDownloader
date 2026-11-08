@@ -18,7 +18,11 @@ final class Updates
     {
         return $this->authorized($chat,$user)&&$message>0&&$message===(int)$this->store->get($this->key('menu',$chat,$user),'0');
     }
-    private function back(int $chat): array { return $this->ui->button($chat<0?'close_update':'back_admin','update:back'); }
+    /** Groups only get Close (it deletes the menu); the private menu has Back to the panel and Close. */
+    private function back(int $chat): array
+    {
+        return $chat<0?[$this->ui->button('close_update','update:back')]:[$this->ui->button('back_admin','update:back'),$this->ui->button('update_close','update:close')];
+    }
     public function close(int $chat,int $user,int $message): void
     {
         if(!$this->ownsMenu($chat,$user,$message)||$this->active()) return;
@@ -64,11 +68,30 @@ final class Updates
         return $message;
     }
 
+    /** @return list<string|array{title:string,what?:string,example?:string,default?:string,path?:list<string>}> */
     private function freshChanges(): array
     {
         // Rollback metadata is not a reliable record of the version being upgraded.
         $data=json_decode($this->store->get('update_new_changes'),true);
-        return is_array($data)&&($data['to']??'')===self::version()&&is_array($data['changes']??null)?array_values(array_filter($data['changes'],'is_string')):[];
+        if(!is_array($data)||($data['to']??'')!==self::version()||!is_array($data['changes']??null)) return [];
+        return array_values(array_filter($data['changes'],fn($item)=>is_string($item)||(is_array($item)&&is_string($item['title']??null)&&$item['title']!=='')));
+    }
+    /** One entry of the what's-new list: what it is, an example, its default and the steps to find it. */
+    public static function renderChange(Ui $ui,string|array $change,int $position): string
+    {
+        if(is_string($change)) return '• '.Ui::escape(mb_substr($change,0,240));
+        $keycaps=['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣','6️⃣','7️⃣','8️⃣','9️⃣'];
+        $lines=[$ui->text('update_item',['n'=>$keycaps[$position-1]??'▫️','title'=>mb_substr($change['title'],0,80),'what'=>mb_substr((string)($change['what']??''),0,220)])];
+        if(!empty($change['example'])&&is_string($change['example'])) $lines[]=$ui->text('update_item_example',['example'=>mb_substr($change['example'],0,200)]);
+        if(in_array($change['default']??'',['on','off'],true)) $lines[]=$ui->text('update_item_default',['state'=>$ui->plain($change['default']==='on'?'update_state_on':'update_state_off')]);
+        $steps=[]; foreach(array_slice(array_values(array_filter($change['path']??[],'is_string')),0,6) as $index=>$label) $steps[]=$ui->text('update_path_step',['n'=>$keycaps[$index],'label'=>mb_substr($label,0,40)]);
+        if($steps) $lines[]=$ui->text('update_item_path',['path'=>implode($ui->plain('update_path_sep'),$steps)],['path']);
+        return implode("\n",array_filter($lines,fn($line)=>trim(strip_tags($line))!==''));
+    }
+    public static function renderChanges(Ui $ui,array $changes,int $limit=6): string
+    {
+        $blocks=[]; foreach(array_slice($changes,0,$limit) as $index=>$change) $blocks[]=self::renderChange($ui,$change,$index+1);
+        return implode("\n\n",$blocks);
     }
     private function resume(array $active,int $chat,int $user,int $message,bool $fresh): void
     {
@@ -95,15 +118,17 @@ final class Updates
         }
         if($fresh) $this->store->set('update_new_changes','');
         $notice=$notice!==''?$this->ui->text('update_notice',['title'=>$notice,'detail'=>''],['title']):'';
-        $text=$this->ui->text('update_menu',['version'=>self::version(),'checked'=>$this->store->get('last_update_at',$this->ui->plain('not_checked')),'notice'=>$notice],['notice']);
-        $rows=[];
+        $previous=$this->store->get('update_previous_version');
+        $text=$this->ui->text('update_menu',['version'=>self::version(),'checked'=>$this->store->get('last_update_at',$this->ui->plain('not_checked')),'notice'=>$notice,'previous'=>$previous!==''?$previous:$this->ui->plain('update_none')],['notice']);
+        $rows=[]; $secondary=[];
         if($active) $text.="\n\n".$this->ui->text('update_other_admin');
         else {
             $rows[]=[$this->ui->button('update_start','update:start')];
-            if($this->store->get('update_previous_version')!=='') $rows[]=[$this->ui->button('update_rollback','update:rollback')];
+            if($this->store->get('update_previous_version')!=='') $secondary[]=$this->ui->button('update_rollback','update:rollback');
         }
-        if($this->freshChanges()) $rows[]=[$this->ui->button('update_changes','update:changes')];
-        $rows[]=[$this->back($chat)];
+        if($this->freshChanges()) array_unshift($secondary,$this->ui->button('update_changes','update:changes'));
+        if($secondary) $rows[]=$secondary;
+        $rows[]=$this->back($chat);
         $this->view($chat,$user,$text,$rows,$message,$fresh&&$message===0);
     }
 
@@ -111,9 +136,9 @@ final class Updates
     {
         if(!$this->authorized($chat,$user)) return;
         if($this->active()) return;
-        $notes=array_slice($this->freshChanges(),0,12);
-        $text=$notes?$this->ui->text('update_changes',['changes'=>implode("\n",array_map(fn($note)=>'• '.Ui::escape(mb_substr($note,0,240)),$notes))],['changes']):$this->ui->text('update_no_changes');
-        $this->view($chat,$user,$text,[[$this->ui->button('back_update','update:menu')]],$message);
+        $notes=$this->freshChanges();
+        $text=$notes?$this->ui->text('update_whatsnew',['changes'=>self::renderChanges($this->ui,$notes)],['changes']):$this->ui->text('update_no_changes');
+        $this->view($chat,$user,$text,[[$this->ui->button('back_update','update:menu'),$this->ui->button('update_close','update:close')]],$message);
     }
 
     public function confirmRollback(int $chat, int $user, int $message): void
@@ -123,7 +148,7 @@ final class Updates
         if($this->store->get('update_previous_version')==='') { $this->menu($chat,$user,$message,$this->ui->text('update_no_previous')); return; }
         $this->view($chat,$user,$this->ui->text('update_rollback_confirm',['version'=>$this->store->get('update_previous_version')]),[
             [$this->ui->button('update_confirm','update:rollback:confirm')],
-            [$this->ui->button('cancel','update:menu')],
+            [$this->ui->button('back_update','update:menu'),$this->ui->button('update_close','update:close')],
         ],$message);
     }
 

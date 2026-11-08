@@ -48,7 +48,7 @@ try {
     $bot->handle(adminMessage($bot->label('cookie_upload')));
     adminCheck($store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()==='cookie.upload','the cookie reply control starts import');
     $bot->handle(adminMessage($bot->label('update')));
-    adminCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()&&str_contains(end($api->calls)[1]['text'],'مدیریت به‌روزرسانی')&&(int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'the update reply control leaves cookie import and opens the update menu without starting an update');
+    adminCheck(!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn()&&str_contains(end($api->calls)[1]['text'],'به‌روزرسانی ربات')&&(int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'the update reply control leaves cookie import and opens the update menu without starting an update');
     $bot->handle(adminCallback('update:back',(int)$store->get('update_menu.42')));
     adminCheck(adminLabels($api)===$expected,'returning from the update menu restores the administration keyboard');
     $bot->handle(adminMessage($bot->label('cookies')));

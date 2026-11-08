@@ -69,7 +69,7 @@ try {
 
     foreach(['🔄 به‌روزرسانی ربات','🔄️ به روز رسانی ربات',"\u{200F}🔄 بروزرسانی روبات",'بروزرسانی روبات','آپدیت ربات','Update bot'] as $label) {
         $bot->handle(uxMessage(42,$label));
-        uxCheck(end($api->calls)[0]==='sendMessage'&&str_contains(end($api->calls)[1]['text'],'مدیریت به‌روزرسانی'),'reply update label opens a visible menu: '.$label);
+        uxCheck(end($api->calls)[0]==='sendMessage'&&str_contains(end($api->calls)[1]['text'],'به‌روزرسانی ربات'),'reply update label opens a visible menu: '.$label);
     }
     $store->set('updater_heartbeat',(string)time()); $menu=(int)$store->get('update_menu.42');
     $bot->handle(uxCallback(42,'update:start',$menu));
