@@ -118,13 +118,17 @@ try {
     $tap('mm:'.$menuId.':o:2',11);
     $job=$store->query("SELECT * FROM jobs ORDER BY id DESC LIMIT 1")->fetch();
     $status=$called('editMessageCaption');
-    menuCheck((int)$job['message_id']===$menuMessage&&$job['message_kind']==='photo'&&$store->query('SELECT COUNT(*) FROM music_menus WHERE id=?',[$menuId])->fetchColumn()==0,'the chosen track takes over the menu message, and the menu is gone');
+    menuCheck((int)$job['message_id']===$menuMessage&&$job['message_kind']==='photo'&&json_decode($job['options'],true)['menu']===$menuId&&json_decode($job['options'],true)['album']==='Old Album','the chosen track takes over the menu message and knows its menu and album');
     menuCheck(count($status)===1&&str_contains($status[0]['params']['caption'],'اسپاتیفای')&&json_decode($status[0]['params']['reply_markup'],true)['inline_keyboard']===[]&&!$called('sendMessage'),'the photo\'s caption becomes the status, without buttons and without a new message');
     $run('media');
-    $deleted=$called('deleteMessage');
+    $deleted=$called('deleteMessage'); $audio=$called('sendAudio')[0]['params']; $audioRows=json_decode($audio['reply_markup'],true)['inline_keyboard']; $audioId=$anchor($menuId);
     menuCheck(count($called('sendAudio'))===1&&count($deleted)===1&&(int)$deleted[0]['params']['message_id']===$menuMessage,'after the audio arrives the old menu message is deleted');
+    menuCheck($audio['caption']==="<b>🎧 Old Album</b>\n\n<blockquote expandable><b>• Album Cut Three</b></blockquote>",'the track\'s caption has the album\'s structure: the album in bold, an empty line and the track in a bold collapsed quote');
+    menuCheck(end($audioRows)[0]['callback_data']==='mm:'.$menuId.':r'&&(end($audioRows)[0]['style']??'')==='danger'&&str_starts_with(end($audioRows)[0]['text'],'🔙')&&$audioId>0&&$audioId!==$menuMessage,'and the red 🔙 back to the menu is on the audio itself');
     $tap('mm:'.$menuId.':t:albums',11,$menuMessage);
-    menuCheck(str_contains($answer()['text']??'','منقضی'),'a button of the closed menu says it has expired');
+    menuCheck(str_contains($answer()['text']??'','منقضی')&&$store->query('SELECT COUNT(*) FROM music_menus WHERE id=?',[$menuId])->fetchColumn()==1,'a button of the old menu message says it has expired and does not end the menu');
+    file_put_contents($log,''); $tap('mm:'.$menuId.':r',11,$audioId); $back=$lastMenu();
+    menuCheck(json_decode($called('deleteMessages')[0]['params']['message_ids'],true)===[$audioId]&&$back['method']==='sendPhoto'&&str_contains($back['text'],'Old Album')&&$anchor($menuId)!==$audioId,'back deletes the track and the album menu returns as a new photo message');
 
     // 6. "Download all": the menu message shows progress, all tracks are sent together in media groups with one caption,
     // and "back to the previous menu" deletes them and restores the menu.
@@ -141,20 +145,21 @@ try {
     $tap('mm:'.$id.':a:each',12); menuCheck(str_contains($answer()['text']??'','در راه است')&&$store->query("SELECT COUNT(*) FROM jobs WHERE phase='batch'")->fetchColumn()==1,'a second tap while it runs queues nothing');
     file_put_contents($log,''); $job=$run('media');
     $progress=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'آماده‌سازی آهنگ‌ها')));
-    menuCheck($job['status']==='done'&&count($progress)>=1&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id'])&&count($called('sendAudio'))===1,'progress with a stop button shows on the menu message; only the last track is sent on its own');
-    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true); $single=$called('sendAudio')[0]['params'];
-    menuCheck(count($groups)===1&&count($media)===2&&array_unique(array_column($media,'type'))===['audio']&&!isset($media[0]['caption'])&&!isset($media[1]['caption'])&&!isset($groups[0]['params']['reply_markup']),'the first tracks arrive together as one group without caption or buttons');
-    $caption=$single['caption'];
-    menuCheck(str_starts_with($caption,'<b>🎧 New Album</b>'."\n\n")&&str_contains($caption,"<blockquote expandable>• Album Cut One\n• Album Cut Two\n• Album Cut Three</blockquote>")&&substr_count($caption,'<blockquote')===1&&!str_contains($caption,'Fixture Artist')&&!str_contains($caption,'بخش')&&!str_contains($caption,'⚠️'),'the last track carries the caption: the album in bold, an empty line and a collapsed quote of track names only');
-    menuCheck(array_column($media,'title')===['Album Cut One','Album Cut Two']&&$single['title']==='Album Cut Three'&&$groups[0]['uploads']['f0']['mime']==='audio/mp4'&&str_ends_with($groups[0]['uploads']['f0']['name'],'.m4a'),'in album order, with their titles, as M4A files');
+    menuCheck($job['status']==='done'&&count($progress)>=1&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id'])&&!$called('sendAudio'),'progress with a stop button shows on the menu message, and no track is sent on its own');
+    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true);
+    menuCheck(count($groups)===1&&count($media)===3&&array_unique(array_column($media,'type'))===['audio']&&!isset($media[0]['caption'])&&!isset($media[1]['caption'])&&isset($media[2]['caption']),'all three tracks arrive together as one group, with the caption on the last track');
+    $caption=$media[2]['caption'];
+    menuCheck($caption==="<b>🎧 New Album</b>\n\n<blockquote expandable><b>• Album Cut One\n• Album Cut Two\n• Album Cut Three</b></blockquote>",'the caption is the album in bold, an empty line and a collapsed quote of the track names in bold, without artists');
+    menuCheck(array_column($media,'title')===['Album Cut One','Album Cut Two','Album Cut Three']&&$groups[0]['uploads']['f0']['mime']==='audio/mp4'&&str_ends_with($groups[0]['uploads']['f0']['name'],'.m4a'),'in album order, with their titles, as M4A files');
     $row=$store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch(); $state=json_decode($row['data'],true)['batch']; $lastId=end($state['delivered']);
-    $markButton=json_decode($single['reply_markup'],true)['inline_keyboard'][0][0];
-    menuCheck($state['state']==='done'&&count($state['delivered'])===3&&$markButton['callback_data']==='mm:'.$id.':r'&&($markButton['style']??'')==='danger'&&str_starts_with($markButton['text'],'🔙')&&!$called('editMessageReplyMarkup'),'the last message itself has the red "🔙 back to the previous menu" button (sent with it, not added afterwards)');
+    $under=array_values(array_filter($called('sendMessage'),fn($call)=>str_contains((string)($call['params']['reply_markup']??''),'mm:'.$id.':r')));
+    $markButton=json_decode($under[0]['params']['reply_markup'],true)['inline_keyboard'][0][0];
+    menuCheck(count($under)===1&&$under[0]['params']['text']===$bot->text('batch_back_text')&&trim($under[0]['params']['text'])!==''&&$markButton['callback_data']==='mm:'.$id.':r'&&($markButton['style']??'')==='danger'&&str_starts_with($markButton['text'],'🔙'),'right under the group comes only the red "🔙 back to the previous menu" (a message without visible text)');
     $deleted=array_values(array_filter($called('deleteMessage'),fn($call)=>(int)$call['params']['message_id']===$menuMessage));
-    menuCheck(count($deleted)===1&&(int)$row['message_id']===$lastId&&(int)$state['carrier']===$lastId&&is_dir($config->storage.'/music-batches'),'the old menu message is deleted, the last track becomes the menu\'s anchor and the prepared tracks stay for a quick way back');
+    menuCheck($state['state']==='done'&&count($state['delivered'])===4&&count($deleted)===1&&(int)$row['message_id']===$lastId&&(int)$state['carrier']===$lastId&&is_dir($config->storage.'/music-batches'),'the old menu message is deleted, the back button\'s message becomes the menu\'s anchor and the prepared tracks stay for a quick way back');
     file_put_contents($log,''); $tap('mm:'.$id.':r',12,$lastId);
     $deleted=$called('deleteMessages'); $back=$lastMenu();
-    menuCheck(count($deleted)===1&&count(json_decode($deleted[0]['params']['message_ids'],true))===3,'"back" deletes the three sent messages');
+    menuCheck(count($deleted)===1&&count(json_decode($deleted[0]['params']['message_ids'],true))===4,'"back" deletes the three tracks and the button\'s message');
     $newMessage=(int)$store->query('SELECT message_id FROM music_menus WHERE id=?',[$id])->fetchColumn();
     menuCheck($back!==null&&in_array($back['method'],['sendPhoto','sendMessage'],true)&&str_contains($back['text'],'💿 New Album')&&count($items($back))===3&&!isset(json_decode($store->query('SELECT data FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['batch'])&&!glob($config->storage.'/music-batches/*')&&$newMessage>0&&$newMessage!==$lastId,'and the album menu comes back as a new message with its tracks, nothing left over');
     $menuMessage=$newMessage;
@@ -170,28 +175,31 @@ try {
     $resume=$button($paused,'ادامه دانلود');
     menuCheck(($resume['style']??'')==='success'&&$resume['callback_data']==='mm:'.$id.':c'&&str_contains($resume['text'],'0 از 3'),'it offers a green "continue download" with the progress');
     $tap('mm:'.$id.':c',12); file_put_contents($log,''); $job=$run('media');
-    menuCheck($job['status']==='done'&&count($called('sendMediaGroup'))===1&&count(json_decode($called('sendMediaGroup')[0]['params']['media'],true))===2&&count($called('sendAudio'))===1,'continuing finishes the job and sends everything together');
+    menuCheck($job['status']==='done'&&count($called('sendMediaGroup'))===1&&count(json_decode($called('sendMediaGroup')[0]['params']['media'],true))===3&&!$called('sendAudio'),'continuing finishes the job and sends everything together');
     $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
 
     // ZIP: the files go out as a group of documents, split by the upload limit, in album order.
     $config->maxBytes=2097152+262144; $zipSize=filesize($temp.'/source.m4a'); file_put_contents($log,'');
     $tap('mm:'.$id.':a:zip',12); $job=$run('media');
-    $docs=$called('sendDocument');
+    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true);
     $zip=new ZipArchive(); $zip->open($temp.'/delivered-0.zip'); $names=[]; for($i=0;$i<$zip->numFiles;$i++) $names[]=$zip->getNameIndex($i); $method=$zip->statIndex(0)['comp_method']; $zip->close();
-    $docButton=json_decode((string)($docs[1]['params']['reply_markup']??'{}'),true)['inline_keyboard'][0][0]??[];
-    menuCheck($job['status']==='done'&&count($docs)===2&&!$called('sendMediaGroup')&&!isset($docs[0]['params']['caption'])&&!isset($docs[0]['params']['reply_markup'])&&str_ends_with($docs[0]['uploads']['document']['name'],'(1).zip')&&str_ends_with($docs[1]['uploads']['document']['name'],'(2).zip'),'ZIP mode sends the files below the upload limit; only the last one has the caption and the button');
-    menuCheck(str_starts_with($docs[1]['params']['caption'],'<b>🗜 New Album</b>'."\n\n<blockquote expandable>")&&str_contains($docs[1]['params']['caption'],'• Album Cut Two')&&str_contains($docs[1]['params']['caption'],'• Album Cut Three')&&!str_contains($docs[1]['params']['caption'],'Fixture Artist')&&($docButton['callback_data']??'')==='mm:'.$id.':r'&&($docButton['style']??'')==='danger','the last ZIP lists the track names in a collapsed quote and has the red back button');
+    $under=array_values(array_filter($called('sendMessage'),fn($call)=>str_contains((string)($call['params']['reply_markup']??''),'mm:'.$id.':r')));
+    menuCheck($job['status']==='done'&&count($groups)===1&&count($media)===2&&array_unique(array_column($media,'type'))===['document']&&!isset($media[0]['caption'])&&str_ends_with($groups[0]['uploads']['f0']['name'],'(1).zip')&&str_ends_with($groups[0]['uploads']['f1']['name'],'(2).zip')&&count($under)===1,'ZIP mode sends the files below the upload limit together, with the red way back right under them');
+    menuCheck($media[1]['caption']==="<b>🗜 New Album</b>\n\n<blockquote expandable><b>• Album Cut One\n• Album Cut Two\n• Album Cut Three</b></blockquote>",'the last ZIP lists the track names in bold in a collapsed quote');
     menuCheck($names===['01 - Fixture Artist - Album Cut One.m4a','02 - Fixture Artist - Album Cut Two.m4a']&&$method===ZipArchive::CM_STORE,'files keep the album order and their tagged names, stored without compression');
     $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id); $config->maxBytes=49000000;
 
-    // A track that cannot be found is skipped and counted; one left over is sent on its own.
+    // A single needs no "download all".
     $fresh(); $send('https://open.spotify.com/artist/'.$artistId,14); $run('inspect');
     $id=(int)$store->query('SELECT id FROM music_menus')->fetchColumn();
-    $tap('mm:'.$id.':t:singles',14); $tap('mm:'.$id.':o:0',14); $tap('mm:'.$id.':a:each',14);
-    file_put_contents($log,''); $menuBefore=$anchor($id); $job=$run('media'); $single=$called('sendAudio');
-    $singleCaption=(string)($single[0]['params']['caption']??''); $singleMarkup=json_decode((string)($single[0]['params']['reply_markup']??'{}'),true)['inline_keyboard'][0][0]??[];
+    $tap('mm:'.$id.':t:singles',14); $tap('mm:'.$id.':o:0',14); $single=$lastMenu();
+    menuCheck(str_contains($single['text'],'Lone Single')&&count($items($single))===2&&!array_filter($single['data'],fn($value)=>str_contains($value,':a:')),'a single lists its tracks without "download all"');
+    // A track that cannot be found is skipped: its name is shown while preparing, never in the caption.
+    $tap('mm:'.$id.':b',14); $tap('mm:'.$id.':t:albums',14); $tap('mm:'.$id.':o:1',14); $tap('mm:'.$id.':a:each',14);
+    file_put_contents($log,''); $menuBefore=$anchor($id); $job=$run('media');
+    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true); $lastCaption=(string)(end($media)['caption']??'');
     $notes=array_values(array_filter(array_merge($called('editMessageCaption'),$called('editMessageText')),fn($call)=>str_contains((string)($call['params']['caption']??$call['params']['text']??''),'Missing Song')));
-    menuCheck($job['status']==='done'&&count($single)===1&&!$called('sendMediaGroup')&&str_contains($singleCaption,'• Single Cut')&&!str_contains($singleCaption,'Missing Song')&&!str_contains($singleCaption,'⚠️')&&!str_contains($singleCaption,'پیدا یا دریافت نشد')&&($singleMarkup['callback_data']??'')==='mm:'.$id.':r'&&($singleMarkup['style']??'')==='danger'&&$anchor($id)!==$menuBefore&&count(array_filter($called('deleteMessage'),fn($call)=>(int)$call['params']['message_id']===$menuBefore))===1,'the one track left is sent alone with its caption and the back button, the old menu is deleted, and the failed track is not in the caption');
+    menuCheck($job['status']==='done'&&count($media)===3&&str_contains($lastCaption,'• Album Cut Three')&&!str_contains($lastCaption,'Missing Song')&&!str_contains($lastCaption,'⚠️'),'the found tracks are sent together and the missing one is not in the caption');
     menuCheck($notes&&str_contains((string)($notes[0]['params']['caption']??$notes[0]['params']['text']),'• Missing Song')&&str_contains((string)($notes[0]['params']['caption']??$notes[0]['params']['text']),'<blockquote>'),'the status message names the track that could not be found, in a quote');
     $fresh(); $send('https://open.spotify.com/album/'.$albumId,13); $run('inspect'); $album=$lastMenu();
     menuCheck($album['photo']==='https://image-cdn-fa.spotifycdn.com/image/album-'.$albumId&&!array_filter($album['data'],fn($value)=>str_contains($value,':t:'))&&in_array('mm:'.(int)$store->query('SELECT id FROM music_menus')->fetchColumn().':a:zip',$album['data'],true),'an album page opens with its cover, its tracks and "download all"');

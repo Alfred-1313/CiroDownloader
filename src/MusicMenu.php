@@ -66,10 +66,10 @@ final class MusicMenu
     {
         if($view['stack']) {
             $top=end($view['stack']); $sub=$data['views'][$top['ref']]??['items'=>[],'title'=>'','sub'=>''];
-            return ['items'=>$sub['items'],'title'=>$sub['title'],'sub'=>$sub['sub']??'','tab'=>'','image'=>$sub['image']??'','url'=>$sub['url']??''];
+            return ['items'=>$sub['items'],'title'=>$sub['title'],'sub'=>$sub['sub']??'','tab'=>'','image'=>$sub['image']??'','url'=>$sub['url']??'','single'=>!empty($sub['single']),'album'=>str_starts_with((string)$top['ref'],'a')];
         }
         $tab=$data['tabs'][$view['tab']]??['items'=>[]];
-        return ['items'=>$tab['items']??[],'title'=>$data['title'],'sub'=>$data['subtitle']??'','tab'=>$view['tab'],'image'=>$data['image']??'','url'=>$data['url']??''];
+        return ['items'=>$tab['items']??[],'title'=>$data['title'],'sub'=>$data['subtitle']??'','tab'=>$view['tab'],'image'=>$data['image']??'','url'=>$data['url']??'','single'=>false,'album'=>($data['kind']??'')==='album'];
     }
     private function itemLabel(array $item,int $index,bool $withArtist): string
     {
@@ -113,7 +113,8 @@ final class MusicMenu
             if($row) $rows[]=$row;
         }
         // A list of tracks inside an album, playlist or set (or a page that is one) can be fetched whole.
-        $whole=($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1;
+        // A single needs no "download all": its track is one tap away.
+        $whole=($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1&&!$now['single'];
         if($whole) {
             // A stopped download of this very list can be continued where it stopped.
             if(($batch['state']??'')==='paused'&&($batch['address']??'')===$now['url']) $rows[]=[$ui->button('batch_resume','mm:'.$id.':c',['done'=>(string)$batch['ready'],'total'=>(string)$batch['total']])];
@@ -188,7 +189,8 @@ final class MusicMenu
         $store=$this->bot->store;
         $menu=$store->query('SELECT * FROM music_menus WHERE id=?',[(int)$id])->fetch();
         if(!$menu||(int)$menu['expires']<time()||((int)$menu['message_id']>0&&(int)$menu['message_id']!==$message)) {
-            if($menu) $store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]);
+            // Only time ends a menu: a button on an older message of it (now elsewhere, for example under a sent track) just goes quiet.
+            if($menu&&(int)$menu['expires']<time()) $store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]);
             $this->answer($cb,'menu_expired',true);
             try { $this->bot->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$message,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {}
             return;
@@ -230,6 +232,7 @@ final class MusicMenu
                 }
                 $ref=($item['k']??'').($item['src']??'').($item['id']??substr(hash('sha256',(string)($item['u']??'')),0,10));
                 $sub=['title'=>$item['n'],'sub'=>trim(($item['y']??'')!==''?(string)$item['y']:''),'image'=>(string)($item['c']??'')];
+                if(!$view['stack']&&($view['tab']??'')==='singles') $sub['single']=true;
                 if($item['k']==='a'&&($item['src']??'')==='it') { $sub['items']=$this->catalog()->itunesTracks((int)$item['id'],$item); $sub['url']='https://music.apple.com/album/'.(int)$item['id']; }
                 elseif($item['k']==='a') { $sub['items']=$this->catalog()->deezerTracks('album',(int)$item['id'],$item); $sub['url']='https://www.deezer.com/album/'.(int)$item['id']; }
                 elseif($item['k']==='p') { $sub['items']=$this->catalog()->deezerTracks('playlist',(int)$item['id'],['c'=>$item['c']??'']); $sub['url']='https://www.deezer.com/playlist/'.(int)$item['id']; }
@@ -281,8 +284,8 @@ final class MusicMenu
     {
         if($result==='duplicate') return '';
         if($result!=='queued') return match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance','denied'=>'denied',default=>'failed'};
-        // The menu became the download's status message, so it is gone as a menu.
-        if($adopt!==null) { $this->bot->store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]); return 'menu_sent'; }
+        // The menu became the download's status message. Its row stays: the delivered track gets a button back to it.
+        if($adopt!==null) return 'menu_sent';
         $sent[$key]=time();
         $this->bot->store->query('UPDATE music_menus SET sent=? WHERE id=?',[json_encode($sent,JSON_THROW_ON_ERROR),$menu['id']]);
         return 'menu_sent';
@@ -306,6 +309,10 @@ final class MusicMenu
                 $phase='spotify'; $options=['track'=>$track['m']];
             }
             $adopt=$this->adoption($menu);
+            // The caption names the release the track comes from; a menu that closes gives the track a way back to it.
+            $now=$this->listOf(json_decode($menu['data'],true),json_decode($menu['view'],true));
+            if($now['album']&&$now['title']!=='') $options['album']=mb_substr((string)$now['title'],0,100);
+            if($adopt!==null) $options['menu']=(int)$menu['id'];
         }
         $key=substr(hash('sha256',$address),0,12);
         $sent=array_filter(json_decode($menu['sent'],true)?:[],fn($time)=>(int)$time>time()-self::RECENT);
@@ -379,6 +386,20 @@ final class MusicMenu
         }
         $this->save($menu,$data,json_decode($menu['view'],true));
         $this->show($this->load($id),$chat);
+    }
+    /** Worker: a tapped track arrived with the way back; the menu row now points at the audio message. */
+    public function trackDelivered(int $id,int $user,int $chat,int $audio): void
+    {
+        if(!($menu=$this->load($id))||(int)$menu['user_id']!==$user||(int)$menu['chat_id']!==$chat||$audio<1) return;
+        $data=json_decode($menu['data'],true);
+        $data['batch']=['state'=>'done','title'=>'','count'=>1,'failed'=>0,'delivered'=>[$audio],'key'=>'','address'=>'','carrier'=>$audio];
+        $this->bot->store->query('UPDATE music_menus SET message_id=?,data=? WHERE id=?',[$audio,json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$id]);
+    }
+    /** Worker: whether a tapped track may offer the way back (its menu still exists and belongs to the same person and chat). */
+    public function owns(int $id,int $user,int $chat): bool
+    {
+        $menu=$this->load($id);
+        return $menu!==null&&(int)$menu['user_id']===$user&&(int)$menu['chat_id']===$chat&&(int)$menu['expires']>time();
     }
     /** "Back to the previous menu": the sent tracks are deleted and the menu is shown again where it was. */
     private function giveBack(array $menu,array $data,int $chat): void

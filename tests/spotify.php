@@ -132,7 +132,7 @@ try {
     $params=$audio[0]['params'];
     spotifyCheck($params['title']==='Fixture Song'&&$params['performer']==='Fixture Artist, Guest Singer'&&(int)$params['duration']>=12&&(int)$params['duration']<=13,'Telegram receives the real title, performers and length');
     spotifyCheck(isset($audio[0]['uploads']['thumbnail'])&&$audio[0]['uploads']['thumbnail']['mime']==='image/jpeg'&&$audio[0]['uploads']['thumbnail']['size']<=204800,'the cover is attached as a small thumbnail');
-    spotifyCheck(str_contains($params['caption'],'Fixture Song')&&str_contains($params['caption'],'Fixture Artist, Guest Singer')&&str_contains($params['caption'],'00:12')&&!str_contains($params['caption'],'href=')&&!str_contains($params['caption'],'open.spotify.com'),'the default caption shows title, artists and length without a link to the original');
+    spotifyCheck($params['caption']==="<b>🎧 Fixture Song</b>\n\n<blockquote expandable><b>• Fixture Song</b></blockquote>"&&$params['performer']==='Fixture Artist, Guest Singer'&&!str_contains($params['caption'],'href=')&&!str_contains($params['caption'],'open.spotify.com'),'the default caption has the album\'s structure (the work in bold, the track in a bold collapsed quote); the artists stay in the audio\'s own tags, without a link to the original');
     spotifyCheck(!isset($params['reply_markup'])&&(int)$params['chat_id']===12&&!isset($params['message_thread_id']),'the source button is off by default and a private chat has no topic');
     $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$temp.'/delivered-audio'],$temp,30),true);
     $types=array_column($probe['streams'],'codec_name','codec_type');

@@ -23,7 +23,7 @@ Spotify needs none: the public track page is readable without an account. The Yo
 
 ## Controls
 
-**🎨 شخصی‌سازی ← 🎧 اسپاتیفای** (زیر تیتر «🎧 موسیقی») edits the queued, downloading and uploading messages, the caption (`{title}`, `{artist}`, `{year}`, `{duration}`, `{url}`), every error text and the source button. The **مشاهده در اسپاتیفای** button is off by default and the default caption has no link to the original. Accepted links receive the configured reaction, default 👾, and the whole request uses one status message. In groups the audio stays in the forum topic that asked for it.
+**🎨 شخصی‌سازی ← 🎧 اسپاتیفای** (زیر تیتر «🎧 موسیقی») edits the queued, downloading and uploading messages, the caption (`{work}`, `{title}`, `{artist}`, `{year}`, `{duration}`, `{url}`; by default the album's structure: the work in bold — the album when the track was chosen inside one, otherwise the track's name — an empty line, then `• track` in a bold collapsed quote, without the artist, who stays in the audio's own tags), every error text and the source button. The **مشاهده در اسپاتیفای** button is off by default and the default caption has no link to the original. Accepted links receive the configured reaction, default 👾, and the whole request uses one status message. In groups the audio stays in the forum topic that asked for it.
 
 ## Speed
 

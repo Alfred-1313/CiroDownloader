@@ -55,8 +55,10 @@ if(str_starts_with($path,'/deezer/')) {
     if($p==='/artist/111/related') { $json(['data'=>[['id'=>222,'name'=>'Other Artist'],['id'=>223,'name'=>'Third Artist']]]); return; }
     if(preg_match('~^/artist/(222|400)/(albums|playlists|related)$~',$p)) { $json(['data'=>[]]); return; }
     if(preg_match('~^/album/(\d+)/tracks$~',$p,$d)) {
-        $json(['data'=>$d[1]==='53'?[['id'=>531,'title'=>'Single Cut','duration'=>12,'artist'=>['name'=>'Fixture Artist']],['id'=>532,'title'=>'Missing Song','duration'=>12,'artist'=>['name'=>'Fixture Artist']]]
-            :[['id'=>$d[1].'1','title'=>'Album Cut One','duration'=>12,'artist'=>['name'=>'Fixture Artist']],['id'=>$d[1].'2','title'=>'Album Cut Two','duration'=>12,'artist'=>['name'=>'Fixture Artist']],['id'=>$d[1].'3','title'=>'Album Cut Three','duration'=>12,'artist'=>['name'=>'Fixture Artist']]]]);
+        $cuts=[['id'=>$d[1].'1','title'=>'Album Cut One','duration'=>12,'artist'=>['name'=>'Fixture Artist']],['id'=>$d[1].'2','title'=>'Album Cut Two','duration'=>12,'artist'=>['name'=>'Fixture Artist']],['id'=>$d[1].'3','title'=>'Album Cut Three','duration'=>12,'artist'=>['name'=>'Fixture Artist']]];
+        // The old album has a fourth track nobody can find.
+        if($d[1]==='51') $cuts[]=['id'=>514,'title'=>'Missing Song','duration'=>12,'artist'=>['name'=>'Fixture Artist']];
+        $json(['data'=>$d[1]==='53'?[['id'=>531,'title'=>'Single Cut','duration'=>12,'artist'=>['name'=>'Fixture Artist']],['id'=>532,'title'=>'Missing Song','duration'=>12,'artist'=>['name'=>'Fixture Artist']]]:$cuts]);
         return;
     }
     if(preg_match('~^/playlist/(\d+)/tracks$~',$p,$d)) { $json(['data'=>[$track($d[1].'1','Playlist Cut','Somebody Else')]]); return; }

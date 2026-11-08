@@ -192,27 +192,28 @@ final class Worker
         $spotify=$this->spotify??new Spotify($this->config);
         return isset($track['m'])?$spotify->fromDetails($track['m'],$folder):$spotify->fetch((string)$track['u'],$folder);
     }
-    /** One audio message with the service's caption and, when turned on, its source button. */
-    private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source): void
+    /**
+     * One audio message. Its caption has the album's structure: the release in bold (the track's own name when the
+     * release is unknown), an empty line, then the track in a bold collapsed quote. $back rows (the way back to a menu)
+     * come after the source button. @return int the message ID
+     */
+    private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source,string $album='',array $back=[]): int
     {
         $config=$this->config;
         if($config->api==='http://ciro-telegram-api:8081') Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
-        $caption=$bot->ui->fitCaption($bot->text($service.'_caption',['title'=>mb_substr($media['title'],0,100),'artist'=>mb_substr($media['performer'],0,150),
+        $title=mb_substr($media['title'],0,100);
+        $caption=$bot->ui->fitCaption($bot->text($service.'_caption',['title'=>$title,'work'=>trim($album)!==''?mb_substr(trim($album),0,100):$title,'artist'=>mb_substr($media['performer'],0,150),
             'year'=>$media['year'],'duration'=>Ui::duration($media['length']),'url'=>$source]));
         $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
-            'title'=>mb_substr($media['title'],0,100),'performer'=>mb_substr($media['performer'],0,100),
+            'title'=>$title,'performer'=>mb_substr($media['performer'],0,100),
             'audio'=>new \CURLFile($media['path'],$media['mime']??'audio/mpeg',$media['name'])];
         if($media['thumbnail']!==null) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
-        $rows=$bot->ui->gallerySourceRows($service,$media['page']??$source);
+        $rows=array_merge($bot->ui->gallerySourceRows($service,$media['page']??$source),$back);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
-        $this->api->call('sendAudio',$params);
+        $result=$this->api->call('sendAudio',$params);
+        return (int)($result['message_id']??0);
     }
-
-    /**
-     * Spotify or SoundCloud track: find the audio, tag it with the real title, artists and cover and send it
-     * as one audio message on the same status message. Texts and settings are named after the service.
-     */
     private function musicDelivery(array $job,Bot $bot,string $folder,array &$timings,string &$stage,string $service,?array $track=null): void
     {
         $config=$this->config; $store=$this->store;
@@ -228,9 +229,14 @@ final class Worker
         $stage='upload';
         $bot->jobMessage($job,$bot->text($service.'_uploading'));
         $uploadStarted=hrtime(true);
-        $this->sendTrack($job,$bot,$service,$media,$job['url']);
+        $options=json_decode((string)($job['options']??'{}'),true)?:[];
+        // A track chosen in a menu that closed gets the red way back to that menu, like a whole album.
+        $menuId=(int)($options['menu']??0); $menus=new MusicMenu($bot,$this->catalog,$this->soundcloud);
+        $back=$menuId>0&&$menus->owns($menuId,(int)$job['user_id'],(int)$job['chat_id'])?[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]]:[];
+        $audio=$this->sendTrack($job,$bot,$service,$media,$job['url'],(string)($options['album']??''),$back);
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+        if($back) $menus->trackDelivered($menuId,(int)$job['user_id'],(int)$job['chat_id'],$audio);
         try { $bot->finishJob($job); }
         catch(Throwable) { error_log(ucfirst($service).' audio delivered; status cleanup unavailable'); }
     }
@@ -379,23 +385,33 @@ final class Worker
         return $render(implode("\n",array_map([Ui::class,'escape'],$lines)));
     }
     /**
-     * Sends the prepared tracks. All but the last go out together as media groups of at most ten audios (sizes balanced);
-     * the last one is a message of its own that carries the caption with the track list and the way back, because
-     * Telegram shows buttons only under a message that is not part of a group. @return list<int> message IDs in order
+     * Sends the prepared tracks together: media groups of at most ten audios (sizes balanced), the caption with the
+     * track list on the very last track. Telegram shows no buttons under a group, so the red way back is a small message
+     * right under it; a single track carries its caption and button itself. @return list<int> message IDs in order
      */
     private function sendTracks(array $job,Bot $bot,array $items,string $title,array $back): array
     {
-        $final=array_pop($items); $ids=[];
-        if(count($items)===1) $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'audio',$items,'',[]));
-        elseif($items) {
-            $parts=(int)ceil(count($items)/10);
-            foreach(array_chunk($items,(int)ceil(count($items)/$parts)) as $chunk) $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'audio',$chunk,'',[]));
-        }
-        $all=array_merge($items,[$final]);
-        $caption=$this->listCaption($bot,'batch_caption',['title'=>$title,'count'=>(string)count($all)],$all);
-        return array_merge($ids,$this->sendMediaGroup($job,$bot,'audio',[$final],$caption,$back));
+        $caption=$this->listCaption($bot,'batch_caption',['title'=>$title,'count'=>(string)count($items)],$items);
+        if(count($items)===1) return $this->sendMediaGroup($job,$bot,'audio',$items,$caption,$back);
+        $parts=(int)ceil(count($items)/10); $chunks=array_chunk($items,(int)ceil(count($items)/$parts)); $ids=[];
+        foreach($chunks as $n=>$chunk) $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'audio',$chunk,$n===count($chunks)-1?$caption:'',[]));
+        $ids[]=$this->backMessage($job,$bot,$title,$back);
+        return $ids;
     }
-    /** ZIP files of the prepared tracks, each below the upload limit. The last file is a message of its own with the caption and the way back. @return list<int> */
+    /** The way back under a group: a message with (by default) no visible text, so only the red button shows under the caption. */
+    private function backMessage(array $job,Bot $bot,string $title,array $back): int
+    {
+        $params=['chat_id'=>(int)$job['chat_id'],'parse_mode'=>'HTML','reply_markup'=>['inline_keyboard'=>$back]];
+        if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
+        try { $result=$this->api->call('sendMessage',$params+['text'=>$bot->text('batch_back_text')]); }
+        catch(\RuntimeException $e) {
+            // An empty-looking text that Telegram refuses falls back to the album's name.
+            if($e->getCode()!==400) throw $e;
+            $result=$this->api->call('sendMessage',$params+['text'=>'<b>'.Ui::escape($title).'</b>']);
+        }
+        return (int)($result['message_id']??0);
+    }
+    /** ZIP files of the prepared tracks, each below the upload limit, sent together; the caption is on the last file. @return list<int> */
     private function sendZips(array $job,Bot $bot,array $items,string $title,string $folder,array $back): array
     {
         $limit=max(262144,$this->config->maxBytes-2097152); $archives=[]; $current=[]; $bytes=0;
@@ -416,20 +432,19 @@ final class Worker
         $close();
         $parts=count($archives);
         foreach(array_keys($archives) as $n) $archives[$n]['name']=mb_substr($base,0,80).($parts>1?' ('.($n+1).')':'').'.zip';
-        $final=array_pop($archives); $ids=[];
-        if(count($archives)===1) $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'document',$archives,'',[]));
-        elseif($archives) {
-            $groups=(int)ceil(count($archives)/10);
-            foreach(array_chunk($archives,(int)ceil(count($archives)/$groups)) as $chunk) $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'document',$chunk,'',[]));
-        }
         $caption=$this->listCaption($bot,'batch_zip_caption',['title'=>$title,'count'=>(string)count($items),'parts'=>(string)$parts],$items);
-        $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'document',[$final],$caption,$back));
-        foreach(array_merge($archives,[$final]) as $archive) @unlink($archive['path']);
+        if($parts===1) $ids=$this->sendMediaGroup($job,$bot,'document',$archives,$caption,$back);
+        else {
+            $chunks=array_chunk($archives,(int)ceil($parts/max(1,(int)ceil($parts/10)))); $ids=[];
+            foreach($chunks as $n=>$chunk) $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'document',$chunk,$n===count($chunks)-1?$caption:'',[]));
+            $ids[]=$this->backMessage($job,$bot,$title,$back);
+        }
+        foreach($archives as $archive) @unlink($archive['path']);
         return $ids;
     }
     /**
-     * One message for a single item (with the caption and buttons when given), or one media group; a group takes no buttons
-     * and no caption here. @return list<int> IDs of the messages Telegram created
+     * One message for a single item (with the caption and buttons when given), or one media group with the caption on its
+     * last item (a group takes no buttons). @return list<int> IDs of the messages Telegram created
      */
     private function sendMediaGroup(array $job,Bot $bot,string $type,array $items,string $caption,array $markup): array
     {
@@ -450,6 +465,7 @@ final class Worker
                 $entry+=['title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']];
                 if($item['thumbnail']!==null) { $params['t'.$n]=new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg'); $entry['thumbnail']='attach://t'.$n; }
             }
+            if($caption!==''&&$n===count($items)-1) $entry+=['caption'=>$caption,'parse_mode'=>'HTML'];
             $media[]=$entry;
         }
         $params['media']=$media;
