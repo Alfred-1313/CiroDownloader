@@ -263,14 +263,18 @@ final class Download
     public function inspect(string $url,string $folder,bool $forceCookies=false): array
     {
         [$canonical,$site]=self::videoPage($url);
-        $json=$this->videoRun($site,$canonical,['--dump-single-json','--skip-download'],$folder,min(120,$this->config->timeout),$forceCookies);
+        // The page's picture is written by the same request (its own network path and headers), then uploaded to Telegram
+        // as a file: Telegram's servers cannot always fetch a picture from the site's CDN themselves.
+        $extra=$site==='pornhub'?['--no-simulate','--write-thumbnail','-o',$folder.'/poster.%(ext)s']:[];
+        $json=$this->videoRun($site,$canonical,array_merge(['--dump-single-json','--skip-download'],$extra),$folder,min(120,$this->config->timeout),$forceCookies);
         try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
         catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
         if($site==='pornhub') {
-            // The same quality menu as YouTube, without the audio choice; qualities that cannot be sent are not offered.
+            // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
             $options=self::sizedOptions($info,$this->config->maxBytes);
-            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>self::trustedPoster($info,'phncdn.com')];
+            $options['meta']=self::siteMeta($info);
+            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>'','poster_file'=>self::posterFile($folder)];
         }
         $options=self::qualityOptions($info);
         $audio=self::audioOptions($info);
@@ -279,31 +283,57 @@ final class Download
         return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options,'poster'=>self::posterUrl($info,$canonical)];
     }
     /**
-     * Qualities of a site whose formats carry picture and sound together (HLS or MP4), keyed like YouTube's. A format
-     * whose size (stated, or estimated from its bitrate and the length) is above the upload limit is left out; when that
-     * leaves nothing, the video is too large for this bot.
+     * Qualities of a site whose formats carry picture and sound together (HLS or MP4), keyed like YouTube's, plus an
+     * "audio" entry (the smallest format, whose sound is extracted). A format whose size (stated, or estimated from its
+     * bitrate and the length) is above the upload limit is left out; when that leaves nothing, the video is too large for
+     * this bot. HLS streams with a known H.264 codec come first: they download in parallel pieces, while the plain MP4
+     * of the same height is throttled by the CDN to a few hundred KB/s.
      */
     public static function sizedOptions(array $info,int $maxBytes): array
     {
         if(!empty($info['is_live'])||($info['live_status']??'')==='is_live') throw new MediaFailure('duration','Live streams are not supported');
-        $duration=(float)($info['duration']??0); $formats=array_values(array_filter(is_array($info['formats']??null)?$info['formats']:[],'is_array')); $tooBig=false; $options=[];
-        // H.264 first (sent without re-encoding), then the smallest of each height.
-        usort($formats,fn($a,$b)=>[str_starts_with((string)($a['vcodec']??'avc1'),'avc1')?0:1,(float)($a['tbr']??0)]<=>[str_starts_with((string)($b['vcodec']??'avc1'),'avc1')?0:1,(float)($b['tbr']??0)]);
+        $duration=(float)($info['duration']??0); $formats=array_values(array_filter(is_array($info['formats']??null)?$info['formats']:[],'is_array')); $tooBig=false; $options=[]; $smallest=null;
+        $rank=function(array $format): int {
+            $h264=str_starts_with((string)($format['vcodec']??''),'avc1');
+            return str_starts_with((string)($format['protocol']??''),'m3u8')&&$h264?0:($h264?1:2);
+        };
+        usort($formats,fn($a,$b)=>[$rank($a),(float)($a['tbr']??0)]<=>[$rank($b),(float)($b['tbr']??0)]);
         foreach($formats as $format) {
             $id=(string)($format['format_id']??'');
             if(!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)||in_array($format['vcodec']??'',['none','images'],true)||($format['acodec']??'')==='none'||!empty($format['has_drm'])||($format['protocol']??'')==='mhtml') continue;
             $height=(int)($format['height']??0); $width=(int)($format['width']??0); $height=$width>0?min($width,$height):$height;
-            if(!in_array($height,Config::VIDEO_QUALITIES,true)) continue;
-            // Stated size, else bitrate x length. Pornhub states neither, but its file names carry the bitrate (480P_2000K_...).
+            if(!in_array($height,Config::SITE_QUALITIES,true)) continue;
+            // Stated size, else bitrate x length. Pornhub's plain MP4s state neither, but their file names carry the bitrate (480P_2000K_...).
             $kbps=(float)($format['tbr']??0);
             if($kbps<=0&&preg_match('~/\d+P_(\d{3,5})K_~',(string)($format['url']??''),$bitrate)) $kbps=(float)$bitrate[1];
             $size=is_numeric($format['filesize']??null)?(float)$format['filesize']:(is_numeric($format['filesize_approx']??null)?(float)$format['filesize_approx']:($kbps>0&&$duration>0?$kbps*125*$duration:null));
             if($size!==null&&$size>$maxBytes*0.95) { $tooBig=true; continue; }
             if(count($options[$height]??[])<8) $options[$height][]=['id'=>$id,'audio'=>true];
+            if($smallest===null||($rank($format)<=$smallest[0]&&$height<$smallest[1])||($rank($format)<$smallest[0])) $smallest=[$rank($format),$height,$id];
         }
         if(!$options) throw $tooBig?new MediaFailure('size','Every quality is larger than the upload limit'):new MediaFailure('format','No downloadable media formats found');
         ksort($options,SORT_NUMERIC);
+        // The sound alone: the lowest picture that has it, converted to MP3 after the download.
+        if($smallest!==null) $options['audio']=[['id'=>$smallest[2]]];
         return $options;
+    }
+    /** What the page says about the video, cut to what a caption can carry: people, channel, categories, tags, views. */
+    public static function siteMeta(array $info): array
+    {
+        $clean=fn(mixed $list,int $count,int $length)=>array_slice(array_values(array_unique(array_filter(array_map(fn($value)=>is_string($value)?mb_substr(trim(preg_replace('/[\x00-\x1F\x7F<>]+|\s+/u',' ',$value)??''),0,$length):'',is_array($list)?$list:[]),fn($value)=>$value!==''))),0,$count);
+        $uploader=is_string($info['uploader']??null)?mb_substr(trim(preg_replace('/[\x00-\x1F\x7F<>]+/u',' ',$info['uploader'])??''),0,60):'';
+        return ['people'=>$clean($info['cast']??[],6,40),'channel'=>$uploader,'categories'=>$clean($info['categories']??[],10,30),'tags'=>$clean($info['tags']??[],12,30),
+            'views'=>max(0,(int)($info['view_count']??0)),'likes'=>max(0,(int)($info['like_count']??0))];
+    }
+    /** The picture yt-dlp wrote next to the metadata, when it is a real image of a sensible size. */
+    public static function posterFile(string $folder): ?string
+    {
+        foreach(glob($folder.'/poster.*')?:[] as $file) {
+            if(!is_file($file)||filesize($file)<200||filesize($file)>8388608) continue;
+            $head=(string)file_get_contents($file,false,null,0,12);
+            if(str_starts_with($head,"\xFF\xD8\xFF")||str_starts_with($head,"\x89PNG")||(str_starts_with($head,'RIFF')&&substr($head,8,4)==='WEBP')) return $file;
+        }
+        return null;
     }
     /** The page's picture when it is HTTPS on the site's own image host, otherwise none. */
     public static function trustedPoster(array $info,string $host): string
@@ -440,15 +470,14 @@ final class Download
     }
     public function fetchAudio(string $url,string $folder,array $formats): array
     {
-        $canonical=youtubeUrl($url);
-        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        [$canonical,$site]=self::videoPage($url);
         $selector=[];
         foreach($formats as $format) {
             if(!is_array($format)||!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',(string)($format['id']??''))) throw new MediaFailure('format','Invalid audio format identifier');
             $selector[]=$format['id'];
         }
         if(!$selector) throw new MediaFailure('format','No saved audio formats are available');
-        return $this->audioDownload($canonical,$folder,implode('/',$selector));
+        return $this->audioDownload($canonical,$folder,implode('/',$selector),$site==='youtube'?null:fn(array $options)=>$this->videoRun($site,$canonical,$options,$folder,$this->config->timeout));
     }
     /** The best audio of a video without listing its formats first; one request fewer than inspect + fetchAudio. */
     public function fetchBestAudio(string $url,string $folder): array
@@ -523,7 +552,7 @@ final class Download
         }
         if($quality!==null&&!$selector) throw new MediaFailure('format','The selected quality has no saved formats');
         $title=$this->videoRun($site,$canonical,[
-            '--concurrent-fragments','4',
+            '--concurrent-fragments',$site==='youtube'?'4':'8',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',
             // Explicit IDs prevent silently substituting a different quality.

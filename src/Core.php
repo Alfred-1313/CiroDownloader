@@ -8,6 +8,8 @@ require_once __DIR__.'/CookiePool.php';
 final class Config
 {
     public const VIDEO_QUALITIES=[360,480,720,1080];
+    /** Pornhub's ladder starts at 240p; the menu shows 240 only when the page offers it. */
+    public const SITE_QUALITIES=[240,360,480,720,1080];
     /** When on, downloads try without cookies first and use a cookie jar only if the site refuses. */
     public bool $cookieFallback=false;
     /** Music keeps MP3 and AAC (M4A) sources as they are: faster and smaller. Off converts everything to MP3. */
@@ -504,7 +506,7 @@ final class Store
     }
     public function choose(int $id,int $user,int $chat,int|string|null $quality): ?array
     {
-        if($quality!==null&&$quality!=='audio'&&!in_array($quality,Config::VIDEO_QUALITIES,true)) return null;
+        if($quality!==null&&$quality!=='audio'&&!in_array($quality,Config::SITE_QUALITIES,true)) return null;
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[$id,$user,$chat])->fetch();

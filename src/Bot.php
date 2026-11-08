@@ -98,6 +98,39 @@ final class Bot
             $this->jobMessage($job,$caption,$rows);
         }
     }
+    /**
+     * The status message becomes a photo uploaded from a local file (for pictures Telegram cannot fetch by address). The
+     * file ID Telegram returns is kept as the job's poster, so a lost message can be sent again without the file.
+     */
+    public function jobPosterFile(array $job,string $path,string $caption,array $rows): void
+    {
+        $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+        $head=(string)file_get_contents($path,false,null,0,12);
+        [$mime,$name]=str_starts_with($head,"\x89PNG")?['image/png','poster.png']:(str_starts_with($head,'RIFF')?['image/webp','poster.webp']:['image/jpeg','poster.jpg']);
+        $file=new \CURLFile($path,$mime,$name);
+        $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
+        try {
+            if($message>0) $result=$this->api->call('editMessageMedia',$params+['message_id'=>$message,'poster'=>$file,
+                'media'=>['type'=>'photo','media'=>'attach://poster','caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']]);
+            else {
+                if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
+                $result=$this->api->call('sendPhoto',$params+['photo'=>$file,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']);
+                $message=(int)($result['message_id']??0);
+                if(!$message) throw new \RuntimeException('Missing poster message ID');
+            }
+            $photos=is_array($result)&&is_array($result['photo']??null)?$result['photo']:[];
+            $fileId=$photos?(string)(end($photos)['file_id']??''):'';
+            $this->store->query("UPDATE jobs SET message_id=?,message_kind='photo',poster=? WHERE id=?",[$message,$fileId,$job['id']]);
+        } catch(\RuntimeException $e) {
+            if($e->getCode()===404&&$message>0) {
+                $this->store->query('UPDATE jobs SET message_id=0 WHERE id=?',[$job['id']]);
+                $this->jobPosterFile($job,$path,$caption,$rows); return;
+            }
+            if($e->getCode()!==400) throw $e;
+            // A refused picture must not prevent choosing and downloading the video.
+            $this->jobMessage($job,$caption,$rows);
+        }
+    }
     public function finishJob(array $job): void
     {
         $saved=$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetch();
@@ -169,7 +202,9 @@ final class Bot
         $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=0 WHERE id=?",
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),$job['id']]);
         $rows=[]; $row=[]; $perRow=max(1,min(3,(int)$this->store->get('cover.per_row','2')));
-        foreach($this->ui->coverOrder() as $height) {
+        // 240p exists only on sites with a lower ladder (Pornhub); it leads the menu when offered.
+        $order=$this->ui->coverOrder(); if(!empty($media['options']['240'])) array_unshift($order,'240');
+        foreach($order as $height) {
             if(empty($media['options'][$height])) continue;
             if($height==='audio') {
                 if($row) { $rows[]=$row; $row=[]; }
@@ -181,7 +216,8 @@ final class Bot
         }
         if($row) $rows[]=$row;
         $caption=$this->ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));
-        if(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
+        if(!empty($media['poster_file'])) $this->jobPosterFile($job,(string)$media['poster_file'],$caption,$rows);
+        elseif(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);
         $this->store->query("UPDATE jobs SET status='waiting_quality' WHERE id=?",[$job['id']]);
     }

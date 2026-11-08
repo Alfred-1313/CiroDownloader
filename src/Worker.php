@@ -143,8 +143,8 @@ final class Worker
             }
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             if($adult) {
-                // Its own short caption and no link back to the site.
-                $caption=$bot->ui->fitCaption($bot->text('pornhub_caption',['title'=>mb_substr($media['title'],0,100),'quality'=>$media['quality']??'','duration'=>Ui::duration($media['duration'])]));
+                // Its own caption (title, people, categories, tags, views) and no link back to the site.
+                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio);
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
             } else {
                 $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
@@ -299,6 +299,31 @@ final class Worker
             unset($running[$ended]);
             if($go&&$after(array_values($running))===false) $go=false;
         }
+    }
+
+    /**
+     * The caption of a Pornhub video: its title in bold, who is in it (the page's pornstars, else the channel), the length
+     * and quality, and its categories and tags in a collapsed quote, cut to Telegram's limit.
+     */
+    private function adultCaption(Bot $bot,array $media,array $meta,bool $audio): string
+    {
+        $ui=$bot->ui; $plain=fn(string $html)=>html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        $people=array_filter((array)($meta['people']??[]),'is_string'); $channel=(string)($meta['channel']??'');
+        $who=$people?implode('، ',array_map([Ui::class,'escape'],$people)):($channel!==''?Ui::escape($channel):'');
+        $label=array_merge(array_filter((array)($meta['categories']??[]),'is_string'),array_filter((array)($meta['tags']??[]),'is_string'));
+        $label=array_values(array_unique(array_map(fn($name)=>mb_strtolower($name),$label)));
+        $views=(int)($meta['views']??0);
+        $render=fn(string $tags)=>$ui->text('pornhub_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
+            'people'=>$who!==''?"\n".$ui->text('pornhub_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith('pornhub_views',['n'=>number_format($views)]):'',
+            'tags'=>$tags!==''?"\n".$ui->text('pornhub_tags',['tags'=>$tags],['tags']):''],['people','views','tags']);
+        $room=1000-TextFormat::length($plain($render('')));
+        $kept=[]; $used=0;
+        foreach($label as $name) {
+            $tag='#'.preg_replace('/[^\p{L}\p{N}]+/u','_',$name); $cost=TextFormat::length($tag)+1+(int)(!$kept);
+            if($used+$cost>$room-40) break;
+            $kept[]=Ui::escape(trim($tag,'_')===''?$tag:rtrim($tag,'_')); $used+=$cost;
+        }
+        return $render(implode(' ',$kept));
     }
 
     /**
