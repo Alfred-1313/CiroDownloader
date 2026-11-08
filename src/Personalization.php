@@ -204,9 +204,9 @@ final class Personalization
         ];
         foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
         $screens['menu']=array_merge(array_map(fn($key)=>['text','menu_'.$key],['queued','loading','head','info','limited','empty','failed','expired','owner','sent','again','untitled']),
-            array_map(fn($key)=>['text','batch_'.$key],['queued','progress','done','stopped','zip_caption','failed','stopping']),
+            array_map(fn($key)=>['text','batch_'.$key],['queued','progress','sending','done','caption','zip_caption','failed','stopping']),
             array_map(fn($key)=>['button','menu_tab_'.$key],['popular','albums','singles','eps','compilations','playlists','related','tracks','sets','reposts','likes']),
-            array_map(fn($key)=>['button','menu_'.$key],['track','album','playlist','artist','all','zip','prev','next','back','close','page']),[['button','batch_stop']]);
+            array_map(fn($key)=>['button','menu_'.$key],['track','album','playlist','artist','all','zip','prev','next','back','close','page']),[['button','batch_stop'],['button','batch_resume'],['button','batch_back']]);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
@@ -239,6 +239,8 @@ final class Personalization
         } elseif($section==='menu') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->switchButton('menu_close_toggle','custom:menuclose',MusicMenu::closesOnChoice($this->bot->store))];
+            $copy=$this->bot->store->get('music.mp3','0')!=='1';
+            $formatButton=$ui->button('menu_format_toggle','custom:menuformat',['state'=>$ui->plain($copy?'format_fast':'format_mp3')]); $rows[]=[$formatButton];
         } elseif(in_array($section,musicServices(),true)) {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->switchButton($section.'_source_toggle','custom:'.musicPrefix($section).'source',$ui->gallerySourceEnabled($section))];
@@ -643,6 +645,10 @@ final class Personalization
             $service=galleryFromPrefix(substr($op,0,-6));
             $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
             $this->section($chat,$service,$message);
+        }
+        elseif($op==='menuformat') {
+            $this->bot->store->set('music.mp3',$this->bot->store->get('music.mp3','0')==='1'?'0':'1');
+            $this->section($chat,'menu',$message);
         }
         elseif($op==='menuclose') {
             $this->bot->store->set('music.menu_close',MusicMenu::closesOnChoice($this->bot->store)?'0':'1');

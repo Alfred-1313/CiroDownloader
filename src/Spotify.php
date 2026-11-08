@@ -171,7 +171,7 @@ final class Spotify
             },
         ];
         $sources=array_intersect_key($sources,array_flip($only));
-        $audio=null; $failure=null; $tried=[]; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
+        $clock=hrtime(true); $audio=null; $failure=null; $tried=[]; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
         foreach($sources as $source=>$find) {
             try {
                 $audio=$find();
@@ -194,6 +194,10 @@ final class Spotify
             $summary=implode(', ',array_map(fn($source,$reason)=>$source.'='.$reason,array_keys($tried),$tried));
             throw new MediaFailure($failure?->reason??'format','Spotify audio sources failed ['.$summary.']: '.mb_substr($failure?->getMessage()??'no source',0,240));
         }
-        return Music::finish($this->config,$audio,$folder,$meta,'spotify');
+        $found=(int)round((hrtime(true)-$clock)/1e6);
+        $media=Music::finish($this->config,$audio,$folder,$meta,'spotify');
+        // Where the time goes: finding and downloading the audio, then the cover and the tags.
+        error_log('Spotify timings '.json_encode(['source_ms'=>$found,'tag_ms'=>(int)round((hrtime(true)-$clock)/1e6)-$found,'format'=>strtoupper(pathinfo($media['path'],PATHINFO_EXTENSION))]));
+        return $media;
     }
 }

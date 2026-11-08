@@ -114,14 +114,14 @@ try {
     $store->query("UPDATE jobs SET status='queued'");
     $job=$run(); if($job['status']!=='done') throw new RuntimeException('SoundCloud job failed: '.$store->get('last_job_error'));
     $audio=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendAudio')); $params=$audio[0]['params'];
-    soundcloudCheck(count($audio)===1&&$audio[0]['uploads']['audio']['mime']==='audio/mpeg'&&$audio[0]['uploads']['audio']['name']==='Fixture Artist - Fixture Song.mp3','one MP3 audio message is sent with the artist and title as its file name');
+    soundcloudCheck(count($audio)===1&&$audio[0]['uploads']['audio']['mime']==='audio/mp4'&&$audio[0]['uploads']['audio']['name']==='Fixture Artist - Fixture Song.m4a','one M4A audio message is sent with the artist and title as its file name');
     soundcloudCheck($params['title']==='Fixture Song'&&$params['performer']==='Fixture Artist'&&(int)$params['duration']>=12&&(int)$params['duration']<=13&&!isset($audio[0]['uploads']['thumbnail']),'Telegram receives the real title, artist and length; a cover from a foreign host is never fetched');
     soundcloudCheck(str_contains($params['caption'],'Fixture Song')&&str_contains($params['caption'],'Fixture Artist')&&str_contains($params['caption'],'00:12')&&!str_contains($params['caption'],'href=')&&!isset($params['reply_markup']),'the default caption has title, artist and length, without a link or a source button');
     $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$temp.'/delivered-audio'],$temp,30),true);
-    soundcloudCheck(array_column($probe['streams'],'codec_name','codec_type')===['audio'=>'mp3']&&($probe['format']['tags']['title']??'')==='Fixture Song'&&($probe['format']['tags']['artist']??'')==='Fixture Artist'&&($probe['format']['tags']['date']??'')==='2019','the MP3 carries the title, artist and release year');
+    soundcloudCheck(array_column($probe['streams'],'codec_name','codec_type')===['audio'=>'aac']&&($probe['format']['tags']['title']??'')==='Fixture Song'&&($probe['format']['tags']['artist']??'')==='Fixture Artist'&&($probe['format']['tags']['date']??'')==='2019','the MP3 carries the title, artist and release year');
     $yt=$searches();
     soundcloudCheck(count($yt)>=1&&end($yt[0])===$canonical&&in_array('--write-info-json',$yt[0],true)&&!in_array('--cookies',$yt[0],true),'the track page is downloaded once with its details and without YouTube cookies');
-    soundcloudCheck(in_array('ba[format_id!*=preview]/b[format_id!*=preview]',$yt[0],true),'the 30 s previews SoundCloud lists are never chosen');
+    soundcloudCheck(in_array('ba[format_id!*=preview][ext=mp3]/ba[format_id!*=preview][ext=m4a]/ba[format_id!*=preview]/b[format_id!*=preview]',$yt[0],true),'MP3 and M4A are preferred and the 30 s previews SoundCloud lists are never chosen');
 
     // 5. Group delivery keeps the topic; the administrator controls the source button and the music reaction.
     file_put_contents($log,''); $uiApi=new SoundCloudUiApi(); $admin=new Zero\Bot($config,$store,$uiApi);

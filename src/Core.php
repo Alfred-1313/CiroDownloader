@@ -10,6 +10,8 @@ final class Config
     public const VIDEO_QUALITIES=[360,480,720,1080];
     /** When on, downloads try without cookies first and use a cookie jar only if the site refuses. */
     public bool $cookieFallback=false;
+    /** Music keeps MP3 and AAC (M4A) sources as they are: faster and smaller. Off converts everything to MP3. */
+    public bool $musicCopy=true;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
     public string $galleryProxy='';
     /** TikTok: prefer H.264 streams so videos are remuxed instead of re-encoded (much faster). */
@@ -218,7 +220,7 @@ final class Telegram implements FileApi
             // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
             CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 524288, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
-            CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
+            CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto','sendMediaGroup','sendDocument'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
         $body = curl_exec($ch);
         $errno = curl_errno($ch);
         if ($body === false) { self::$handles = []; throw new \RuntimeException('Telegram transport error ' . $errno); }

@@ -262,6 +262,11 @@ final class Download
         if(!is_array($data)) throw new MediaFailure('format','SoundCloud list is missing');
         return $data;
     }
+    private function soundCloudSelector(): string
+    {
+        $full='[format_id!*=preview]';
+        return $this->config->musicCopy?'ba'.$full.'[ext=mp3]/ba'.$full.'[ext=m4a]/'.self::FULL_AUDIO:self::FULL_AUDIO;
+    }
     private static function soundCloudUrl(string $id): string { return 'https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A'.$id; }
     /** A downloader run for a site that is not YouTube: no YouTube cookies, the social-media proxy when one is set. */
     private function plain(string $url,array $options,string $folder,int $seconds): string
@@ -294,7 +299,7 @@ final class Download
     {
         if(!preg_match('/^[0-9]{1,20}$/D',$id)) throw new MediaFailure('format','Invalid SoundCloud track');
         $url=self::soundCloudUrl($id);
-        return $this->audioDownload($url,$folder,self::FULL_AUDIO,fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout));
+        return $this->audioDownload($url,$folder,$this->soundCloudSelector(),fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout),[],$this->config->musicCopy);
     }
     /**
      * One SoundCloud track page: its audio as MP3 plus the track's own details (title, artists, length, cover, date).
@@ -304,7 +309,7 @@ final class Download
     public function fetchSoundCloudTrack(string $url,string $folder): array
     {
         if(!preg_match('~^https://(?:soundcloud\.com/[A-Za-z0-9_-]{1,64}/[A-Za-z0-9_-]{1,128}|api\.soundcloud\.com/tracks/soundcloud%3Atracks%3A[0-9]{1,20})$~D',$url)) throw new MediaFailure('format','Invalid SoundCloud track address');
-        $audio=$this->audioDownload($url,$folder,self::FULL_AUDIO,fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout),['--write-info-json']);
+        $audio=$this->audioDownload($url,$folder,$this->soundCloudSelector(),fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout),['--write-info-json'],$this->config->musicCopy);
         $file=$folder.'/source.info.json'; $info=[];
         if(is_file($file)&&filesize($file)<=4194304) {
             $decoded=json_decode((string)file_get_contents($file),true);
@@ -360,10 +365,12 @@ final class Download
     {
         $canonical=youtubeUrl($url);
         if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        return $this->audioDownload($canonical,$folder,'ba/b');
+        // M4A (AAC) exists for every YouTube video and needs no re-encoding; Opus would have to be converted.
+        return $this->audioDownload($canonical,$folder,$this->config->musicCopy?'ba[ext=m4a]/ba/b':'ba/b',null,[],$this->config->musicCopy);
     }
     /** @param ?callable(list<string>):string $runner downloads with the given options; null means YouTube with its cookies */
-    private function audioDownload(string $canonical,string $folder,string $selector,?callable $runner=null,array $extra=[]): array
+    /** @param bool $copy music mode: keep MP3 and AAC (M4A) sources as they are instead of re-encoding them to MP3 */
+    private function audioDownload(string $canonical,string $folder,string $selector,?callable $runner=null,array $extra=[],bool $copy=false): array
     {
         $options=array_merge([
             '--concurrent-fragments','4',
@@ -374,6 +381,8 @@ final class Download
         $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>
             in_array(strtolower(pathinfo($file,PATHINFO_EXTENSION)),['m4a','webm','mp4','mkv','opus','ogg','mp3','aac','wav','flac'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete audio source');
+        $title=is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube';
+        if($copy) return $this->keepOrConvert($files[0],$folder,$title);
         $ready=$folder.'/ready.mp3';
         $this->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$files[0],
             '-map','0:a:0','-vn','-c:a','libmp3lame','-b:a','192k','-ac','2','-threads','2',$ready],$folder,$this->config->timeout);
@@ -385,8 +394,32 @@ final class Download
         if(($streams['audio']??'')!=='mp3'||isset($streams['video'])) throw new MediaFailure('format','Prepared MP3 has invalid streams');
         $duration=(float)($info['format']['duration']??0);
         if($duration<=0) throw new MediaFailure('duration','Audio has no duration');
-        return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube',
-            'format'=>'MP3','duration'=>(int)ceil($duration)];
+        return ['path'=>$ready,'title'=>$title,'format'=>'MP3','duration'=>(int)ceil($duration)];
+    }
+    /**
+     * Telegram plays MP3 and M4A (AAC) as music. A source that already is one of them is only copied into its own
+     * container: no quality is lost, it takes a fraction of a second and the file is the smaller one. Anything else
+     * (Opus, Vorbis) becomes MP3 at 160 kbps, which is all such sources hold.
+     */
+    private function keepOrConvert(string $source,string $folder,string $title): array
+    {
+        $codec=''; $info=$this->probe($source,$folder);
+        foreach($info['streams']??[] as $stream) if(($stream['codec_type']??'')==='audio') { $codec=(string)($stream['codec_name']??''); break; }
+        [$ready,$arguments,$format,$expected]=match($codec) {
+            'mp3'=>[$folder.'/ready.mp3',['-c:a','copy'],'MP3','mp3'],
+            'aac'=>[$folder.'/ready.m4a',['-c:a','copy','-movflags','+faststart'],'M4A','aac'],
+            default=>[$folder.'/ready.mp3',['-c:a','libmp3lame','-b:a','160k','-ac','2','-threads','2'],'MP3','mp3'],
+        };
+        $this->run(array_merge(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$source,'-map','0:a:0','-vn'],$arguments,[$ready]),$folder,$this->config->timeout);
+        clearstatcache(true,$ready);
+        if(!is_file($ready)||filesize($ready)<1) throw new MediaFailure('format','Prepared audio is missing');
+        if(filesize($ready)>$this->config->maxBytes) throw new MediaFailure('size','Prepared audio exceeds file size limit');
+        $info=$this->probe($ready,$folder);
+        $streams=array_column($info['streams']??[],'codec_name','codec_type');
+        if(($streams['audio']??'')!==$expected||isset($streams['video'])) throw new MediaFailure('format','Prepared audio has invalid streams');
+        $duration=(float)($info['format']['duration']??0);
+        if($duration<=0) throw new MediaFailure('duration','Audio has no duration');
+        return ['path'=>$ready,'title'=>$title,'format'=>$format,'duration'=>(int)ceil($duration)];
     }
     public function fetch(string $url, string $folder, ?int $quality=null, array $formats=[]): array
     {

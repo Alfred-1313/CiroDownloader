@@ -72,6 +72,7 @@ jobs:
           php tests/spotify.php
           php tests/soundcloud.php
           php tests/music_menu.php
+          php tests/music_audio.php
           php tests/speedtest.php
           php tests/cookie_pool.php
           php tests/cookie_formats.php

@@ -95,6 +95,15 @@ foreach($_FILES as $key=>$file) {
     if($method==='sendAudio'&&$key==='audio') copy($file['tmp_name'],$root.'/delivered-audio');
     if($method==='sendDocument') copy($file['tmp_name'],$root.'/delivered-'.count(glob($root.'/delivered-*.zip')).'.zip');
 }
+foreach($_FILES as $key=>$file) {
+    if($method==='sendMediaGroup'&&str_ends_with((string)$file['name'],'.zip')) copy($file['tmp_name'],$root.'/delivered-'.count(glob($root.'/delivered-*.zip')).'.zip');
+}
 $record($method,$_POST,$uploads);
 $next=(int)@file_get_contents($root.'/counter')+1; file_put_contents($root.'/counter',(string)$next);
+if($method==='sendMediaGroup') {
+    // One message per item, with consecutive IDs.
+    $count=count(json_decode((string)($_POST['media']??'[]'),true)?:[]); file_put_contents($root.'/counter',(string)($next+$count-1));
+    $messages=[]; for($i=0;$i<$count;$i++) $messages[]=['message_id'=>900+$next+$i];
+    $json(['ok'=>true,'result'=>$messages]); return;
+}
 $json(['ok'=>true,'result'=>str_starts_with($method,'send')?['message_id'=>900+$next]:true]);

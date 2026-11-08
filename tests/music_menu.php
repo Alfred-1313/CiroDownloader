@@ -125,41 +125,65 @@ try {
     $tap('mm:'.$menuId.':t:albums',11,$menuMessage);
     menuCheck(str_contains($answer()['text']??'','منقضی'),'a button of the closed menu says it has expired');
 
-    // 6. "Download all": one audio message per track on one status message, or ZIP files.
+    // 6. "Download all": the menu message shows progress, all tracks are sent together in media groups with one caption,
+    // and "back to the previous menu" deletes them and restores the menu.
     $fresh(); $send('https://open.spotify.com/artist/'.$artistId,12); $run('inspect');
     $id=(int)$store->query('SELECT id FROM music_menus')->fetchColumn(); $menuMessage=(int)$store->query('SELECT message_id FROM music_menus')->fetchColumn();
-    $tap('mm:'.$id.':t:albums',12); $tap('mm:'.$id.':o:0',12); file_put_contents($log,'');
-    $tap('mm:'.$id.':a:each',12);
+    $tap('mm:'.$id.':t:albums',12); $tap('mm:'.$id.':o:0',12); $albumMenu=$lastMenu();
+    $buttonStyles=[];
+    foreach($albumMenu['buttons'] as $b) $buttonStyles[$b['text']]=$b['style']??'';
+    menuCheck(($buttonStyles[$bot->label('menu_all')]??'')==='success'&&($buttonStyles[$bot->label('menu_zip')]??'')==='success'&&($button($albumMenu,'بازگشت')['style']??'')==='danger','"download all" buttons are green and Back is red');
+    file_put_contents($log,''); $tap('mm:'.$id.':a:each',12);
     $job=$store->query("SELECT * FROM jobs ORDER BY id DESC LIMIT 1")->fetch(); $batch=json_decode($job['options'],true)['batch'];
-    menuCheck($job['phase']==='batch'&&$batch['mode']==='each'&&count($batch['tracks'])===3&&$batch['title']==='New Album'&&(int)$job['message_id']===$menuMessage&&$job['url']==='https://www.deezer.com/album/52','"download all" queues the album\'s three tracks as one job on the menu message');
+    menuCheck($job['phase']==='batch'&&$batch['mode']==='each'&&count($batch['tracks'])===3&&$batch['title']==='New Album'&&(int)$job['message_id']===$menuMessage&&$batch['menu']===$id&&$job['url']==='https://www.deezer.com/album/52','"download all" queues the album as one job on the menu\'s own message');
+    menuCheck($store->query('SELECT COUNT(*) FROM music_menus WHERE id=?',[$id])->fetchColumn()==1,'the menu is kept while it runs');
+    $tap('mm:'.$id.':a:each',12); menuCheck(str_contains($answer()['text']??'','در راه است')&&$store->query("SELECT COUNT(*) FROM jobs WHERE phase='batch'")->fetchColumn()==1,'a second tap while it runs queues nothing');
     file_put_contents($log,''); $job=$run('media');
-    $progress=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'از 3')));
-    menuCheck($job['status']==='done'&&count($called('sendAudio'))===3&&count($progress)===3&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id']),'each track is sent as its own audio, with progress and a stop button on the status');
-    menuCheck(count($called('deleteMessage'))===1,'when every track arrived the status message is removed');
-    $fresh(); $send('https://open.spotify.com/album/'.$albumId,13); $run('inspect'); $album=$lastMenu();
-    menuCheck($album['photo']==='https://image-cdn-fa.spotifycdn.com/image/album-'.$albumId&&!array_filter($album['data'],fn($value)=>str_contains($value,':t:'))&&in_array('mm:'.(int)$store->query('SELECT id FROM music_menus')->fetchColumn().':a:zip',$album['data'],true),'an album page opens with its cover, its tracks and "download all"');
-    $id=(int)$store->query('SELECT id FROM music_menus')->fetchColumn();
-    $config->maxBytes=2097152+650000; // room for about two short MP3s per ZIP file
-    $tap('mm:'.$id.':a:zip',13); file_put_contents($log,''); $job=$run('media');
-    $documents=$called('sendDocument'); $zip=new ZipArchive(); $zip->open($temp.'/delivered-0.zip'); $names=[];
-    for($i=0;$i<$zip->numFiles;$i++) $names[]=$zip->getNameIndex($i);
-    $method=$zip->statIndex(0)['comp_method']; $zip->close();
-    menuCheck($job['status']==='done'&&count($documents)===2&&$documents[0]['uploads']['document']['mime']==='application/zip'&&str_ends_with($documents[0]['uploads']['document']['name'],'(1).zip')&&!$called('sendAudio'),'ZIP mode sends the tracks in ZIP files that each fit the upload limit');
-    menuCheck($names===['01 - Fixture Artist - Hit Song 1.mp3','02 - Fixture Artist - Hit Song 2.mp3']&&$method===ZipArchive::CM_STORE&&str_contains($documents[1]['params']['caption'],'بخش 2'),'files keep the album order and their tagged names, stored without compression');
-    $config->maxBytes=49000000;
-    // A missing track is skipped and reported; a stop request ends the run early; only the owner can stop.
+    $progress=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'آماده‌سازی آهنگ‌ها')));
+    menuCheck($job['status']==='done'&&count($progress)>=1&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id'])&&!$called('sendAudio'),'progress with a stop button shows on the menu message, and no track is sent on its own');
+    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true);
+    menuCheck(count($groups)===1&&count($media)===3&&array_unique(array_column($media,'type'))===['audio']&&isset($media[0]['caption'])&&!isset($media[1]['caption'])&&str_contains($media[0]['caption'],'New Album')&&str_contains($media[0]['caption'],'3 آهنگ'),'all three tracks arrive as one group with a single caption');
+    menuCheck(array_column($media,'title')===['Album Cut One','Album Cut Two','Album Cut Three']&&$groups[0]['uploads']['f0']['mime']==='audio/mp4'&&str_ends_with($groups[0]['uploads']['f0']['name'],'.m4a'),'in album order, with their titles, as M4A files');
+    $row=$store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch(); $state=json_decode($row['data'],true)['batch'];
+    $final=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'ارسال شد')));
+    menuCheck(count($final)===1&&$state['state']==='done'&&count($state['delivered'])===3&&json_decode($final[0]['params']['reply_markup'],true)['inline_keyboard'][0][0]['callback_data']==='mm:'.$id.':r'&&(json_decode($final[0]['params']['reply_markup'],true)['inline_keyboard'][0][0]['style']??'')==='danger','the menu message becomes a summary with a red "back to the previous menu" button');
+    menuCheck(!$called('deleteMessage')&&is_dir($config->storage.'/music-batches'),'the status message is not deleted and the prepared tracks stay for a quick way back');
+    file_put_contents($log,''); $tap('mm:'.$id.':r',12,$menuMessage);
+    $deleted=$called('deleteMessages'); $back=$lastMenu();
+    menuCheck(count($deleted)===1&&count(json_decode($deleted[0]['params']['message_ids'],true))===3,'"back" deletes the three sent messages');
+    menuCheck($back!==null&&str_contains($back['text'],'💿 New Album')&&count($items($back))===3&&!isset(json_decode($store->query('SELECT data FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['batch'])&&!glob($config->storage.'/music-batches/*'),'and the album menu is back where it was, with nothing left over');
+
+    // Stopping sends nothing, returns to the menu with "continue", and the run continues from there.
+    file_put_contents($log,''); $tap('mm:'.$id.':a:each',12);
+    $batchJob=(int)$store->query("SELECT id FROM jobs WHERE phase='batch' ORDER BY id DESC LIMIT 1")->fetchColumn();
+    $tap('mb:'.$batchJob,99,$menuMessage); menuCheck(str_contains($answer()['text']??'','فرستندهٔ لینک')&&$store->get('batch.stop.'.$batchJob)==='','someone else cannot stop the download');
+    $tap('mb:'.$batchJob,12,$menuMessage); menuCheck(str_contains($answer()['text']??'','چیزی ارسال نمی‌شود')&&$store->get('batch.stop.'.$batchJob)==='1','the owner\'s stop is acknowledged');
+    file_put_contents($log,''); $run('media');
+    $paused=$lastMenu();
+    menuCheck(!$called('sendMediaGroup')&&!$called('sendAudio')&&$paused!==null&&str_contains($paused['text'],'💿 New Album')&&$store->get('batch.stop.'.$batchJob)==='','a stopped download sends nothing and the album menu is back');
+    $resume=$button($paused,'ادامه دانلود');
+    menuCheck(($resume['style']??'')==='success'&&$resume['callback_data']==='mm:'.$id.':c'&&str_contains($resume['text'],'0 از 3'),'it offers a green "continue download" with the progress');
+    $tap('mm:'.$id.':c',12); file_put_contents($log,''); $job=$run('media');
+    menuCheck($job['status']==='done'&&count($called('sendMediaGroup'))===1&&count(json_decode($called('sendMediaGroup')[0]['params']['media'],true))===3,'continuing finishes the job and sends everything together');
+    $tap('mm:'.$id.':r',12,$menuMessage);
+
+    // ZIP: the files go out as a group of documents, split by the upload limit, in album order.
+    $config->maxBytes=2097152+262144; $zipSize=filesize($temp.'/source.m4a'); file_put_contents($log,'');
+    $tap('mm:'.$id.':a:zip',12); $job=$run('media');
+    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true);
+    $zip=new ZipArchive(); $zip->open($temp.'/delivered-0.zip'); $names=[]; for($i=0;$i<$zip->numFiles;$i++) $names[]=$zip->getNameIndex($i); $method=$zip->statIndex(0)['comp_method']; $zip->close();
+    menuCheck($job['status']==='done'&&count($groups)===1&&count($media)>=2&&array_unique(array_column($media,'type'))===['document']&&isset($media[0]['caption'])&&str_contains($media[0]['caption'],'ZIP')&&str_ends_with($groups[0]['uploads']['f0']['name'],'(1).zip'),'ZIP mode sends the ZIP files together as one group of documents, each below the upload limit');
+    menuCheck($names===['01 - Fixture Artist - Album Cut One.m4a','02 - Fixture Artist - Album Cut Two.m4a']&&count($media)===2&&$method===ZipArchive::CM_STORE,'files keep the album order and their tagged names, stored without compression');
+    $tap('mm:'.$id.':r',12,$menuMessage); $config->maxBytes=49000000;
+
+    // A track that cannot be found is skipped and counted; one left over is sent on its own.
     $fresh(); $send('https://open.spotify.com/artist/'.$artistId,14); $run('inspect');
     $id=(int)$store->query('SELECT id FROM music_menus')->fetchColumn();
     $tap('mm:'.$id.':t:singles',14); $tap('mm:'.$id.':o:0',14); $tap('mm:'.$id.':a:each',14);
-    file_put_contents($log,''); $job=$run('media'); $summary=($called('editMessageCaption')[count($called('editMessageCaption'))-1]['params']['caption']??'');
-    menuCheck($job['status']==='done'&&count($called('sendAudio'))===1&&str_contains($summary,'1 از 2')&&str_contains($summary,'1 آهنگ')&&!$called('deleteMessage'),'a track that cannot be found is skipped and the status keeps a summary');
-    $fresh(); $send('https://open.spotify.com/album/'.$albumId,15); $run('inspect');
-    $id=(int)$store->query('SELECT id FROM music_menus')->fetchColumn(); $tap('mm:'.$id.':a:each',15);
-    $batchJob=(int)$store->query("SELECT id FROM jobs WHERE phase='batch'")->fetchColumn(); $batchMessage=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$batchJob])->fetchColumn();
-    $tap('mb:'.$batchJob,99,$batchMessage); menuCheck(str_contains($answer()['text']??'','فرستندهٔ لینک')&&$store->get('batch.stop.'.$batchJob)==='','someone else cannot stop the download');
-    $tap('mb:'.$batchJob,15,$batchMessage); menuCheck(str_contains($answer()['text']??'','متوقف')&&$store->get('batch.stop.'.$batchJob)==='1','the owner\'s stop is acknowledged');
-    file_put_contents($log,''); $run('media');
-    menuCheck(!$called('sendAudio')&&str_contains(($called('editMessageCaption')[count($called('editMessageCaption'))-1]['params']['caption']??''),'متوقف شد')&&$store->get('batch.stop.'.$batchJob)==='','a stopped download sends nothing more and says so');
+    file_put_contents($log,''); $job=$run('media'); $summary=$called('editMessageCaption'); $summary=$summary[count($summary)-1]['params']['caption']??'';
+    menuCheck($job['status']==='done'&&count($called('sendAudio'))===1&&!$called('sendMediaGroup')&&str_contains($summary,'1 آهنگ ارسال شد')&&str_contains($summary,'1 آهنگ پیدا یا دریافت نشد'),'a track that cannot be found is skipped and counted; the one left is sent alone');
+    $fresh(); $send('https://open.spotify.com/album/'.$albumId,13); $run('inspect'); $album=$lastMenu();
+    menuCheck($album['photo']==='https://image-cdn-fa.spotifycdn.com/image/album-'.$albumId&&!array_filter($album['data'],fn($value)=>str_contains($value,':t:'))&&in_array('mm:'.(int)$store->query('SELECT id FROM music_menus')->fetchColumn().':a:zip',$album['data'],true),'an album page opens with its cover, its tracks and "download all"');
 
     // 7. Artists Deezer does not know come from Apple's catalogue; without either only Spotify's popular tracks are shown.
     $fresh(); $send('https://open.spotify.com/artist/'.$bandId,16); $run('inspect'); $band=$lastMenu();

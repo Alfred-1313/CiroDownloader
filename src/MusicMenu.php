@@ -43,6 +43,7 @@ final class MusicMenu
         $store->db->exec('BEGIN IMMEDIATE');
         try {
             $store->query('DELETE FROM music_menus WHERE expires<?',[time()]);
+            self::purge($bot->config);
             $store->query('DELETE FROM music_menus WHERE user_id=? AND id NOT IN (SELECT id FROM music_menus WHERE user_id=? ORDER BY id DESC LIMIT ?)',[(int)$job['user_id'],(int)$job['user_id'],self::KEEP-1]);
             $store->query('INSERT INTO music_menus(user_id,chat_id,thread_id,service,kind,data,view,created,expires) VALUES(?,?,?,?,?,?,?,?,?)',
                 [(int)$job['user_id'],(int)$job['chat_id'],(int)($job['thread_id']??0),$collection['service'],$collection['kind'],
@@ -88,6 +89,12 @@ final class MusicMenu
     {
         $ui=$this->bot->ui; $id=(int)$menu['id'];
         $data=json_decode($menu['data'],true); $view=json_decode($menu['view'],true);
+        $batch=is_array($data['batch']??null)?$data['batch']:[];
+        // After a whole list was sent: a summary and the way back, which deletes what was sent.
+        if(($batch['state']??'')==='done') {
+            $text=$ui->text('batch_done',['title'=>(string)$batch['title'],'done'=>(string)$batch['count'],'failed'=>(string)$batch['failed']]);
+            return [$text,[[$ui->button('batch_back','mm:'.$id.':r')]]];
+        }
         $now=$this->listOf($data,$view); $items=$now['items'];
         $pages=max(1,(int)ceil(count($items)/self::PAGE)); $page=max(0,min($pages-1,(int)$view['page']));
         $rows=[];
@@ -107,7 +114,11 @@ final class MusicMenu
         }
         // A list of tracks inside an album, playlist or set (or a page that is one) can be fetched whole.
         $whole=($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1;
-        if($whole) $rows[]=[$ui->button('menu_all','mm:'.$id.':a:each'),$ui->button('menu_zip','mm:'.$id.':a:zip')];
+        if($whole) {
+            // A stopped download of this very list can be continued where it stopped.
+            if(($batch['state']??'')==='paused'&&($batch['address']??'')===$now['url']) $rows[]=[$ui->button('batch_resume','mm:'.$id.':c',['done'=>(string)$batch['ready'],'total'=>(string)$batch['total']])];
+            $rows[]=[$ui->button('menu_all','mm:'.$id.':a:each'),$ui->button('menu_zip','mm:'.$id.':a:zip')];
+        }
         if($pages>1) $rows[]=[$ui->button('menu_page','mm:'.$id.':n',['page'=>(string)($page+1),'pages'=>(string)$pages])];
         $keys=['t'=>'menu_track','a'=>'menu_album','p'=>'menu_playlist','s'=>'menu_playlist','r'=>'menu_artist'];
         foreach(array_slice($items,$page*self::PAGE,self::PAGE,true) as $index=>$item) {
@@ -184,17 +195,21 @@ final class MusicMenu
         }
         if((int)$menu['user_id']!==$user||(int)$menu['chat_id']!==$chat||($chat<0&&(int)$menu['thread_id']!==$thread)) { $this->answer($cb,'menu_owner',true); return; }
         $data=json_decode($menu['data'],true); $view=json_decode($menu['view'],true);
+        if(($data['batch']['state']??'')==='done'&&!in_array($op,['r','x','n'],true)) { $this->answer($cb); return; }
         try {
             if($op==='n') { $this->answer($cb); return; }
             if($op==='x') {
+                self::forgetBatches($this->bot->config,(int)$menu['id']);
                 $store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]);
                 $this->answer($cb);
                 try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); }
                 catch(\Throwable) { try { $this->bot->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$message,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {} }
                 return;
             }
-            if($op==='a') {
-                $key=$this->requestAll($menu,$data,$view,$arg,(int)$update['update_id'],$thread);
+            if($op==='r') { $this->giveBack($menu,$data,$chat); $this->answer($cb); return; }
+            if(in_array($op,['a','c'],true)&&($data['batch']['state']??'')==='running') { $this->answer($cb,'menu_again'); return; }
+            if($op==='a'||$op==='c') {
+                $key=$this->requestAll($menu,$data,$view,$op==='c'?'resume':$arg,(int)$update['update_id'],$thread);
                 $this->answer($cb,$key,!in_array($key,['menu_sent','menu_again'],true)); return;
             }
             if($op==='t') {
@@ -299,24 +314,80 @@ final class MusicMenu
         return $this->queued($menu,$key,$sent,$result,$adopt);
     }
 
-    /** Queue every track of the open list (up to BATCH_MAX) as one job: one audio message each, or ZIP files. */
+    /**
+     * Queue every track of the open list (up to BATCH_MAX) as one job on the menu's own message, or continue a stopped
+     * run ($mode "resume"). The menu row stays: stopping or finishing brings the menu back.
+     */
     private function requestAll(array $menu,array $data,array $view,string $mode,int $update,int $thread): string
     {
-        if(!in_array($mode,['each','zip'],true)) return '';
-        $now=$this->listOf($data,$view);
-        $tracks=[];
-        foreach(self::tracksOf($now['items']) as $item) if(($track=self::trackJob($item))!==null) $tracks[]=$track+['n'=>(string)$item['n']];
-        if(count($tracks)<1) return 'menu_failed';
-        $tracks=array_slice($tracks,0,self::BATCH_MAX);
-        $address=$now['url']!==''?$now['url']:(string)($data['url']??'');
-        if($address==='') return 'menu_failed';
-        $key=substr(hash('sha256','all:'.$mode.':'.$address),0,12);
-        $sent=array_filter(json_decode($menu['sent'],true)?:[],fn($time)=>(int)$time>time()-self::RECENT);
-        if(isset($sent[$key])) return 'menu_again';
-        $adopt=$this->adoption($menu);
-        $options=['batch'=>['service'=>$data['service']==='soundcloud'?'soundcloud':'spotify','mode'=>$mode,'title'=>mb_substr($now['title'],0,100),'tracks'=>$tracks]];
-        $result=$this->bot->requestVideo($update,(int)$menu['user_id'],(int)$menu['chat_id'],$address,$thread,0,'batch',$options,true,$adopt);
-        return $this->queued($menu,$key,$sent,$result,$adopt);
+        if($mode==='resume') {
+            $options=$data['batch']['options']??null;
+            if(!is_array($options)||($data['batch']['state']??'')!=='paused') return 'menu_failed';
+            $address=(string)$data['batch']['address'];
+        } else {
+            if(!in_array($mode,['each','zip'],true)) return '';
+            $now=$this->listOf($data,$view); $tracks=[];
+            foreach(self::tracksOf($now['items']) as $item) if(($track=self::trackJob($item))!==null) $tracks[]=$track+['n'=>(string)$item['n']];
+            $tracks=array_slice($tracks,0,self::BATCH_MAX);
+            $address=$now['url']!==''?$now['url']:(string)($data['url']??'');
+            if(count($tracks)<1||$address==='') return 'menu_failed';
+            $options=['batch'=>['service'=>$data['service']==='soundcloud'?'soundcloud':'spotify','mode'=>$mode,'title'=>mb_substr($now['title'],0,100),'tracks'=>$tracks,
+                'menu'=>(int)$menu['id'],'key'=>$menu['id'].'-'.substr(hash('sha256',$address),0,8)]];
+        }
+        $message=['message'=>(int)$menu['message_id'],'kind'=>!empty($data['photo'])?'photo':'text','poster'=>(string)($data['shown']??'')];
+        if($message['message']<1) return 'menu_failed';
+        $result=$this->bot->requestVideo($update,(int)$menu['user_id'],(int)$menu['chat_id'],$address,$thread,0,'batch',$options,true,$message);
+        if($result==='duplicate') return '';
+        if($result!=='queued') return match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance','denied'=>'denied',default=>'failed'};
+        $data['batch']=['state'=>'running','options'=>$options,'address'=>$address,'ready'=>0,'total'=>count($options['batch']['tracks'])];
+        $this->bot->store->query('UPDATE music_menus SET data=? WHERE id=?',[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$menu['id']]);
+        return 'menu_sent';
+    }
+
+    private function load(int $id): ?array
+    {
+        $menu=$this->bot->store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch();
+        return $menu?:null;
+    }
+    /** Worker: the run was stopped. Nothing was sent; the menu returns with a "continue" button. */
+    public function paused(int $id,array $batch,int $ready,int $total): void
+    {
+        if(!($menu=$this->load($id))) return;
+        $data=json_decode($menu['data'],true);
+        $data['batch']=['state'=>'paused','options'=>['batch'=>$batch],'address'=>$data['batch']['address']??'','ready'=>$ready,'total'=>$total];
+        $this->save($menu,$data,json_decode($menu['view'],true));
+        $this->show($this->load($id),(int)$menu['chat_id']);
+    }
+    /** Worker: everything was sent. The message now only offers the way back, which removes the sent messages. */
+    public function delivered(int $id,array $batch,array $ids,int $count,int $failed): void
+    {
+        if(!($menu=$this->load($id))) return;
+        $data=json_decode($menu['data'],true);
+        $data['batch']=['state'=>'done','title'=>(string)$batch['title'],'count'=>$count,'failed'=>$failed,'delivered'=>$ids,'key'=>(string)$batch['key'],'address'=>$data['batch']['address']??''];
+        $this->save($menu,$data,json_decode($menu['view'],true));
+        $this->show($this->load($id),(int)$menu['chat_id']);
+    }
+    /** "Back to the previous menu": the sent tracks are deleted and the menu is shown again where it was. */
+    private function giveBack(array $menu,array $data,int $chat): void
+    {
+        $ids=array_values(array_filter(array_map('intval',(array)($data['batch']['delivered']??[])),fn($id)=>$id>0));
+        foreach(array_chunk($ids,100) as $chunk) {
+            try { $this->bot->api->call('deleteMessages',['chat_id'=>$chat,'message_ids'=>$chunk]); }
+            catch(\Throwable) { foreach($chunk as $messageId) { try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$messageId]); } catch(\Throwable) {} } }
+        }
+        self::forgetBatches($this->bot->config,(int)$menu['id']);
+        unset($data['batch']);
+        $this->show($this->save($menu,$data,json_decode($menu['view'],true)),$chat);
+    }
+    /** Removes the prepared tracks of a menu's batches. */
+    public static function forgetBatches(Config $config,int $menu): void
+    {
+        foreach(glob($config->storage.'/music-batches/'.$menu.'-*',GLOB_ONLYDIR)?:[] as $folder) Download::clean($folder);
+    }
+    /** Prepared tracks older than the menus themselves are removed. */
+    public static function purge(Config $config): void
+    {
+        foreach(glob($config->storage.'/music-batches/*',GLOB_ONLYDIR)?:[] as $folder) if(filemtime($folder)<time()-self::TTL-3600) Download::clean($folder);
     }
 
     /** A tap on "stop" under a running download of a whole list. Only its owner can stop it. */

@@ -42,17 +42,25 @@ final class Music
      * Tags the downloaded MP3 without re-encoding it and names the file.
      * @param array{path:string,duration:int} $audio the prepared MP3
      * @param array{title:string,artists:list<string>,duration:int,year:string,cover:string} $meta
-     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} duration is the file's, length the track's own
+     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string,mime:string} duration is the file's, length the track's own
      */
     public static function finish(Config $config,array $audio,string $folder,array $meta,string $fallbackName): array
     {
         $runner=new Download($config);
         $performer=implode(', ',$meta['artists']);
         $cover=self::cover($config,$meta['cover'],$folder);
-        $tagged=$folder.'/tagged.mp3';
+        $extension=strtolower(pathinfo($audio['path'],PATHINFO_EXTENSION))==='m4a'?'m4a':'mp3';
+        $tagged=$folder.'/tagged.'.$extension;
         $command=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$audio['path']];
-        if($cover!==null) array_push($command,'-i',$cover,'-map','0:a','-map','1:v','-c','copy','-id3v2_version','3','-metadata:s:v','title=Cover','-metadata:s:v','comment=Cover (front)');
-        else array_push($command,'-map','0:a','-c','copy','-id3v2_version','3');
+        if($cover!==null) {
+            array_push($command,'-i',$cover,'-map','0:a','-map','1:v','-c','copy');
+            // MP3 carries the cover as an ID3 picture; M4A as an attached picture stream.
+            if($extension==='mp3') array_push($command,'-id3v2_version','3','-metadata:s:v','title=Cover','-metadata:s:v','comment=Cover (front)');
+            else array_push($command,'-disposition:v:0','attached_pic');
+        } else {
+            array_push($command,'-map','0:a','-c','copy');
+            if($extension==='mp3') array_push($command,'-id3v2_version','3');
+        }
         array_push($command,'-map_metadata','-1','-metadata','title='.$meta['title'],'-metadata','artist='.$performer);
         if($meta['year']!=='') array_push($command,'-metadata','date='.$meta['year']);
         $command[]=$tagged;
@@ -65,6 +73,6 @@ final class Music
         $label=$plain($meta['title'])!==''&&str_contains($plain($meta['title']),$plain($meta['artists'][0]))?$meta['title']:$performer.' - '.$meta['title'];
         $name=trim(preg_replace('/[\\\\\/:*?"<>|\x00-\x1F]+/u',' ',$label)??'');
         return ['path'=>$tagged,'title'=>$meta['title'],'performer'=>$performer,'duration'=>$audio['duration'],'length'=>$meta['duration'],'year'=>$meta['year'],'thumbnail'=>$cover,
-            'name'=>mb_substr($name!==''?$name:$fallbackName,0,120).'.mp3'];
+            'name'=>mb_substr($name!==''?$name:$fallbackName,0,120).'.'.$extension,'mime'=>$extension==='m4a'?'audio/mp4':'audio/mpeg'];
     }
 }

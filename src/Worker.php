@@ -35,6 +35,7 @@ final class Worker
     {
         $config=$this->config; $store=$this->store; $api=$this->api;
         $config->cookieFallback=$store->get('cookies.fallback','0')==='1';
+        $config->musicCopy=$store->get('music.mp3','0')!=='1';
         $bot=new Bot($config,$store,$api); $downloader=new Download($config);
         $downloads=$config->storage.'/downloads';
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
@@ -177,7 +178,7 @@ final class Worker
      * Spotify or SoundCloud track: find the audio, tag it with the real title, artists and cover and send it
      * as one audio message on the same status message. Texts and settings are named after the service.
      */
-    /** One track's tagged MP3: from its address, or from details listed by Deezer or iTunes. */
+    /** One track's tagged audio: from its address, or from details listed by Deezer or iTunes. */
     private function prepareTrack(string $service,array $track,string $folder): array
     {
         if($service==='soundcloud') return ($this->soundcloud??new SoundCloud($this->config))->fetch((string)$track['u'],$folder);
@@ -193,7 +194,7 @@ final class Worker
             'year'=>$media['year'],'duration'=>Ui::duration($media['length']),'url'=>$source]));
         $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
             'title'=>mb_substr($media['title'],0,100),'performer'=>mb_substr($media['performer'],0,100),
-            'audio'=>new \CURLFile($media['path'],'audio/mpeg',$media['name'])];
+            'audio'=>new \CURLFile($media['path'],$media['mime']??'audio/mpeg',$media['name'])];
         if($media['thumbnail']!==null) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
         $rows=$bot->ui->gallerySourceRows($service,$media['page']??$source);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
@@ -227,73 +228,154 @@ final class Worker
         catch(Throwable) { error_log(ucfirst($service).' audio delivered; status cleanup unavailable'); }
     }
 
+    private const PARALLEL=3;
+    /** Prepares up to PARALLEL tracks of a batch at the same time, each in its own process (downloads wait on the network). */
+    private function prepareWave(array $indexes,array $tracks,string $service,string $dir): void
+    {
+        $children=[];
+        foreach($indexes as $index) {
+            $pid=pcntl_fork();
+            if($pid===0) {
+                // The child shares nothing with the database; it only reads the network and writes its files.
+                try {
+                    $work=$dir.'/work-'.$index; mkdir($work,0700);
+                    $media=$this->prepareTrack($service,$tracks[$index],$work);
+                    $extension=pathinfo($media['path'],PATHINFO_EXTENSION);
+                    rename($media['path'],$dir.'/'.$index.'.'.$extension);
+                    if($media['thumbnail']!==null) rename($media['thumbnail'],$dir.'/'.$index.'.jpg');
+                    $meta=array_diff_key($media,['path'=>1,'thumbnail'=>1])+['extension'=>$extension,'cover'=>$media['thumbnail']!==null];
+                    file_put_contents($dir.'/'.$index.'.json',json_encode($meta,JSON_THROW_ON_ERROR));
+                } catch(Throwable $e) {
+                    error_log('Batch track '.($index+1).' skipped: '.($e instanceof MediaFailure?$e->reason:get_class($e)));
+                    file_put_contents($dir.'/'.$index.'.fail',$e instanceof MediaFailure?$e->reason:'process');
+                }
+                Download::clean($dir.'/work-'.$index);
+                exit(0);
+            }
+            if($pid>0) $children[]=$pid;
+        }
+        foreach($children as $pid) pcntl_waitpid($pid,$status);
+    }
+
     /**
-     * A whole album, playlist or set: one track after another on one status message with a stop button, sent as
-     * one audio message each or collected into ZIP files no larger than the upload limit. A track that cannot be
-     * found is skipped and counted; the status message stays with a summary only when something was missed.
+     * A whole album, playlist or set. Every track is prepared first (three at a time, kept in a folder so a stopped run
+     * continues where it was), then all of them are sent together: one media group per ten tracks with a single caption,
+     * or ZIP files. Stopping sends nothing and returns to the menu with a "continue" button; after delivery the status
+     * message offers a way back that deletes what was sent.
      */
     private function musicBatch(array $job,Bot $bot,string $folder,array &$timings,string &$stage): void
     {
         $config=$this->config; $store=$this->store;
         $batch=json_decode((string)$job['options'],true)['batch']??null;
-        if(!is_array($batch)||!in_array($batch['mode']??'',['each','zip'],true)||!in_array($batch['service']??'',musicServices(),true)||!is_array($batch['tracks']??null)) throw new MediaFailure('format','Invalid batch request');
-        $service=$batch['service']; $zip=$batch['mode']==='zip'; $title=mb_substr((string)($batch['title']??''),0,100);
-        $tracks=array_slice(array_values(array_filter($batch['tracks'],fn($track)=>is_array($track)&&(isset($track['u'])||isset($track['m'])))),0,MusicMenu::BATCH_MAX);
-        $total=count($tracks); $done=0; $failed=0; $stopped=false; $parts=0;
+        if(!is_array($batch)||!in_array($batch['mode']??'',['each','zip'],true)||!in_array($batch['service']??'',musicServices(),true)||!is_array($batch['tracks']??null)||!preg_match('/^\d+-[a-f0-9]{8}$/D',(string)($batch['key']??''))) throw new MediaFailure('format','Invalid batch request');
+        $service=$batch['service']; $zip=$batch['mode']==='zip'; $title=mb_substr((string)($batch['title']??''),0,100); $menuId=(int)$batch['menu'];
+        $tracks=array_values(array_slice(array_values(array_filter($batch['tracks'],fn($track)=>is_array($track)&&(isset($track['u'])||isset($track['m'])))),0,MusicMenu::BATCH_MAX));
+        $total=count($tracks);
+        $dir=$config->storage.'/music-batches/'.$batch['key'];
+        if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir)) throw new MediaFailure('storage','Cannot create the batch folder');
+        $menus=new MusicMenu($bot,$this->catalog,$this->soundcloud);
         $stop=[[$bot->ui->button('batch_stop','mb:'.(int)$job['id'])]];
-        $pending=[]; $pendingBytes=0; $limit=max(262144,$config->maxBytes-2097152);
-        $send=function() use(&$pending,&$pendingBytes,&$parts,$job,$bot,$folder,$title,$total) {
-            if(!$pending) return;
-            $parts++;
-            $archive=$folder.'/part-'.$parts.'.zip'; $zipper=new \ZipArchive();
-            if($zipper->open($archive,\ZipArchive::CREATE|\ZipArchive::OVERWRITE)!==true) throw new MediaFailure('storage','Cannot create the ZIP file');
-            foreach($pending as $name=>$path) { $zipper->addFile($path,$name); $zipper->setCompressionName($name,\ZipArchive::CM_STORE); }
-            $zipper->close();
-            $base=trim(preg_replace('/[\\\\\/:*?"<>|\x00-\x1F]+/u',' ',$title)??'')?:'music';
-            $params=['chat_id'=>(int)$job['chat_id'],'parse_mode'=>'HTML','document'=>new \CURLFile($archive,'application/zip',mb_substr($base,0,80).($parts>1||count($pending)<$total?' ('.$parts.')':'').'.zip'),
-                'caption'=>$bot->ui->fitCaption($bot->text('batch_zip_caption',['title'=>$title,'count'=>(string)count($pending),'part'=>(string)$parts]))];
-            if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
-            $this->api->call('sendDocument',$params);
-            foreach($pending as $path) @unlink($path);
-            @unlink($archive); $pending=[]; $pendingBytes=0;
-        };
-        $started=hrtime(true);
-        foreach($tracks as $index=>$track) {
+        $started=hrtime(true); $stopped=false;
+        $pending=fn()=>array_values(array_filter(array_keys($tracks),fn($i)=>!is_file($dir.'/'.$i.'.json')&&!is_file($dir.'/'.$i.'.fail')));
+        while($todo=$pending()) {
             if($store->get('batch.stop.'.(int)$job['id'])==='1') { $stopped=true; break; }
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
             Download::ensureSpace($config->storage.'/downloads');
-            $bot->jobMessage($job,$bot->text('batch_progress',['title'=>$title,'done'=>(string)($index+1),'total'=>(string)$total,'failed'=>(string)$failed]),$stop);
-            $work=$folder.'/track-'.$index; mkdir($work,0700);
-            try {
-                $media=$this->prepareTrack($service,$track,$work);
-                $source=isset($track['u'])?(string)$track['u']:'https://open.spotify.com/search/'.rawurlencode(($track['m']['artists'][0]??'').' '.($track['m']['title']??''));
-                if($zip) {
-                    $size=(int)filesize($media['path']);
-                    if($pending&&$pendingBytes+$size>$limit) $send();
-                    $kept=$folder.'/keep-'.$index.'.mp3'; rename($media['path'],$kept);
-                    $pending[sprintf('%02d - %s',$index+1,$media['name'])]=$kept; $pendingBytes+=$size;
-                } else {
-                    $stage='upload'; $this->sendTrack($job,$bot,$service,$media,$source); $stage='download';
-                }
-                $done++;
-            } catch(MediaFailure $e) {
-                if(in_array($e->reason,['storage'],true)) throw $e;
-                $failed++;
-                error_log('Job '.$job['id'].' batch track '.($index+1).' skipped: '.$e->reason);
-            } finally { Download::clean($work); }
+            $bot->jobMessage($job,$bot->text('batch_progress',['title'=>$title,'done'=>(string)($total-count($todo)),'total'=>(string)$total,'failed'=>(string)count(glob($dir.'/*.fail')?:[])]),$stop);
+            $this->prepareWave(array_slice($todo,0,self::PARALLEL),$tracks,$service,$dir);
         }
-        if($zip) { $stage='upload'; $send(); }
         $store->query('DELETE FROM settings WHERE key=?',['batch.stop.'.(int)$job['id']]);
-        $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6); $timings['tracks']=$done;
-        $store->query('UPDATE jobs SET status=? WHERE id=?',[$done>0?'done':'failed',$job['id']]);
-        if(!$stopped&&$failed===0) {
-            try { $bot->finishJob($job); } catch(Throwable) { error_log('Batch delivered; status cleanup unavailable'); }
+        $good=array_values(array_filter(array_keys($tracks),fn($i)=>is_file($dir.'/'.$i.'.json')));
+        $failed=$total-count($good)-count($pending());
+        $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6); $timings['tracks']=count($good);
+        if($stopped) {
+            // Nothing is sent. The menu comes back with a way to continue, and what is ready stays on disk.
+            $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+            $menus->paused($menuId,$batch,$total-count($pending()),$total);
             return;
         }
-        $bot->jobMessage($job,$bot->text($stopped?'batch_stopped':'batch_done',['title'=>$title,'done'=>(string)$done,'total'=>(string)$total,'failed'=>(string)$failed]));
+        if(!$good) throw new MediaFailure('format','No track of the list could be prepared');
+        $stage='upload'; $uploadStarted=hrtime(true);
+        $bot->jobMessage($job,$bot->text('batch_sending',['title'=>$title,'total'=>(string)count($good)]));
+        $items=[];
+        foreach($good as $position=>$i) {
+            $meta=json_decode((string)file_get_contents($dir.'/'.$i.'.json'),true);
+            $items[]=$meta+['path'=>$dir.'/'.$i.'.'.$meta['extension'],'thumbnail'=>$meta['cover']?$dir.'/'.$i.'.jpg':null,'order'=>$position+1];
+        }
+        $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder):$this->sendGroups($job,$bot,$items,$title);
+        $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+        $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+        $menus->delivered($menuId,$batch,$ids,count($items),$failed);
+    }
+
+    /** Sends the prepared tracks as media groups of at most ten audios (balanced sizes); one caption per group. @return list<int> message IDs */
+    private function sendGroups(array $job,Bot $bot,array $items,string $title): array
+    {
+        $parts=(int)ceil(count($items)/10); $chunks=array_chunk($items,(int)ceil(count($items)/$parts)); $ids=[];
+        foreach($chunks as $part=>$chunk) {
+            $caption=$bot->ui->fitCaption($bot->text('batch_caption',['title'=>$title,'count'=>(string)count($items),'part'=>(string)($part+1),'parts'=>(string)count($chunks)]));
+            $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'audio',$chunk,$caption));
+        }
+        return $ids;
+    }
+    /** ZIP files of the prepared tracks, each below the upload limit, sent as groups of documents. @return list<int> */
+    private function sendZips(array $job,Bot $bot,array $items,string $title,string $folder): array
+    {
+        $limit=max(262144,$this->config->maxBytes-2097152); $archives=[]; $current=[]; $bytes=0;
+        $base=trim(preg_replace('/[\\\\\/:*?"<>|\x00-\x1F]+/u',' ',$title)??'')?:'music';
+        $close=function() use(&$current,&$bytes,&$archives,$folder) {
+            if(!$current) return;
+            $file=$folder.'/part-'.(count($archives)+1).'.zip'; $zip=new \ZipArchive();
+            if($zip->open($file,\ZipArchive::CREATE|\ZipArchive::OVERWRITE)!==true) throw new MediaFailure('storage','Cannot create the ZIP file');
+            foreach($current as $item) { $name=sprintf('%02d - %s',$item['order'],$item['name']); $zip->addFile($item['path'],$name); $zip->setCompressionName($name,\ZipArchive::CM_STORE); }
+            $zip->close();
+            $archives[]=['path'=>$file,'count'=>count($current),'mime'=>'application/zip']; $current=[]; $bytes=0;
+        };
+        foreach($items as $item) {
+            $size=(int)filesize($item['path']);
+            if($current&&$bytes+$size>$limit) $close();
+            $current[]=$item; $bytes+=$size;
+        }
+        $close();
+        $parts=count($archives);
+        foreach($archives as $n=>$archive) $archives[$n]['name']=mb_substr($base,0,80).($parts>1?' ('.($n+1).')':'').'.zip';
+        $ids=[]; $chunks=array_chunk($archives,(int)ceil($parts/max(1,(int)ceil($parts/10))));
+        foreach($chunks as $chunk) {
+            $caption=$bot->ui->fitCaption($bot->text('batch_zip_caption',['title'=>$title,'count'=>(string)count($items),'parts'=>(string)$parts]));
+            $ids=array_merge($ids,$this->sendMediaGroup($job,$bot,'document',$chunk,$caption));
+        }
+        foreach($archives as $archive) @unlink($archive['path']);
+        return $ids;
+    }
+    /** @return list<int> IDs of the messages Telegram created. A single item is sent on its own, since a group needs two. */
+    private function sendMediaGroup(array $job,Bot $bot,string $type,array $items,string $caption): array
+    {
+        $topic=(int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0?['message_thread_id'=>(int)$job['thread_id']]:[];
+        if(count($items)===1) {
+            $item=$items[0]; $file=new \CURLFile($item['path'],$item['mime']??'application/octet-stream',$item['name']);
+            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML']+$topic;
+            if($type==='audio') $params+=['audio'=>$file,'title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']]+($item['thumbnail']!==null?['thumbnail'=>new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg')]:[]);
+            else $params['document']=$file;
+            $result=$this->api->call($type==='audio'?'sendAudio':'sendDocument',$params);
+            return [(int)($result['message_id']??0)];
+        }
+        $media=[]; $params=['chat_id'=>(int)$job['chat_id']]+$topic;
+        foreach($items as $n=>$item) {
+            $params['f'.$n]=new \CURLFile($item['path'],$item['mime']??'application/octet-stream',$item['name']);
+            $entry=['type'=>$type,'media'=>'attach://f'.$n];
+            if($type==='audio') {
+                $entry+=['title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']];
+                if($item['thumbnail']!==null) { $params['t'.$n]=new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg'); $entry['thumbnail']='attach://t'.$n; }
+            }
+            if($n===0) $entry+=['caption'=>$caption,'parse_mode'=>'HTML'];
+            $media[]=$entry;
+        }
+        $params['media']=$media;
+        $result=$this->api->call('sendMediaGroup',$params);
+        return array_values(array_filter(array_map(fn($message)=>(int)($message['message_id']??0),is_array($result)?$result:[])));
     }
 
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void

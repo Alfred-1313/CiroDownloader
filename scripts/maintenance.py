@@ -154,7 +154,7 @@ class Maintenance:
                 data = Path(folder) / 'data.tar'
                 with data.open('xb') as output:
                     self.command('docker', 'compose', 'run', '--rm', '--no-deps', '-T', '--entrypoint', 'tar', 'worker',
-                                 '-cf', '-', '--exclude=./downloads', '--exclude=./instagram-pages', '--exclude=./pinterest-pages', '--exclude=./tiktok-pages', '--exclude=./twitter-pages', '--exclude=./*.lock', '--exclude=./.cookie-check-*',
+                                 '-cf', '-', '--exclude=./downloads', '--exclude=./instagram-pages', '--exclude=./pinterest-pages', '--exclude=./tiktok-pages', '--exclude=./twitter-pages', '--exclude=./music-batches', '--exclude=./.keepalive-*', '--exclude=./*.lock', '--exclude=./.cookie-check-*',
                                  '-C', '/app/storage', '.', output=output)
                 if data.stat().st_size > MAX_BYTES:
                     raise MaintenanceError('The backup is larger than the supported 512 MB data limit.')

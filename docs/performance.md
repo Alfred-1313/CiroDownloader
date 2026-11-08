@@ -51,3 +51,7 @@ docker compose run --rm --no-deps -T worker php bin/speedtest.php
 برای زمان‌گیری یک لینک واقعی (اینستاگرام، پینترست، تیک‌تاک یا X) لینک را آخر دستور بگذار. برای تغییر حجم فایل آزمایشی `-e SPEED_UPLOAD_MB=20` (۱ تا ۴۰) را بعد از `run` اضافه کن.
 
 گزارش این‌ها را می‌گوید: هستهٔ CPU و سقف کانتینر، حافظه، بار سرور، زمان تبدیل یک ویدیوی نمونهٔ 1080×1920، تأخیر اتصال به تلگرام، سرعت واقعی آپلود، و برای لینک: زمان دانلود و آماده‌سازی، کدک و اندازهٔ ویدیو، زمان آپلود. چند پیام آزمایشی برای اولین مدیر فرستاده می‌شود و خودکار پاک می‌شود. توکن، شناسهٔ مدیر، آدرس API و کوکی در گزارش نیست و از لینک فقط نام سایت چاپ می‌شود؛ پس خروجی قابل اشتراک‌گذاری است.
+
+## Music
+
+A song is the web page (about 1 s), a YouTube search (about 1.5 s), the audio download and the cover. The old step that re-encoded everything to MP3 (2 to 10 s per song on one CPU, and 192 kbps for a 128 kbps source, which only made the upload bigger) is gone: AAC and MP3 sources are copied. "Download all" prepares three tracks at the same time. Upload time still depends on the server's link to Telegram; `bin/speedtest.php` measures it.

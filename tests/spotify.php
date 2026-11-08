@@ -128,7 +128,7 @@ try {
     $job=$run();
     if($job['status']!=='done') throw new RuntimeException('Spotify job failed: '.$store->get('last_job_error'));
     $audio=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendAudio'));
-    spotifyCheck(count($audio)===1&&$audio[0]['uploads']['audio']['mime']==='audio/mpeg'&&$audio[0]['uploads']['audio']['name']==='Fixture Artist, Guest Singer - Fixture Song.mp3','one MP3 audio message is sent with the artist and title as its file name');
+    spotifyCheck(count($audio)===1&&$audio[0]['uploads']['audio']['mime']==='audio/mp4'&&$audio[0]['uploads']['audio']['name']==='Fixture Artist, Guest Singer - Fixture Song.m4a','one M4A audio message (the AAC audio is kept as it is, not re-encoded) is sent with the artist and title as its file name');
     $params=$audio[0]['params'];
     spotifyCheck($params['title']==='Fixture Song'&&$params['performer']==='Fixture Artist, Guest Singer'&&(int)$params['duration']>=12&&(int)$params['duration']<=13,'Telegram receives the real title, performers and length');
     spotifyCheck(isset($audio[0]['uploads']['thumbnail'])&&$audio[0]['uploads']['thumbnail']['mime']==='image/jpeg'&&$audio[0]['uploads']['thumbnail']['size']<=204800,'the cover is attached as a small thumbnail');
@@ -136,7 +136,7 @@ try {
     spotifyCheck(!isset($params['reply_markup'])&&(int)$params['chat_id']===12&&!isset($params['message_thread_id']),'the source button is off by default and a private chat has no topic');
     $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$temp.'/delivered-audio'],$temp,30),true);
     $types=array_column($probe['streams'],'codec_name','codec_type');
-    spotifyCheck(($types['audio']??'')==='mp3'&&($types['video']??'')==='mjpeg'&&($probe['format']['tags']['title']??'')==='Fixture Song'&&($probe['format']['tags']['artist']??'')==='Fixture Artist, Guest Singer'&&($probe['format']['tags']['date']??'')==='2019','the MP3 carries the cover and the real title, artists and year');
+    spotifyCheck(($types['audio']??'')==='aac'&&($types['video']??'')==='mjpeg'&&($probe['format']['tags']['title']??'')==='Fixture Song'&&($probe['format']['tags']['artist']??'')==='Fixture Artist, Guest Singer'&&($probe['format']['tags']['date']??'')==='2019','the file carries the cover and the real title, artists and year');
     $yt=$searches();
     spotifyCheck(str_starts_with($yt[0][count($yt[0])-1],'ytsearch')&&str_contains($yt[0][count($yt[0])-1],'Fixture Artist Fixture Song audio')&&in_array('--flat-playlist',$yt[0],true),'the matching video is looked up with the artist and the title');
     $downloads=array_values(array_filter($yt,fn($args)=>in_array('-o',$args,true)));

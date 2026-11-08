@@ -442,21 +442,24 @@
     "menu_owner":{"audience":"user","label":"منوی دیگران","group":"menu","value":"این منو مخصوص فرستندهٔ لینک است."},
     "menu_sent":{"audience":"user","label":"تأیید ثبت آهنگ","group":"menu","value":"✅ ثبت شد؛ آهنگ به‌زودی ارسال می‌شود."},
     "menu_again":{"audience":"user","label":"آهنگ تکراری","group":"menu","value":"این آهنگ همین الان در راه است."},
-    "menu_section_info":{"audience":"admin","label":"راهنمای بخش منوی آهنگ‌ها","group":"custom","value":"<blockquote><b>🗂 منوی هنرمند و فهرست‌ها</b></blockquote>\n\nلینک صفحهٔ هنرمند، آلبوم یا پلی‌لیست اسپاتیفای، یا پروفایل و مجموعهٔ ساوندکلاود یک منو باز می‌کند: عکس هنرمند، بخش‌ها (محبوب‌ها، آلبوم‌ها، سینگل‌ها، EP، پلی‌لیست‌ها، مشابه)، و با باز کردن آلبوم، کاور همان آلبوم و آهنگ‌هایش در همان پیام می‌آید. دکمهٔ بازگشت قرمز است.\n\nداخل آلبوم، پلی‌لیست یا مجموعه می‌شود همه را یکجا گرفت: یکی‌یکی یا در فایل ZIP (حداکثر ۵۰ آهنگ).\n\nبا کلید زیر، انتخاب آهنگ منو را می‌بندد و همان پیام وضعیت دانلود می‌شود و بعد از ارسال پاک می‌شود. منو فقط مال فرستندهٔ لینک است و ۲۴ ساعت می‌ماند."},
+    "menu_section_info":{"audience":"admin","label":"راهنمای بخش منوی آهنگ‌ها","group":"custom","value":"<blockquote><b>🗂 منوی هنرمند و فهرست‌ها</b></blockquote>\n\nلینک صفحهٔ هنرمند، آلبوم یا پلی‌لیست اسپاتیفای، یا پروفایل و مجموعهٔ ساوندکلاود یک منو باز می‌کند: عکس هنرمند، بخش‌ها (محبوب‌ها، آلبوم‌ها، سینگل‌ها، EP، پلی‌لیست‌ها، مشابه) و با باز کردن آلبوم، کاور همان آلبوم و آهنگ‌هایش در همان پیام. «بازگشت» قرمز است.\n\nداخل آلبوم، پلی‌لیست یا مجموعه «دانلود همه» همهٔ آهنگ‌ها را (تا ۵۰ تا) آماده می‌کند و <b>همه را چسبیده به هم یکجا</b> با یک کپشن می‌فرستد، یا در فایل ZIP. «توقف» چیزی نمی‌فرستد و به منو برمی‌گرداند با دکمهٔ «ادامه دانلود»؛ «بازگشت به منوی قبلی» بعد از ارسال، همهٔ آهنگ‌های فرستاده‌شده را پاک می‌کند.\n\nکلید اول انتخاب آهنگ تکی را مشخص می‌کند: منو به پیام دانلود تبدیل شود یا باز بماند. کلید دوم فرمت است: «سریع» فایل‌های AAC/MP3 را بدون تبدیل می‌فرستد (سریع‌تر و کم‌حجم‌تر، M4A یا MP3)؛ «همیشه MP3» همه را به MP3 تبدیل می‌کند."},
     "menu_untitled":{"audience":"user","label":"نام آهنگ بی‌عنوان در منو","group":"menu","value":"آهنگ {n}","variables":["n"]},
     "batch_queued":{"audience":"user","label":"ثبت دانلود همه","group":"menu","value":"⏳ دانلود همهٔ آهنگ‌ها ثبت شد؛ پیشرفت در همین پیام نمایش داده می‌شود."},
-    "batch_progress":{"audience":"user","label":"پیشرفت دانلود همه","group":"menu","value":"<blockquote><b>📥 {title}</b></blockquote>\nدر حال آماده‌سازی آهنگ {done} از {total}…\nناموفق تا اینجا: {failed}","variables":["title","done","total","failed"]},
-    "batch_done":{"audience":"user","label":"نتیجهٔ دانلود همه","group":"menu","value":"<blockquote><b>📥 {title}</b></blockquote>\n✅ {done} از {total} آهنگ ارسال شد؛ {failed} آهنگ پیدا یا دریافت نشد.","variables":["title","done","total","failed"]},
-    "batch_stopped":{"audience":"user","label":"دانلود همهٔ متوقف‌شده","group":"menu","value":"<blockquote><b>⏹ {title}</b></blockquote>\nدانلود متوقف شد؛ {done} از {total} آهنگ ارسال شد.","variables":["title","done","total","failed"]},
-    "batch_zip_caption":{"audience":"user","label":"کپشن فایل ZIP","group":"menu","value":"<b>🗜 {title}</b>\nبخش {part} · {count} آهنگ","caption":true,"variables":["title","count","part"]},
+    "batch_progress":{"audience":"user","label":"پیشرفت دانلود همه","group":"menu","value":"<blockquote><b>📥 {title}</b></blockquote>\nدر حال آماده‌سازی آهنگ‌ها: {done} از {total}\nناموفق تا اینجا: {failed}\n\nهمه با هم و یکجا ارسال می‌شوند. با «توقف»، چیزی ارسال نمی‌شود و به منو برمی‌گردی.","variables":["title","done","total","failed"]},
+    "batch_done":{"audience":"user","label":"نتیجهٔ دانلود همه","group":"menu","value":"<blockquote><b>✅ {title}</b></blockquote>\n{done} آهنگ ارسال شد و بالای همین پیام است. {failed} آهنگ پیدا یا دریافت نشد.\n\nبا «بازگشت به منوی قبلی» همهٔ آهنگ‌های ارسال‌شده پاک می‌شوند و منو برمی‌گردد.","variables":["title","done","failed"]},
+    "batch_zip_caption":{"audience":"user","label":"کپشن فایل ZIP","group":"menu","value":"<b>🗜 {title}</b>\n{count} آهنگ در {parts} فایل ZIP","caption":true,"variables":["title","count","parts"]},
     "batch_failed":{"audience":"user","label":"خطای دانلود همه","group":"menu","value":"⚠️ دانلود همهٔ آهنگ‌ها انجام نشد؛ جزئیات برای مدیر ثبت شد."},
-    "batch_stopping":{"audience":"user","label":"تأیید توقف","group":"menu","value":"⏹ بعد از آهنگ فعلی متوقف می‌شود."},
+    "batch_stopping":{"audience":"user","label":"تأیید توقف","group":"menu","value":"⏹ متوقف می‌شود؛ چیزی ارسال نمی‌شود و به منو برمی‌گردی."},
     "cookie_reason_guest":{"audience":"admin","label":"هشدار کوکی مهمان","group":"cookies","value":"بدون ورود به حساب گرفته شده (کوکی مهمان)؛ برای عبور از بررسی «ربات نیستم» کافی نیست"},
     "cookie_guest_hint":{"audience":"admin","label":"راهنمای کوکی مهمان","group":"cookies","value":"<blockquote><b>⚠️ این کوکی بدون ورود به حساب گرفته شده است.</b></blockquote>\nکوکی‌هایی مثل VISITOR_INFO1_LIVE و YSC حساب ندارند و یوتیوب با آن‌ها IP سرور را باز نمی‌کند. در مرورگر وارد حساب گوگل شو، یک ویدیو باز کن و دوباره کوکی بگیر؛ باید کوکی‌هایی مثل SID یا __Secure-3PSID در آن باشد."},
     "cookie_part_received":{"audience":"admin","label":"دریافت بخشی از متن کوکی","group":"cookies","variables":["n","size"],"value":"📨 بخش {n} از متن کوکی دریافت شد ({size} نویسه). بخش بعدی را بفرست؛ تا ۲ دقیقه منتظر می‌مانم. پیام‌های بخش‌ها پاک می‌شوند."},
     "cookie_partial_hint":{"audience":"admin","label":"هشدار متن ناقص کوکی","group":"cookies","value":"<blockquote><b>⚠️ فقط انتهای متن کوکی رسید.</b></blockquote>\nشروع متن (با <code>[</code>) و کوکی‌های اول آن، که معمولاً SID و __Secure-3PSID حساب را دارند، نرسید. تکهٔ اول را هم بفرست؛ بهتر است کل متن را از ابتدا پشت‌سرهم بفرستی یا آن را به‌صورت فایل .json بدهی."},
     "cookie_keepalive_on":{"audience":"admin","label":"نگه‌دارندهٔ کوکی روشن","group":"cookies","value":"نگه‌دارندهٔ کوکی: روشن ✅"},
-    "cookie_keepalive_off":{"audience":"admin","label":"نگه‌دارندهٔ کوکی خاموش","group":"cookies","value":"نگه‌دارندهٔ کوکی: خاموش ❌"}
+    "cookie_keepalive_off":{"audience":"admin","label":"نگه‌دارندهٔ کوکی خاموش","group":"cookies","value":"نگه‌دارندهٔ کوکی: خاموش ❌"},
+    "batch_sending":{"audience":"user","label":"ارسال همهٔ آهنگ‌ها","group":"menu","value":"📤 همهٔ آهنگ‌ها آماده شد؛ در حال ارسال {total} آهنگ…","variables":["total"]},
+    "batch_caption":{"audience":"user","label":"کپشن گروه آهنگ‌ها","group":"menu","value":"<b>🎧 {title}</b>\n{count} آهنگ · بخش {part} از {parts}","caption":true,"variables":["title","count","part","parts"]},
+    "format_fast":{"audience":"admin","label":"فرمت سریع","group":"custom","value":"سریع (بدون تبدیل)"},
+    "format_mp3":{"audience":"admin","label":"فرمت MP3","group":"custom","value":"همیشه MP3"}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},
@@ -697,10 +700,13 @@
     "menu_page":{"audience":"user","label":"عنوان شمارهٔ صفحه","group":"menu","value":"صفحه {page} از {pages}","variables":["page","pages"],"required":true},
     "section_menu":{"audience":"admin","label":"🗂 منوی هنرمند","group":"custom","value":"🗂 منوی هنرمند"},
     "group_menu":{"audience":"admin","label":"منوی هنرمند","group":"custom","value":"منوی هنرمند"},
-    "menu_all":{"audience":"user","label":"دکمهٔ دانلود همه (تکی)","group":"menu","value":"📥 دانلود همه"},
-    "menu_zip":{"audience":"user","label":"دکمهٔ دانلود همه در ZIP","group":"menu","value":"🗜 همه در ZIP"},
+    "menu_all":{"audience":"user","label":"دکمهٔ دانلود همه (تکی)","group":"menu","value":"📥 دانلود همه","style":"success"},
+    "menu_zip":{"audience":"user","label":"دکمهٔ دانلود همه در ZIP","group":"menu","value":"🗜 همه در ZIP","style":"success"},
     "batch_stop":{"audience":"user","label":"دکمهٔ توقف دانلود همه","group":"menu","value":"⏹ توقف","style":"danger","required":true},
     "menu_close_toggle":{"audience":"admin","label":"روشن و خاموش‌کردن بستن منو پس از انتخاب","group":"custom","value":"بستن منو پس از انتخاب: {state}"},
-    "cookie_keepalive":{"audience":"admin","label":"🔄 تغییر نگه‌دارندهٔ کوکی","group":"cookies","value":"🔄 تغییر نگه‌دارندهٔ کوکی"}
+    "cookie_keepalive":{"audience":"admin","label":"🔄 تغییر نگه‌دارندهٔ کوکی","group":"cookies","value":"🔄 تغییر نگه‌دارندهٔ کوکی"},
+    "batch_resume":{"audience":"user","label":"دکمهٔ ادامهٔ دانلود","group":"menu","value":"▶️ ادامه دانلود ({done} از {total})","style":"success","variables":["done","total"]},
+    "batch_back":{"audience":"user","label":"دکمهٔ بازگشت به منوی قبلی","group":"menu","value":"↩️ بازگشت به منوی قبلی","style":"danger","required":true},
+    "menu_format_toggle":{"audience":"admin","label":"کلید فرمت آهنگ","group":"custom","value":"فرمت آهنگ: {state}"}
   }
 }
