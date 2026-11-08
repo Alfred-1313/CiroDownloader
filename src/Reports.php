@@ -109,7 +109,7 @@ final class Reports
             'free'=>number_format($free/1073741824,1),'total'=>number_format($total/1073741824,1),'free_percent'=>$total>0?round(100*$free/$total).'٪':'—',
             'load'=>number_format($load[0],2).' / '.number_format($load[1],2).' / '.number_format($load[2],2),
             'api'=>$ui->plain($config->api==='https://api.telegram.org'?'report_api_cloud':'report_api_local'),
-            'proxy'=>$ui->plain($config->youtubeProxy!==''?'configured':'not_configured'),'gproxy'=>$ui->plain($config->galleryProxy!==''?'configured':'not_configured'),'pot'=>$ui->plain($config->youtubePotUrl!==''?'configured':'not_configured'),
+            'inline'=>$ui->plain((new Shares($this->bot))->enabled()?'report_inline_on':'report_inline_off'),'proxy'=>$ui->plain($config->youtubeProxy!==''?'configured':'not_configured'),'gproxy'=>$ui->plain($config->galleryProxy!==''?'configured':'not_configured'),'pot'=>$ui->plain($config->youtubePotUrl!==''?'configured':'not_configured'),
         ]);
     }
 

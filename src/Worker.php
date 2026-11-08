@@ -193,9 +193,9 @@ final class Worker
         return isset($track['m'])?$spotify->fromDetails($track['m'],$folder):$spotify->fetch((string)$track['u'],$folder);
     }
     /**
-     * One audio message. Its caption has the album's structure: the release in bold (the track's own name when the
-     * release is unknown), an empty line, then the track in a bold collapsed quote. $back rows (the way back to a menu)
-     * come after the source button. @return int the message ID
+     * One audio message with the same caption as each track of a whole album (artist and title in bold, its length in a
+     * quote). Rows: the source button when on, share (anyone, when inline mode is on), then $back (the way back to a
+     * menu, its owner only). @return int the message ID
      */
     private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source,string $album='',array $back=[]): int
     {
@@ -208,10 +208,12 @@ final class Worker
             'title'=>$title,'performer'=>mb_substr($media['performer'],0,100),
             'audio'=>new \CURLFile($media['path'],$media['mime']??'audio/mpeg',$media['name'])];
         if($media['thumbnail']!==null) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
-        $rows=array_merge($bot->ui->gallerySourceRows($service,$media['page']??$source),$back);
+        $shares=new Shares($bot); $token=$shares->reserve();
+        $rows=array_merge($bot->ui->gallerySourceRows($service,$media['page']??$source),$token!==null?[$shares->row($token)]:[],$back);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call('sendAudio',$params);
+        $shares->fill($token,$result,$caption);
         return (int)($result['message_id']??0);
     }
     private function musicDelivery(array $job,Bot $bot,string $folder,array &$timings,string &$stage,string $service,?array $track=null): void
@@ -463,16 +465,22 @@ final class Worker
         return $render(implode("\n",array_map([Ui::class,'escape'],$lines)));
     }
     /**
-     * Sends the prepared tracks one message each, in order. Telegram shows buttons only under a message that is not part
-     * of an album, so the last track carries the caption with the track list and the red way back itself.
+     * Sends the prepared tracks one message each, in order (Telegram shows buttons only under a message outside an
+     * album). Every track has its own caption (artist and title in bold, its length in a quote) and, when the bot's
+     * inline mode is on, a share button anyone may use; the last one also has the red way back, for its owner only.
      * $sending(int $sent) reports progress. @return list<int> message IDs in order
      */
     private function sendTracks(array $job,Bot $bot,array $items,string $title,array $back,callable $sending): array
     {
-        $caption=$this->listCaption($bot,'batch_caption',['title'=>$title,'count'=>(string)count($items)],$items); $ids=[];
+        $shares=new Shares($bot); $ids=[];
         foreach($items as $n=>$item) {
-            $last=$n===count($items)-1;
-            $ids[]=$this->sendOne($job,'audio',$item,$last?$caption:'',$last?$back:[]);
+            $caption=$bot->ui->fitCaption($bot->text('batch_caption',['artist'=>mb_substr((string)$item['performer'],0,150),'title'=>mb_substr((string)$item['title'],0,100),
+                'duration'=>Ui::duration((int)($item['length']??$item['duration']??0)),'album'=>$title]));
+            $token=$shares->reserve();
+            $rows=array_merge($token!==null?[$shares->row($token)]:[],$n===count($items)-1?$back:[]);
+            $result=$this->sendOne($job,'audio',$item,$caption,$rows);
+            $shares->fill($token,$result,$caption);
+            $ids[]=(int)($result['message_id']??0);
             $sending(count($ids));
         }
         return $ids;
@@ -501,14 +509,14 @@ final class Worker
         $caption=$this->listCaption($bot,'batch_zip_caption',['title'=>$title,'count'=>(string)count($items),'parts'=>(string)$parts],$items); $ids=[];
         foreach($archives as $n=>$archive) {
             $last=$n===$parts-1;
-            $ids[]=$this->sendOne($job,'document',$archive,$last?$caption:'',$last?$back:[]);
+            $ids[]=(int)($this->sendOne($job,'document',$archive,$last?$caption:'',$last?$back:[])['message_id']??0);
             $sent+=$archive['count']; $sending($sent);
         }
         foreach($archives as $archive) @unlink($archive['path']);
         return $ids;
     }
-    /** One audio or document message, with a caption and buttons when given. @return int the message ID */
-    private function sendOne(array $job,string $type,array $item,string $caption,array $markup): int
+    /** One audio or document message, with a caption and buttons when given. @return array Telegram's message */
+    private function sendOne(array $job,string $type,array $item,string $caption,array $markup): array
     {
         $topic=(int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0?['message_thread_id'=>(int)$job['thread_id']]:[];
         $file=new \CURLFile($item['path'],$item['mime']??'application/octet-stream',$item['name']);
@@ -516,7 +524,7 @@ final class Worker
         if($type==='audio') $params+=['audio'=>$file,'title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']]+($item['thumbnail']!==null?['thumbnail'=>new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg')]:[]);
         else $params['document']=$file;
         $result=$this->api->call($type==='audio'?'sendAudio':'sendDocument',$params);
-        return (int)($result['message_id']??0);
+        return is_array($result)?$result:[];
     }
 
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void

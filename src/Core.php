@@ -333,6 +333,7 @@ final class Store
         $this->db->exec("CREATE TABLE IF NOT EXISTS user_profiles (user_id INTEGER PRIMARY KEY,username TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS profile_username ON user_profiles(username) WHERE username<>'';
             CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY,added_by INTEGER NOT NULL,created INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS shares (token TEXT PRIMARY KEY,file_id TEXT NOT NULL DEFAULT '',caption TEXT NOT NULL DEFAULT '',created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS stats (day TEXT NOT NULL,service TEXT NOT NULL,ok INTEGER NOT NULL DEFAULT 0,failed INTEGER NOT NULL DEFAULT 0,ms INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(day,service));
             CREATE TABLE IF NOT EXISTS music_menus (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,
                 message_id INTEGER NOT NULL DEFAULT 0,service TEXT NOT NULL,kind TEXT NOT NULL,data TEXT NOT NULL DEFAULT '{}',view TEXT NOT NULL DEFAULT '{}',

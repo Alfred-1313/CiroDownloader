@@ -14,7 +14,7 @@ The social-media proxy (`GALLERY_PROXY`) is used when one is set. SoundCloud is 
 
 ## Controls
 
-**🎨 شخصی‌سازی ← 🎧 ساوندکلاود** (under the «🎧 موسیقی» heading) edits the status messages, the caption (`{work}`, `{title}`, `{artist}`, `{year}`, `{duration}`, `{url}`; by default the album's structure: the work in bold — the album when the track was chosen inside one, otherwise the track's name — an empty line, then `• track` in a bold collapsed quote, without the artist, who stays in the audio's own tags), every error text and the source button. The **مشاهده در ساوندکلاود** button is off by default and the default caption has no link. The request uses one status message, and in groups the audio stays in the forum topic that asked for it.
+**🎨 شخصی‌سازی ← 🎧 ساوندکلاود** (under the «🎧 موسیقی» heading) edits the status messages, the caption (`{work}`, `{title}`, `{artist}`, `{year}`, `{duration}`, `{url}`; by default the artist and title in bold, an empty line and the length in a quote, like each track of a whole album; a share button follows when the bot's inline mode is on), every error text and the source button. The **مشاهده در ساوندکلاود** button is off by default and the default caption has no link. The request uses one status message, and in groups the audio stays in the forum topic that asked for it.
 
 ## Link reaction for music
 

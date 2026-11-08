@@ -18,6 +18,7 @@ require_once __DIR__.'/CookieJars.php';
 require_once __DIR__.'/CookieHealth.php';
 require_once __DIR__.'/Reports.php';
 require_once __DIR__.'/AdminCommands.php';
+require_once __DIR__.'/Shares.php';
 
 final class Bot
 {
@@ -293,6 +294,8 @@ final class Bot
     }
     public function handle(array $update): void
     {
+        // "Share" under a track: anyone may send that track on through the bot's inline mode.
+        if(is_array($update['inline_query']??null)) { (new Shares($this))->answer($update['inline_query']); return; }
         $cb=$update['callback_query']??null; $message=$cb['message']??$update['message']??null;
         $user=(int)($cb['from']['id']??$message['from']['id']??0);
         $type=$message['chat']['type']??''; $group=in_array($type,['group','supergroup'],true);

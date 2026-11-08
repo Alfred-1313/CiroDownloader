@@ -209,7 +209,7 @@ final class Personalization
         // "Download all" has its own screen: progress, why a track failed, the captions and its buttons.
         $screens['batch']=array_merge(array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','more','failed','stopping',
                 'source_youtube','source_soundcloud','source_original','reason_blocked','reason_format','reason_network','reason_cookies','reason_size','reason_storage','reason_restricted','reason_duration','reason_process']),
-            [['button','batch_stop'],['button','batch_resume'],['button','batch_back']]);
+            [['button','batch_stop'],['button','batch_resume'],['button','batch_back'],['button','music_share']]);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];

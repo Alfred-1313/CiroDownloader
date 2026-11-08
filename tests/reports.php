@@ -73,7 +73,7 @@ try {
     // Server.
     $store->set('poller_heartbeat',(string)time());
     $bot->handle(rpClick('rp:server',777)); $edit=$api->last('editMessageText');
-    rpCheck(str_contains($edit['text'],'<b>🖥 وضعیت سرور</b>')&&str_contains($edit['text'],Zero\Updates::version())&&str_contains($edit['text'],'فضای آزاد')&&str_contains($edit['text'],'بار پردازنده')&&str_contains($edit['text'],'سرور ابری تلگرام'),'the server report shows the version, free space, load and the Telegram interface');
+    rpCheck(str_contains($edit['text'],'<b>🖥 وضعیت سرور</b>')&&str_contains($edit['text'],Zero\Updates::version())&&str_contains($edit['text'],'فضای آزاد')&&str_contains($edit['text'],'بار پردازنده')&&str_contains($edit['text'],'سرور ابری تلگرام')&&str_contains($edit['text'],'/setinline'),'the server report shows the version, free space, load, the Telegram interface and whether sharing (inline mode) is on');
     rpCheck(!str_contains($edit['text'],$config->token)&&!str_contains($edit['text'],'42'.'</b>'),'the report never shows the token or an administrator ID');
 
     // Back goes home, Close removes the message, unknown screens do nothing.

@@ -102,6 +102,8 @@ foreach($_FILES as $key=>$file) {
 }
 $record($method,$_POST,$uploads);
 $next=(int)@file_get_contents($root.'/counter')+1; file_put_contents($root.'/counter',(string)$next);
+if($method==='getMe') { $json(['ok'=>true,'result'=>['id'=>1,'is_bot'=>true,'username'=>'fixture_bot','supports_inline_queries'=>!empty($mode['inline'])]]); return; }
+if($method==='sendAudio') { $json(['ok'=>true,'result'=>['message_id'=>900+$next,'audio'=>['file_id'=>'AUDIO'.$next]]]); return; }
 if($method==='sendMediaGroup') {
     // One message per item, with consecutive IDs.
     $count=count(json_decode((string)($_POST['media']??'[]'),true)?:[]); file_put_contents($root.'/counter',(string)($next+$count-1));

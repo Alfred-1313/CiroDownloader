@@ -123,7 +123,7 @@ try {
     $run('media');
     $deleted=$called('deleteMessage'); $audio=$called('sendAudio')[0]['params']; $audioRows=json_decode($audio['reply_markup'],true)['inline_keyboard']; $audioId=$anchor($menuId);
     menuCheck(count($called('sendAudio'))===1&&count($deleted)===1&&(int)$deleted[0]['params']['message_id']===$menuMessage,'after the audio arrives the old menu message is deleted');
-    menuCheck($audio['caption']==="<b>🎧 Old Album</b>\n\n<blockquote expandable><b>• Album Cut Three</b></blockquote>",'the track\'s caption has the album\'s structure: the album in bold, an empty line and the track in a bold collapsed quote');
+    menuCheck($audio['caption']==="<b>🎧 Fixture Artist - Album Cut Three</b>\n\n<blockquote>⏱ تایم موزیک: 00:12</blockquote>",'the track\'s caption is the artist and title in bold and its length in a quote');
     menuCheck(end($audioRows)[0]['callback_data']==='mm:'.$menuId.':r'&&(end($audioRows)[0]['style']??'')==='danger'&&str_starts_with(end($audioRows)[0]['text'],'🔙')&&$audioId>0&&$audioId!==$menuMessage,'and the red 🔙 back to the menu is on the audio itself');
     $tap('mm:'.$menuId.':t:albums',11,$menuMessage);
     menuCheck(str_contains($answer()['text']??'','منقضی')&&$store->query('SELECT COUNT(*) FROM music_menus WHERE id=?',[$menuId])->fetchColumn()==1,'a button of the old menu message says it has expired and does not end the menu');
@@ -147,8 +147,8 @@ try {
     $progress=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'آماده‌سازی آهنگ‌ها')));
     $audios=$called('sendAudio'); $lastAudio=end($audios)['params'];
     menuCheck($job['status']==='done'&&count($progress)>=1&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id'])&&!$called('sendMediaGroup')&&count($audios)===3,'progress with a stop button shows on the menu message; then every track is sent as its own message (no album)');
-    menuCheck(array_map(fn($call)=>$call['params']['title'],$audios)===['Album Cut One','Album Cut Two','Album Cut Three']&&!isset($audios[0]['params']['caption'])&&!isset($audios[1]['params']['caption'])&&!isset($audios[0]['params']['reply_markup'])&&$audios[0]['uploads']['audio']['mime']==='audio/mp4'&&str_ends_with($audios[0]['uploads']['audio']['name'],'.m4a'),'in album order, with their titles, as M4A files; only the last has a caption or buttons');
-    menuCheck($lastAudio['caption']==="<b>🎧 New Album</b>\n\n<blockquote expandable><b>• Album Cut One\n• Album Cut Two\n• Album Cut Three</b></blockquote>",'the last track\'s caption is the album in bold, an empty line and a collapsed quote of the track names in bold, without artists');
+    menuCheck(array_map(fn($call)=>$call['params']['title'],$audios)===['Album Cut One','Album Cut Two','Album Cut Three']&&!isset($audios[0]['params']['reply_markup'])&&!isset($audios[1]['params']['reply_markup'])&&$audios[0]['uploads']['audio']['mime']==='audio/mp4'&&str_ends_with($audios[0]['uploads']['audio']['name'],'.m4a'),'in album order, with their titles, as M4A files; without inline mode only the last has a button');
+    menuCheck(array_map(fn($call)=>$call['params']['caption']??'',$audios)===array_map(fn($name)=>"<b>🎧 Fixture Artist - $name</b>\n\n<blockquote>⏱ تایم موزیک: 00:12</blockquote>",['Album Cut One','Album Cut Two','Album Cut Three']),'every track has its own caption: the artist and title in bold and its length in a quote');
     $markButton=json_decode($lastAudio['reply_markup'],true)['inline_keyboard'][0][0];
     menuCheck($markButton['callback_data']==='mm:'.$id.':r'&&($markButton['style']??'')==='danger'&&str_starts_with($markButton['text'],'🔙')&&!array_filter($called('sendMessage'),fn($call)=>str_contains((string)($call['params']['reply_markup']??''),'mm:'.$id.':r')),'the red "🔙 back to the previous menu" sits right under the last track, with no extra message');
     $row=$store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch(); $state=json_decode($row['data'],true)['batch']; $lastId=end($state['delivered']);
@@ -193,6 +193,23 @@ try {
     $slow=array_values(array_filter($live,fn($call)=>str_contains($call['params']['caption'],'Album Cut Two')));
     menuCheck($job['status']==='done'&&$slow&&preg_match('/⏱ \d{2}:\d{2}/u',end($slow)['params']['caption'])===1&&str_contains((string)end($slow)['params']['reply_markup'],'mb:'.$job['id']),'while a slow track is prepared, the status shows the elapsed time and the track in work, with the stop button');
     file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
+    // With the bot's inline mode on, every track has a share button anyone can use; the way back stays its owner's.
+    file_put_contents($mode,json_encode(['inline'=>true])); $store->set('bot_inline_checked','0'); file_put_contents($log,'');
+    $tap('mm:'.$id.':a:each',12); $job=$run('media'); $audios=$called('sendAudio');
+    $rowsOf=fn($call)=>json_decode((string)($call['params']['reply_markup']??'{}'),true)['inline_keyboard']??[];
+    $tokens=array_map(fn($call)=>substr((string)($rowsOf($call)[0][0]['switch_inline_query']??''),2),$audios);
+    menuCheck($job['status']==='done'&&count($audios)===3&&count(array_filter($tokens,fn($t)=>preg_match('/^[A-Za-z0-9_-]{16}$/D',$t)))===3&&count(array_unique($tokens))===3&&($rowsOf($audios[0])[0][0]['style']??'')==='primary'&&str_contains($rowsOf($audios[0])[0][0]['text'],'اشتراک'),'every track gets its own share button');
+    menuCheck(count($rowsOf($audios[0]))===1&&count($rowsOf($audios[2]))===2&&$rowsOf($audios[2])[1][0]['callback_data']==='mm:'.$id.':r','the last track has share and, under it, the red way back');
+    $shared=$store->query('SELECT file_id,caption FROM shares WHERE token=?',[$tokens[1]])->fetch();
+    menuCheck($shared&&str_starts_with($shared['file_id'],'AUDIO')&&str_contains($shared['caption'],'Album Cut Two'),'the share remembers the file Telegram stored and its caption');
+    file_put_contents($log,''); $bot->handle(['update_id'=>9100,'inline_query'=>['id'=>'iq1','from'=>['id'=>777,'is_bot'=>false],'query'=>'s:'.$tokens[1],'offset'=>'']]);
+    $answered=$called('answerInlineQuery'); $results=json_decode((string)($answered[0]['params']['results']??'[]'),true);
+    menuCheck(count($results)===1&&$results[0]['type']==='audio'&&$results[0]['audio_file_id']===$shared['file_id']&&str_contains($results[0]['caption'],'Album Cut Two'),'anyone who taps share gets the same track to send into the chat they choose');
+    file_put_contents($log,''); $bot->handle(['update_id'=>9101,'inline_query'=>['id'=>'iq2','from'=>['id'=>777,'is_bot'=>false],'query'=>'s:AAAAAAAAAAAAAAAA','offset'=>'']]);
+    menuCheck(json_decode((string)$called('answerInlineQuery')[0]['params']['results'],true)===[],'an unknown share gives nothing');
+    file_put_contents($log,''); $tap('mm:'.$id.':r',777,$anchor($id));
+    menuCheck(str_contains($answer()['text']??'','فرستندهٔ لینک')&&!$called('deleteMessages'),'someone else cannot use the way back');
+    $tap('mm:'.$id.':r',12,$anchor($id)); file_put_contents($mode,'{}'); $store->set('bot_inline_checked','0');
     // Before a whole list, one probe tells whether YouTube refuses this server; a refusal sends every track to SoundCloud first.
     $flags=[$config->storage.'/.youtube-ok',$config->storage.'/.youtube-blocked']; foreach($flags as $flag) @unlink($flag); @unlink($temp.'/probe.log');
     file_put_contents($mode,json_encode(['probe'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,'');
@@ -219,7 +236,7 @@ try {
     file_put_contents($log,''); $menuBefore=$anchor($id); $job=$run('media');
     $media=array_map(fn($call)=>$call['params'],$called('sendAudio')); $lastCaption=(string)(end($media)['caption']??'');
     $notes=array_values(array_filter(array_merge($called('editMessageCaption'),$called('editMessageText')),fn($call)=>str_contains((string)($call['params']['caption']??$call['params']['text']??''),'Missing Song')));
-    menuCheck($job['status']==='done'&&count($media)===3&&str_contains($lastCaption,'• Album Cut Three')&&!str_contains($lastCaption,'Missing Song')&&!str_contains($lastCaption,'⚠️'),'the found tracks are sent together and the missing one is not in the caption');
+    menuCheck($job['status']==='done'&&count($media)===3&&str_contains($lastCaption,'Fixture Artist - Album Cut Three')&&!str_contains($lastCaption,'Missing Song')&&!str_contains($lastCaption,'⚠️'),'the found tracks are sent together and the missing one is not in the caption');
     $note=(string)($notes[0]['params']['caption']??$notes[0]['params']['text']);
     menuCheck($notes&&str_contains($note,'• <b>Missing Song</b> — یوتیوب: نسخهٔ مطمئنی نداشت، ساوندکلاود: نسخهٔ مطمئنی نداشت')&&str_contains($note,'<blockquote>'),'the status message names the track that could not be found and why, per source, in a quote');
     $recent=json_decode($store->get('recent_errors','[]'),true);
@@ -232,7 +249,7 @@ try {
     $many=[]; for($i=1;$i<=50;$i++) $many[]=['performer'=>'Artist','title'=>'Track number '.$i.' '.str_repeat('y',40)];
     $big=$listCaption->invoke($worker,$bot,'batch_zip_caption',['title'=>'Big','count'=>'50','parts'=>'3'],$many);
     menuCheck(Zero\TextFormat::length(html_entity_decode(strip_tags($big),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=1024&&preg_match('/… و \d+ آهنگ دیگر/u',$big)===1&&substr_count($big,'•')>5&&!str_contains($big,'Artist'),'a long list is cut to fit the caption limit with "and N more"');
-    $odd=$listCaption->invoke($worker,$bot,'batch_caption',['title'=>'T','count'=>'1'],[['performer'=>'x','title'=>'<b>A&B</b> x<script>']]);
+    $odd=$listCaption->invoke($worker,$bot,'batch_zip_caption',['title'=>'T','count'=>'1','parts'=>'1'],[['performer'=>'x','title'=>'<b>A&B</b> x<script>']]);
     menuCheck(str_contains($odd,'• &lt;b&gt;A&amp;B&lt;/b&gt; x&lt;script&gt;')&&!str_contains($odd,'<script>'),'track names are escaped in the caption');
     $failedBlock=new ReflectionMethod(Zero\Worker::class,'failedBlock'); $failedBlock->setAccessible(true);
     $names=$failedBlock->invoke($worker,$bot,array_map(fn($i)=>'Song '.$i.'<i>',range(1,9)));
