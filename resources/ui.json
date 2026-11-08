@@ -65,7 +65,7 @@
     "maintenance":{"audience":"user","label":"دانلود هنگام ارتقای ربات","group":"errors","value":"<blockquote><b>🔄 ربات در حال به‌روزرسانی است.</b></blockquote>\nچند دقیقه بعد لینک را دوباره بفرست."},
     "denied":{"audience":"admin","label":"ورود غیرمجاز به مدیریت","group":"admin","value":"این بخش فقط برای مدیر است."},
     "your_id":{"audience":"user","label":"نمایش شناسهٔ کاربر","group":"public","variables":["id"],"value":"<blockquote><b>شناسهٔ تلگرام شما</b>\n<code>{id}</code></blockquote>"},
-    "admin_panel":{"audience":"admin","label":"پنل مدیریت","group":"admin","variables":["state"],"value":"<blockquote><b>⚙️ پنل مدیریت سیرو دانلودر</b></blockquote>\n\nوضعیت ربات: <b>{state}</b>\n\nبخش موردنظر را انتخاب کن."},
+    "admin_panel":{"audience":"admin","label":"پنل مدیریت","group":"admin","variables":["state","commands","health","cookies","add_admin"],"value":"<blockquote><b>⚙️ پنل مدیریت سیرو دانلودر</b></blockquote>\n➖➖➖➖➖➖➖➖➖➖\nوضعیت ربات: <b>{state}</b>\n➖➖➖➖➖➖➖➖➖➖\n<b>📜 دستورها</b>\n{commands}\n➖➖➖➖➖➖➖➖➖➖\n<b>🧭 راهنمای استفاده</b>\n1. دکمه‌های پایین و دستورها یک کار را می‌کنند؛ مثلاً «{health}» همان /health است. هرکدام راحت‌تر بود.\n2. با زدن «/» در همین گفت‌وگو فهرست بالا باز می‌شود و یکی را می‌توانی بزنی.\n3. «{health}» گزارش آمار، سرویس‌ها، کوکی‌ها، خطاها و سرور را دارد.\n4. «{cookies}» برای کوکی هر سرویس و زمان بررسی خودکار است.\n5. «{add_admin}» با نام کاربری انجام می‌شود؛ آن فرد باید قبلاً ربات را Start کرده باشد.\n6. هر مرحله‌ای که منتظر ورودی است را با /cancel لغو کن.\n➖➖➖➖➖➖➖➖➖➖\n<blockquote>دستورهای مدیریتی فقط در گفت‌وگوی خصوصی کار می‌کنند؛ فقط /update برای مدیران ربات در گروه هم کار می‌کند.</blockquote>"},
     "health":{"audience":"admin","label":"وضعیت ربات","group":"admin","variables":["state","poller","worker","queued","running","cookies","proxy","error","users","completed","failed","gproxy","pot"],"value":"<blockquote><b>📊 وضعیت ربات</b></blockquote>\n\nربات: <b>{state}</b>\nدریافت پیام: <b>{poller}</b>\nپردازشگر: <b>{worker}</b>\nکوکی‌ها: {cookies}\nپراکسی یوتیوب: {proxy}\nپراکسی شبکه‌های اجتماعی: {gproxy}\nPO Token یوتیوب: {pot}\n\n<b>📈 آمار ربات</b>\nکاربران ثبت‌شده: <b>{users}</b> نفر\nدر انتظار: <b>{queued}</b> · در حال پردازش: <b>{running}</b>\nدانلود موفق در 7 روز اخیر: <b>{completed}</b>\nدرخواست ناموفق در 7 روز اخیر: <b>{failed}</b>\n\n<b>آخرین خطای ثبت‌شده</b>\n<blockquote>{error}</blockquote>","legacy_values":["<blockquote><b>📊 وضعیت ربات</b></blockquote>\n\nربات: <b>{state}</b>\nدریافت پیام: <b>{poller}</b>\nپردازشگر: <b>{worker}</b>\nصف: <b>{queued} منتظر / {running} در حال اجرا</b>\nکوکی: {cookies}\nپراکسی: {proxy}\n\n<b>آخرین خطا</b>\n<code>{error}</code>"]},
     "state_on":{"audience":"admin","label":"عنوان وضعیت فعال","group":"admin","inline":true,"value":"فعال"},
     "state_off":{"audience":"admin","label":"عنوان وضعیت غیرفعال","group":"admin","inline":true,"value":"غیرفعال"},
@@ -493,7 +493,16 @@
     "report_name_spotify":{"audience":"admin","label":"نام سرویس در گزارش: اسپاتیفای","group":"admin","inline":true,"value":"اسپاتیفای"},
     "report_name_soundcloud":{"audience":"admin","label":"نام سرویس در گزارش: ساوندکلاود","group":"admin","inline":true,"value":"ساوندکلاود"},
     "report_name_menu":{"audience":"admin","label":"نام سرویس در گزارش: منوی هنرمند","group":"admin","inline":true,"value":"منوی هنرمند"},
-    "report_name_batch":{"audience":"admin","label":"نام سرویس در گزارش: دانلود گروهی","group":"admin","inline":true,"value":"دانلود گروهی"}
+    "report_name_batch":{"audience":"admin","label":"نام سرویس در گزارش: دانلود گروهی","group":"admin","inline":true,"value":"دانلود گروهی"},
+    "admin_cmd_admin":{"audience":"admin","label":"توضیح دستور /admin","group":"admin","inline":true,"value":"باز کردن پنل مدیریت"},
+    "admin_cmd_health":{"audience":"admin","label":"توضیح دستور /health","group":"admin","inline":true,"value":"وضعیت ربات، آمار و گزارش‌ها"},
+    "admin_cmd_cookies":{"audience":"admin","label":"توضیح دستور /cookies","group":"admin","inline":true,"value":"ایمپورت و بررسی کوکی‌ها"},
+    "admin_cmd_update":{"audience":"admin","label":"توضیح دستور /update","group":"admin","inline":true,"value":"به‌روزرسانی یا بازگشت نسخه"},
+    "admin_cmd_customize":{"audience":"admin","label":"توضیح دستور /customize","group":"admin","inline":true,"value":"شخصی‌سازی متن‌ها و دکمه‌ها"},
+    "admin_cmd_id":{"audience":"admin","label":"توضیح دستور /id","group":"admin","inline":true,"value":"نمایش شناسهٔ عددی حساب"},
+    "admin_cmd_help":{"audience":"admin","label":"توضیح دستور /help","group":"admin","inline":true,"value":"راهنمای کاربر"},
+    "admin_cmd_cancel":{"audience":"admin","label":"توضیح دستور /cancel","group":"admin","inline":true,"value":"لغو کار در حال انتظار و بازگشت"},
+    "admin_cmd_start":{"audience":"admin","label":"توضیح دستور /start","group":"admin","inline":true,"value":"منوی اصلی"}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},

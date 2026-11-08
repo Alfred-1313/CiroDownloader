@@ -17,6 +17,7 @@ require_once __DIR__.'/Reactions.php';
 require_once __DIR__.'/CookieJars.php';
 require_once __DIR__.'/CookieHealth.php';
 require_once __DIR__.'/Reports.php';
+require_once __DIR__.'/AdminCommands.php';
 
 final class Bot
 {
@@ -111,7 +112,9 @@ final class Bot
             }
         }
         $on=$this->store->enabled();
-        $this->sendKeyboard($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off')],['state']),[
+        AdminCommands::register($this->api,$this->store,$this->ui,$chat);
+        $this->sendKeyboard($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off'),'commands'=>AdminCommands::lines($this->ui),
+            'health'=>$this->ui->label('health'),'cookies'=>$this->ui->label('cookies'),'add_admin'=>$this->ui->label('add_admin')],['state','commands']),[
             [$this->replyButton('customize'),$this->replyButton('health')],
             [$this->replyButton('cookies'),$this->replyButton('update')],
             [$this->replyButton('add_admin')],

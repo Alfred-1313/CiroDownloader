@@ -76,4 +76,25 @@ try {
         foreach(array_slice($api->calls,$before) as $call) if(isset($call[1]['reply_markup']['keyboard'])&&count($call[1]['reply_markup']['keyboard'])>1) throw new RuntimeException('Administrator keyboard leaked through '.$key);
     }
     adminCheck($store->enabled()&&!$store->query('SELECT 1 FROM states WHERE user_id=7')->fetchColumn()&&(int)$store->query('SELECT COUNT(*) FROM update_requests')->fetchColumn()===0,'forged administrator reply labels cannot operate the controls');
+    // The panel lists the commands and a short guide, and puts the same commands in this administrator's "/" menu.
+    $second=sys_get_temp_dir().'/ciro-admin-commands-'.bin2hex(random_bytes(6)); mkdir($second,0700);
+    $store2=new Zero\Store($second); $api2=new AdminKeyboardApi(); $bot2=new Zero\Bot(new Zero\Config('123:fake',[42],$second),$store2,$api2);
+    $menus=fn()=>array_values(array_filter($api2->calls,fn($call)=>$call[0]==='setMyCommands'));
+    $bot2->handle(adminMessage($bot2->label('admin')));
+    $panel=(string)end($api2->calls)[1]['text'];
+    $listed=true; foreach(Zero\AdminCommands::LIST as $name) if(!str_contains($panel,'/'.$name.' — '.$bot2->ui->plain('admin_cmd_'.$name))) $listed=false;
+    adminCheck($listed&&str_contains($panel,'<b>📜 دستورها</b>')&&str_contains($panel,'<b>🧭 راهنمای استفاده</b>')&&str_contains($panel,$bot2->label('health'))&&str_contains($panel,'/cancel'),'the panel lists every administrator command with its meaning and a usage guide');
+    adminCheck(count($menus())===1&&$menus()[0][1]['scope']===['type'=>'chat','chat_id'=>42]&&array_column($menus()[0][1]['commands'],'command')===Zero\AdminCommands::LIST,'the commands appear in the administrator\'s own "/" menu');
+    adminCheck(!array_filter($menus()[0][1]['commands'],fn($command)=>$command['description']===''||mb_strlen($command['description'])>256||preg_match('/[<>]/',$command['description'])),'every command description is plain text within Telegram\'s limit');
+    $bot2->handle(adminMessage('/admin'));
+    adminCheck(count($menus())===1,'opening the panel again does not resend an unchanged menu');
+    $store2->set('commands.42','stale'); $bot2->handle(adminMessage('/admin'));
+    adminCheck(count($menus())===2,'a changed command list is sent again');
+    $bot2->handle(adminMessage($bot2->label('admin'),7));
+    adminCheck(count(array_filter($menus(),fn($call)=>($call[1]['scope']['chat_id']??0)!==42))===0,'an ordinary user never gets the administrator commands');
+    $refusing=new class implements Zero\Api { public array $calls=[]; public function call(string $method,array $params=[]): mixed { $this->calls[]=[$method,$params]; if($method==='setMyCommands') throw new RuntimeException('Bad Request',400); return ['message_id'=>5]; } };
+    $third=sys_get_temp_dir().'/ciro-admin-refused-'.bin2hex(random_bytes(6)); mkdir($third,0700); $store3=new Zero\Store($third);
+    (new Zero\Bot(new Zero\Config('123:fake',[42],$third),$store3,$refusing))->handle(adminMessage('/admin'));
+    adminCheck(end($refusing->calls)[0]==='sendMessage'&&$store3->get('commands.42')==='','a refused command menu never stops the panel from opening');
+    Zero\Download::clean($second); Zero\Download::clean($third);
 } finally { Zero\Download::clean($temp); }
