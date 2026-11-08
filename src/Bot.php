@@ -197,6 +197,38 @@ final class Bot
         $this->store->set('cookie_menu.'.$user,(string)$message);
         $this->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,0)',[$user,'cookie.upload']);
     }
+    /**
+     * A long export pasted into Telegram arrives as several messages of at most 4096 characters. While an import waits,
+     * the parts of one export are kept for two minutes and joined; the export is imported once it is complete.
+     * @return string|bool the whole text when it is complete, true when a part was kept and more is expected, false when this is not a paste
+     */
+    private function pastedParts(int $chat,int $user,array $message,string $text): string|bool
+    {
+        $key='cookie.parts.'.$user; $saved=json_decode($this->store->get($key,''),true);
+        $buffer=is_array($saved)&&time()-(int)($saved['time']??0)<=120?(string)$saved['text']:'';
+        $more=$buffer!=='';
+        if(!$more&&!CookieFormats::looksLikeCookies($text)&&!str_starts_with(ltrim($text),'[')&&!str_starts_with(ltrim($text),'{')) return false;
+        $whole=$buffer.$text;
+        if(!$more) { $whole=$text; }
+        elseif(!str_starts_with(ltrim($buffer),'[')&&!str_starts_with(ltrim($buffer),'{')) {
+            // Netscape rows: the cut fell inside a row (join as is) or after one (join with a new line).
+            $last=substr($buffer,(int)strrpos($buffer,"\n")+1);
+            $whole=$buffer.(count(explode("\t",$last))===7?"\n":'').$text;
+        }
+        $json=str_starts_with(ltrim($whole),'[')||str_starts_with(ltrim($whole),'{');
+        $complete=false;
+        if(strlen($whole)<=CookiePool::MAX_BYTES) {
+            if($json) { try { CookieFormats::toNetscape($whole); $complete=true; } catch(\RuntimeException) {} }
+            else $complete=strlen($text)<3800;
+        }
+        if($complete||strlen($whole)>CookiePool::MAX_BYTES) { $this->store->query('DELETE FROM settings WHERE key=?',[$key]); return $complete||$more?$whole:false; }
+        // A kept part holds credentials, so its message goes now; the last one is deleted by the import itself.
+        if(isset($message['message_id'])) { try { $this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$message['message_id']]); } catch(\Throwable) {} }
+        $parts=(int)($saved['parts']??0)+1;
+        $this->store->set($key,json_encode(['text'=>$whole,'time'=>time(),'parts'=>$parts],JSON_THROW_ON_ERROR));
+        $this->cookieNotice($chat,$user,$this->text('cookie_part_received',['n'=>$parts,'size'=>strlen($whole)]));
+        return true;
+    }
     private function cookieNotice(int $chat,int $user,string $text): void
     {
         (new CookieJars($this))->notice($chat,'cookie_menu.'.$user,$text);
@@ -394,7 +426,10 @@ final class Bot
             return;
         }
         // Phones often cannot save a file, so a pasted export (Netscape, JSON or header string) is accepted while an import waits.
-        if($text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)&&CookieFormats::looksLikeCookies($text)) {
+        $pasting=$text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)?$this->pastedParts($chat,$user,$message,$text):false;
+        if($pasting===true) return;
+        if(is_string($pasting)) {
+            $message['text']=$pasting;
             if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
             elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
             elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);

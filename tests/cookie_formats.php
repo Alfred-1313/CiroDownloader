@@ -71,11 +71,26 @@ try {
     formatCheck($pool->count()===$count&&$api->count('deleteMessage')===$deletes+2,'links and ordinary messages are not imported or deleted');
     $before=$pool->count(); $send(igJson('NOT_FOR_X'),7); $send('auth_token=OTHER; ct0=1',7);
     formatCheck($pool->count()===$before,'other users cannot paste cookies');
+    // A long export arrives as several Telegram messages: the parts are joined, kept parts are deleted, and the import completes by itself.
+    $cookies=[]; for($i=1;$i<=70;$i++) $cookies[]=['domain'=>'.x.com','name'=>$i===1?'auth_token':'extra'.$i,'value'=>($i===1?'SPLITTOKEN':'v').str_repeat('x',90),'path'=>'/','secure'=>true,'httpOnly'=>true,'expirationDate'=>2147483647];
+    $long=json_encode($cookies,JSON_PRETTY_PRINT); $cut=[(int)(strlen($long)*0.4),(int)(strlen($long)*0.75)]; $count=$pool->count(); $deletes=$api->count('deleteMessage');
+    $parts=[substr($long,0,$cut[0]),substr($long,$cut[0],$cut[1]-$cut[0]),substr($long,$cut[1])];
+    $send($parts[0],42,8101);
+    formatCheck($pool->count()===$count&&$api->count('deleteMessage')===$deletes+1&&str_contains((string)end($api->calls)[1]['text'],'بخش 1'),'the first part of a long paste is kept, its message deleted and the admin told to send the rest');
+    $send($parts[1],42,8102); formatCheck($pool->count()===$count&&$api->count('deleteMessage')===$deletes+2,'the second part is kept too');
+    $send($parts[2],42,8103);
+    formatCheck($pool->count()===$count+1&&$api->count('deleteMessage')===$deletes+3,'the last part completes it: one account is imported and every part message is gone');
+    $send('[{"name":"x"'.str_repeat('y',10).'",',42,8110); $send('{"broken":',42,8111); $send('رفتیم سراغ فایل',42,8112);
+    formatCheck($pool->count()===$count+1,'broken parts never import anything');
+    $store->query("DELETE FROM settings WHERE key LIKE 'cookie.parts.%'");
+    // The tail of a long export on its own (a first part that never came) is not cookies and is simply not imported.
+    $send('"value": "FAKE_TAIL_VALUE_FOR_TEST", "domain": ".youtube.com", "hostOnly": false, "path": "/"',42,8120);
+    formatCheck($pool->count()===$count+1,'a stray tail of an export is not imported');
     $document('phone.json',json_encode([['domain'=>'.x.com','name'=>'auth_token','value'=>'FROMJSONFILE','path'=>'/','secure'=>true,'expirationDate'=>2147483647]]));
-    formatCheck($pool->count()===3,'a .json document is accepted');
+    formatCheck($pool->count()===4,'a .json document is accepted');
     $zip=sys_get_temp_dir().'/ciro-fmt-'.bin2hex(random_bytes(4)); $z=new ZipArchive(); $z->open($zip,ZipArchive::CREATE); $z->addFromString('a.json',json_encode([['domain'=>'.x.com','name'=>'auth_token','value'=>'ZIPJSON','path'=>'/','secure'=>true,'expirationDate'=>2147483647]])); $z->addFromString('b.txt','auth_token=ZIPHEADER; ct0=1'); $z->close();
     $bytes=(string)file_get_contents($zip); unlink($zip); $document('mix.zip',$bytes);
-    formatCheck($pool->count()===5,'a ZIP may mix JSON files and header strings');
+    formatCheck($pool->count()===6,'a ZIP may mix JSON files and header strings');
 
     // YouTube: a pasted export is tested like a single file.
     $probe=$temp.'/probe'; $trace=$temp.'/probe-trace';
