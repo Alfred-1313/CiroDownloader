@@ -4,7 +4,7 @@ Send a link to one SoundCloud track and the bot returns it as an MP3 with the tr
 
 ## Links
 
-`soundcloud.com/ARTIST/TRACK` (also `www.` and `m.`; share parameters such as `?si=` are dropped) and the share links of the mobile app, `on.soundcloud.com/CODE`. A share link is followed through at most three redirects and only if each step stays on SoundCloud's own track addresses; anything else is refused. Playlists and sets, profiles, likes, reposts, charts, private tracks (links with a secret token) and `api.soundcloud.com` addresses are not accepted; the bot answers with the list of supported links.
+`soundcloud.com/ARTIST/TRACK` (also `www.` and `m.`; share parameters such as `?si=` are dropped) and the share links of the mobile app, `on.soundcloud.com/CODE`. A share link is followed through at most three redirects and only if each step stays on SoundCloud's own track addresses; anything else is refused. Profiles, lists and sets open a [menu](music-menu.md) instead of one download. Charts, private tracks (links with a secret token) and other pages are not accepted; the bot answers with the list of supported links. A bare `api.soundcloud.com/tracks/ID` address is accepted too (menus use it for tracks a set lists without a title).
 
 ## How it works
 

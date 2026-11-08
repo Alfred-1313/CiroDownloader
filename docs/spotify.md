@@ -17,7 +17,7 @@ Spotify needs none: the public track page is readable without an account. The Yo
 
 ## Supported links
 
-`open.spotify.com/track/ID`, with or without a language prefix such as `intl-de`, a `?si=` share parameter or `/embed/`. Albums, playlists, artists, podcasts and `spotify.link` short links are not accepted; the bot replies with the list of supported links.
+`open.spotify.com/track/ID`, with or without a language prefix such as `intl-de`, a `?si=` share parameter or `/embed/`. Links to an **artist, album or playlist** open a [menu](music-menu.md) instead. Podcasts and `spotify.link` short links are not accepted; the bot replies with the list of supported links.
 
 ## Controls
 

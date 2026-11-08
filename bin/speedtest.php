@@ -14,8 +14,8 @@ declare(strict_types=1);
 require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Bot.php';
 require dirname(__DIR__).'/src/Download.php';
-require dirname(__DIR__).'/src/Spotify.php';
-require dirname(__DIR__).'/src/SoundCloud.php';
+require_once dirname(__DIR__).'/src/Spotify.php';
+require_once dirname(__DIR__).'/src/SoundCloud.php';
 umask(0077);
 
 function line(string $label,string $value): void { printf("%-34s %s\n",$label,$value); }

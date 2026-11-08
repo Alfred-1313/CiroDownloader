@@ -15,10 +15,12 @@ $canonical='https://soundcloud.com/fixture-artist/fixture-song';
 foreach([$canonical,$canonical.'?si=abc&utm_source=clipboard','soundcloud.com/fixture-artist/fixture-song/','http://m.soundcloud.com/fixture-artist/fixture-song','https://www.soundcloud.com/fixture-artist/fixture-song#t=10'] as $input)
     soundcloudCheck(Zero\soundcloudUrl($input)===$canonical&&Zero\mediaUrl($input)===$canonical&&Zero\musicService($input)==='soundcloud','track link is normalized: '.$input);
 soundcloudCheck(Zero\mediaUrl('https://on.soundcloud.com/AbCd1234')==='https://on.soundcloud.com/AbCd1234'&&Zero\musicService('https://on.soundcloud.com/AbCd1234')==='soundcloud','the share link of the mobile app is accepted as it is');
-foreach(['https://soundcloud.com/fixture-artist','https://soundcloud.com/fixture-artist/sets/mixtape','https://soundcloud.com/fixture-artist/likes','https://soundcloud.com/fixture-artist/tracks','https://soundcloud.com/fixture-artist/albums',
-    'https://soundcloud.com/discover/sets/charts','https://soundcloud.com/fixture-artist/fixture-song/s-PrivateToken','https://soundcloud.com.evil.example/a/b','https://evil.example/soundcloud.com/a/b','https://user@soundcloud.com/a/b',
-    'https://soundcloud.com:8443/a/b','https://api.soundcloud.com/tracks/123','https://on.soundcloud.com/ab','https://on.soundcloud.com/AbCd1234/extra','ftp://soundcloud.com/a/b','https://soundcloud.com/a/b c'] as $input)
-    soundcloudCheck(Zero\soundcloudUrl($input)===null&&Zero\mediaUrl($input)===null,'not a single public track, refused: '.$input);
+foreach(['https://soundcloud.com/fixture-artist','https://soundcloud.com/fixture-artist/sets/mixtape','https://soundcloud.com/fixture-artist/likes','https://soundcloud.com/fixture-artist/tracks','https://soundcloud.com/fixture-artist/albums'] as $input)
+    soundcloudCheck(Zero\soundcloudUrl($input)===null&&Zero\collectionUrl($input)!==null&&Zero\mediaUrl($input)===Zero\collectionUrl($input)['url'],'a profile or set is not one track but opens a menu: '.$input);
+foreach(['https://soundcloud.com/discover/sets/charts','https://soundcloud.com/discover','https://soundcloud.com/fixture-artist/fixture-song/s-PrivateToken','https://soundcloud.com.evil.example/a/b','https://evil.example/soundcloud.com/a/b','https://user@soundcloud.com/a/b',
+    'https://soundcloud.com:8443/a/b','https://api.soundcloud.com/tracks/abc','https://api.evil.example/tracks/123','https://on.soundcloud.com/ab','https://on.soundcloud.com/AbCd1234/extra','ftp://soundcloud.com/a/b','https://soundcloud.com/a/b c'] as $input)
+    soundcloudCheck(Zero\soundcloudUrl($input)===null&&Zero\mediaUrl($input)===null,'not a public track or a supported page, refused: '.$input);
+soundcloudCheck(Zero\soundcloudUrl('https://api.soundcloud.com/tracks/123')==='https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A123'&&Zero\musicService('https://api-v2.soundcloud.com/tracks/soundcloud:tracks:123')==='soundcloud','a bare API address of a track (as sets list untitled tracks) is accepted and normalized');
 soundcloudCheck(Zero\musicService('https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT')==='spotify'&&Zero\musicService('https://youtu.be/ybNMMK5Q318')===null&&Zero\galleryService($canonical)===null,'the music services stay apart from each other, YouTube and the gallery services');
 
 // 2. Track details come from the extractor's JSON.
@@ -93,9 +95,9 @@ try {
         $worker->process($job); return $store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     };
     file_put_contents($log,'');
-    $send('https://soundcloud.com/fixture-artist/sets/mixtape',1);
+    $send('https://soundcloud.com/discover',1);
     $notice=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendMessage'));
-    soundcloudCheck($store->query('SELECT COUNT(*) FROM jobs')->fetchColumn()==0&&count($notice)===1&&str_contains($notice[0]['params']['text'],'ساوندکلاود'),'a playlist link is not queued and the reply lists SoundCloud among the supported links');
+    soundcloudCheck($store->query('SELECT COUNT(*) FROM jobs')->fetchColumn()==0&&count($notice)===1&&str_contains($notice[0]['params']['text'],'ساوندکلاود'),'a link that is neither a track nor a supported page is not queued and the reply lists SoundCloud among the supported links');
     $store->query('DELETE FROM users'); file_put_contents($log,'');
     $send($canonical.'?si=share',2);
     $queued=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendMessage'));

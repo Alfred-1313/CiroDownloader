@@ -43,6 +43,37 @@ final class SoundCloud
         return $location;
     }
 
+    /** Turns the last part of an address into a readable title, for lists where SoundCloud gives none. */
+    private static function titleFromSlug(string $url): string
+    {
+        $slug=basename((string)parse_url($url,PHP_URL_PATH));
+        $slug=preg_replace('/-\d+$/','',$slug)??$slug;
+        $text=trim(str_replace(['-','_'],' ',$slug));
+        return $text===''?'SoundCloud':mb_strtoupper(mb_substr($text,0,1)).mb_substr($text,1);
+    }
+    /**
+     * The tracks and sets of a profile list or set, as menu items.
+     * @return array{title:string,items:list<array>}
+     */
+    public function listing(string $url,string $folder,int $limit=40): array
+    {
+        $data=(new Download($this->config))->listSoundCloud($url,$folder,$limit);
+        $title=trim(preg_replace('/\s*\((?:All|Tracks|Albums|Sets|Reposts|Likes|Spotlight)\)\s*$/u','',(string)($data['title']??''))??'');
+        $items=[];
+        foreach(is_array($data['entries']??null)?$data['entries']:[] as $entry) {
+            if(!is_array($entry)) continue;
+            $address=(string)($entry['url']??$entry['webpage_url']??'');
+            $name=mb_substr(trim((string)($entry['title']??'')),0,150);
+            $set=collectionUrl($address);
+            if($set!==null&&$set['service']==='soundcloud'&&$set['kind']==='set') { $items[]=['k'=>'s','n'=>$name!==''?$name:self::titleFromSlug($address),'u'=>$set['url']]; continue; }
+            $track=soundcloudUrl($address);
+            if($track===null||str_starts_with($track,'https://on.')) continue;
+            // A bare API address has no readable name; the menu numbers such tracks.
+            $items[]=['k'=>'t','n'=>$name!==''?$name:(str_contains($track,'api.soundcloud.com')?'':self::titleFromSlug($track)),'a'=>'','d'=>(int)round((float)($entry['duration']??0)),'u'=>$track];
+        }
+        return ['title'=>mb_substr($title,0,120),'items'=>array_slice($items,0,$limit)];
+    }
+
     /** @return array{title:string,artists:list<string>,duration:int,year:string,cover:string} */
     public static function metadata(array $info): array
     {
@@ -63,7 +94,7 @@ final class SoundCloud
     }
 
     /**
-     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} see Music::finish
+     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string,page:string} see Music::finish
      */
     public function fetch(string $url,string $folder): array
     {
@@ -72,6 +103,9 @@ final class SoundCloud
         $meta=self::metadata($result['info']);
         // A 30 s preview of a longer track is not the track, even if a format slipped through.
         if($result['audio']['duration']+30<$meta['duration']) throw new MediaFailure('format','Only a preview of the track was available');
-        return Music::finish($this->config,$result['audio'],$folder,$meta,'soundcloud');
+        $media=Music::finish($this->config,$result['audio'],$folder,$meta,'soundcloud');
+        // The track's own page, for the source button, when it was reached through a bare API address.
+        $page=soundcloudUrl((string)($result['info']['webpage_url']??''));
+        return $media+['page'=>$page!==null&&!str_contains($page,'api.soundcloud.com')?$page:$track];
     }
 }

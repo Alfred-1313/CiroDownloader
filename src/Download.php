@@ -228,6 +228,16 @@ final class Download
         }
         return $result;
     }
+    /** A SoundCloud profile, list or set as yt-dlp's flat listing (no per-track requests), at most $limit entries. */
+    public function listSoundCloud(string $url,string $folder,int $limit=40): array
+    {
+        if(!preg_match('~^https://soundcloud\.com/[A-Za-z0-9_-]{1,64}(?:/(?:tracks|albums|sets|reposts|likes)|/sets/[A-Za-z0-9_-]{1,128})?$~D',$url)) throw new MediaFailure('format','Invalid SoundCloud list address');
+        $json=$this->plain($url,['--flat-playlist','--dump-single-json','--skip-download','--playlist-end',(string)max(1,min(100,$limit))],$folder,min(40,$this->config->timeout));
+        try { $data=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
+        catch(\JsonException) { throw new MediaFailure('format','SoundCloud list is invalid'); }
+        if(!is_array($data)) throw new MediaFailure('format','SoundCloud list is missing');
+        return $data;
+    }
     private static function soundCloudUrl(string $id): string { return 'https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A'.$id; }
     /** A downloader run for a site that is not YouTube: no YouTube cookies, the social-media proxy when one is set. */
     private function plain(string $url,array $options,string $folder,int $seconds): string
@@ -269,7 +279,7 @@ final class Download
      */
     public function fetchSoundCloudTrack(string $url,string $folder): array
     {
-        if(!preg_match('~^https://soundcloud\.com/[A-Za-z0-9_-]{1,64}/[A-Za-z0-9_-]{1,128}$~D',$url)) throw new MediaFailure('format','Invalid SoundCloud track address');
+        if(!preg_match('~^https://(?:soundcloud\.com/[A-Za-z0-9_-]{1,64}/[A-Za-z0-9_-]{1,128}|api\.soundcloud\.com/tracks/soundcloud%3Atracks%3A[0-9]{1,20})$~D',$url)) throw new MediaFailure('format','Invalid SoundCloud track address');
         $audio=$this->audioDownload($url,$folder,self::FULL_AUDIO,fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout),['--write-info-json']);
         $file=$folder.'/source.info.json'; $info=[];
         if(is_file($file)&&filesize($file)<=4194304) {

@@ -14,10 +14,13 @@ $id='4cOdK2wGLETKBW3PvgPWqT'; $canonical='https://open.spotify.com/track/'.$id;
 // 1. Only one track link is accepted; everything else is refused before it reaches the queue.
 foreach([$canonical,$canonical.'?si=abc123&utm_source=copy-link','open.spotify.com/intl-de/track/'.$id,'http://open.spotify.com/track/'.$id.'/','https://open.spotify.com/embed/track/'.$id,'https://open.spotify.com/intl-pt-BR/track/'.$id.'#x'] as $input)
     spotifyCheck(Zero\spotifyUrl($input)===$canonical&&Zero\mediaUrl($input)===$canonical,'track link is normalized: '.$input);
-foreach(['https://open.spotify.com/album/'.$id,'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M','https://open.spotify.com/artist/'.$id,'https://open.spotify.com/episode/'.$id,
+foreach(['https://open.spotify.com/album/'.$id,'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M','https://open.spotify.com/artist/'.$id] as $input)
+    spotifyCheck(Zero\spotifyUrl($input)===null&&Zero\collectionUrl($input)!==null&&Zero\mediaUrl($input)===Zero\collectionUrl($input)['url'],'a page with many tracks is not one track but opens a menu: '.$input);
+foreach(['https://open.spotify.com/episode/'.$id,'https://open.spotify.com/show/'.$id,
     'https://open.spotify.com.evil.example/track/'.$id,'https://evil.example/open.spotify.com/track/'.$id,'https://user@open.spotify.com/track/'.$id,'https://open.spotify.com:8443/track/'.$id,
-    'https://open.spotify.com/track/short','https://open.spotify.com/track/'.$id.'/extra','https://spotify.link/AbCdEf','ftp://open.spotify.com/track/'.$id,"https://open.spotify.com/track/$id evil",'spotify:track:'.$id] as $input)
-    spotifyCheck(Zero\spotifyUrl($input)===null&&Zero\mediaUrl($input)===null,'not a single track, refused: '.$input);
+    'https://open.spotify.com/track/short','https://open.spotify.com/track/'.$id.'/extra','https://spotify.link/AbCdEf','ftp://open.spotify.com/track/'.$id,"https://open.spotify.com/track/$id evil",'spotify:track:'.$id,
+    'https://open.spotify.com/artist/short','https://open.spotify.com/artist/'.$id.'/discography'] as $input)
+    spotifyCheck(Zero\spotifyUrl($input)===null&&Zero\mediaUrl($input)===null,'not a track or a supported page, refused: '.$input);
 spotifyCheck(Zero\mediaUrl('https://youtu.be/ybNMMK5Q318')==='https://www.youtube.com/watch?v=ybNMMK5Q318'&&Zero\galleryService($canonical)===null,'Spotify does not disturb YouTube or the gallery services');
 
 // 2. Matching: length and text decide, other versions lose.

@@ -294,7 +294,10 @@ final class Store
             CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, last_request INTEGER NOT NULL DEFAULT 0);");
         $this->db->exec("CREATE TABLE IF NOT EXISTS user_profiles (user_id INTEGER PRIMARY KEY,username TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL);
             CREATE UNIQUE INDEX IF NOT EXISTS profile_username ON user_profiles(username) WHERE username<>'';
-            CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY,added_by INTEGER NOT NULL,created INTEGER NOT NULL);");
+            CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY,added_by INTEGER NOT NULL,created INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS music_menus (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,
+                message_id INTEGER NOT NULL DEFAULT 0,service TEXT NOT NULL,kind TEXT NOT NULL,data TEXT NOT NULL DEFAULT '{}',view TEXT NOT NULL DEFAULT '{}',
+                sent TEXT NOT NULL DEFAULT '{}',created INTEGER NOT NULL,expires INTEGER NOT NULL);");
         // NULL is a legacy job; 0 waits for its initial notice; >0 is ready to edit.
         $this->db->exec('BEGIN IMMEDIATE');
         try {
@@ -393,7 +396,11 @@ final class Store
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
     public function groupsEnabled(): bool { return $this->get('groups_enabled','1')==='1'; }
-    public function enqueue(int $update, int $user, int $chat, string $url,int $thread=0): string
+    /**
+     * @param ?string $phase set only for jobs the bot builds itself (a track chosen in a music menu)
+     * @param bool $menu a track chosen in a menu skips the pause between separate links, since the user already got the menu
+     */
+    public function enqueue(int $update, int $user, int $chat, string $url,int $thread=0,?string $phase=null,array $options=[],bool $menu=false): string
     {
         $this->db->exec('BEGIN IMMEDIATE');
         try {
@@ -401,10 +408,10 @@ final class Store
             elseif ($this->query('SELECT 1 FROM jobs WHERE update_id=?', [$update])->fetchColumn()) $result = 'duplicate';
             elseif ($this->busy($user,$chat)) $result = 'busy';
             elseif ($this->full()) $result = 'full';
-            elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
+            elseif (!$menu&&(int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),galleryService($url)??musicService($url)??'inspect',$chat<0?max(0,$thread):0]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id,options) VALUES(?,?,?,?,?,0,?,?,?)", [$update,$user,$chat,$url,time(),$phase??galleryService($url)??musicService($url)??'inspect',$chat<0?max(0,$thread):0,json_encode($options?:new \stdClass,JSON_THROW_ON_ERROR)]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -552,12 +559,48 @@ function soundcloudUrl(string $input): ?string
     $parts=parse_url($input);
     if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return null;
     $host=strtolower($parts['host']??''); $path=$parts['path']??'';
+    // Tracks that a set lists without a title are known only by this address; yt-dlp resolves it like a page.
+    if(in_array($host,['api.soundcloud.com','api-v2.soundcloud.com'],true)) return preg_match('~^/tracks/(?:soundcloud(?:%3A|:)tracks(?:%3A|:))?([0-9]{1,20})/?$~Di',$path,$match)?'https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A'.$match[1]:null;
     if($host==='on.soundcloud.com') return preg_match('~^/([A-Za-z0-9]{4,32})/?$~D',$path,$match)?'https://on.soundcloud.com/'.$match[1]:null;
     if(!in_array($host,['soundcloud.com','www.soundcloud.com','m.soundcloud.com'],true)||!preg_match('~^/([A-Za-z0-9_-]{1,64})/([A-Za-z0-9_-]{1,128})/?$~D',$path,$match)) return null;
     $pages=['discover','stream','you','charts','upload','pages','settings','jobs','search','mobile','messages','notifications','feed','terms-of-use','people','stations','tags','popular','creators','music','help','legal'];
     $lists=['tracks','albums','sets','reposts','likes','spotlight','comments','following','followers','popular-tracks','playlists','recommended'];
     if(in_array(strtolower($match[1]),$pages,true)||in_array(strtolower($match[2]),$lists,true)) return null;
     return 'https://soundcloud.com/'.$match[1].'/'.$match[2];
+}
+
+/**
+ * A page that lists music instead of being one track: a Spotify artist, album or playlist, a SoundCloud profile or set,
+ * or a Deezer artist (reached from the "similar artists" list). The user gets a menu to pick tracks from.
+ * @return ?array{service:string,kind:string,id:string,url:string}
+ */
+function collectionUrl(string $input): ?array
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(!str_contains($input,'://')) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return null;
+    $host=strtolower($parts['host']??''); $path=$parts['path']??'';
+    if(in_array($host,['open.spotify.com','play.spotify.com'],true)) {
+        if(!preg_match('~^/(?:intl-[a-z]{2}(?:-[A-Za-z]{2,4})?/)?(artist|album|playlist)/([A-Za-z0-9]{22})/?$~D',$path,$match)) return null;
+        return ['service'=>'spotify','kind'=>$match[1],'id'=>$match[2],'url'=>'https://open.spotify.com/'.$match[1].'/'.$match[2]];
+    }
+    if(in_array($host,['deezer.com','www.deezer.com'],true)) {
+        if(!preg_match('~^/(?:[a-z]{2}(?:-[a-z]{2})?/)?artist/([0-9]{1,12})/?$~D',$path,$match)) return null;
+        return ['service'=>'deezer','kind'=>'artist','id'=>$match[1],'url'=>'https://www.deezer.com/artist/'.$match[1]];
+    }
+    if(in_array($host,['soundcloud.com','www.soundcloud.com','m.soundcloud.com'],true)) {
+        $pages=['discover','stream','you','charts','upload','pages','settings','jobs','search','mobile','messages','notifications','feed','terms-of-use','people','stations','tags','popular','creators','music','help','legal'];
+        if(preg_match('~^/([A-Za-z0-9_-]{1,64})(?:/(tracks|albums|sets|reposts|likes))?/?$~D',$path,$match)&&!in_array(strtolower($match[1]),$pages,true)) {
+            // A profile is a single name, optionally followed by the list to open first.
+            return ['service'=>'soundcloud','kind'=>'profile','id'=>$match[1].(isset($match[2])?'/'.$match[2]:''),'url'=>'https://soundcloud.com/'.$match[1].(isset($match[2])?'/'.$match[2]:'')];
+        }
+        if(preg_match('~^/([A-Za-z0-9_-]{1,64})/sets/([A-Za-z0-9_-]{1,128})/?$~D',$path,$match)&&!in_array(strtolower($match[1]),$pages,true)) {
+            return ['service'=>'soundcloud','kind'=>'set','id'=>$match[1].'/'.$match[2],'url'=>'https://soundcloud.com/'.$match[1].'/sets/'.$match[2]];
+        }
+    }
+    return null;
 }
 
 /** Music services: callback prefixes live here with the other service registries. */
@@ -573,7 +616,7 @@ function galleryPrefix(string $service): string { return GALLERY_PREFIXES[$servi
 function galleryFromPrefix(string $prefix): ?string { $service=array_search($prefix,GALLERY_PREFIXES,true); return $service===false?null:$service; }
 function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),default=>null}; }
 function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input); }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??(collectionUrl($input)['url']??null); }
 
 function lockProcess(string $path): mixed
 {

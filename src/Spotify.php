@@ -104,7 +104,24 @@ final class Spotify
     public function fetch(string $url,string $folder): array
     {
         $id=self::id($url); if($id===null) throw new MediaFailure('format','Invalid Spotify track URL');
-        $meta=$this->metadata($id);
+        return $this->fromDetails($this->metadata($id),$folder);
+    }
+
+    /**
+     * A track whose title, artists, length, year and cover are already known (from a Spotify page or a menu).
+     * @param array{title:string,artists:list<string>,duration:int,year:string,cover:string} $meta
+     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} see Music::finish
+     */
+    public function fromDetails(array $meta,string $folder): array
+    {
+        $title=trim((string)($meta['title']??'')); $artists=array_values(array_filter((array)($meta['artists']??[]),fn($name)=>is_string($name)&&trim($name)!==''));
+        $duration=(int)($meta['duration']??0);
+        if($title===''||!$artists||$duration<1||$duration>14400) throw new MediaFailure('format','Track details are incomplete');
+        $cover=(string)($meta['cover']??'');
+        $host=strtolower((string)parse_url($cover,PHP_URL_HOST));
+        $trusted=str_starts_with($cover,'https://')&&($host==='scdn.co'||str_ends_with($host,'.scdn.co')||str_ends_with($host,'.spotifycdn.com')||$host==='dzcdn.net'||str_ends_with($host,'.dzcdn.net')||str_ends_with($host,'.deezer.com'));
+        $meta=['title'=>mb_substr($title,0,200),'artists'=>array_slice(array_map(fn($name)=>mb_substr(trim($name),0,100),$artists),0,5),'duration'=>$duration,
+            'year'=>preg_match('/^\d{4}$/D',(string)($meta['year']??''))?(string)$meta['year']:'','cover'=>$trusted||($this->base!==self::DEFAULT_BASE&&str_starts_with($cover,rtrim($this->base,'/').'/'))?$cover:''];
         $runner=new Download($this->config);
         // YouTube has the official uploads, so it goes first. When it refuses this server (its bot check) or has
         // no good match, SoundCloud is tried, so Spotify does not depend on YouTube cookies alone.

@@ -9,12 +9,13 @@ require_once __DIR__.'/Twitter.php';
 require_once __DIR__.'/Articles.php';
 require_once __DIR__.'/Spotify.php';
 require_once __DIR__.'/SoundCloud.php';
+require_once __DIR__.'/MusicMenu.php';
 
 final class WorkerStopped extends \RuntimeException {}
 
 final class Worker
 {
-    public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null) {}
+    public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) {}
 
     public function recover(array $job): void
     {
@@ -39,7 +40,12 @@ final class Worker
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
         $stage='download'; $audio=$job['phase']==='audio';
-        $service=galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']); if($music!==null&&$job['phase']!==$music) $music=null;
+        $service=galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']);
+        // A track chosen from a menu may be known only by its details; those jobs name their service in the phase.
+        $track=json_decode((string)($job['options']??'{}'),true)['track']??null;
+        if($music===null&&is_array($track)&&in_array($job['phase'],musicServices(),true)) $music=$job['phase'];
+        if($music!==null&&$job['phase']!==$music) $music=null;
+        $collection=$job['phase']==='inspect'?collectionUrl($job['url']):null;
         $started=hrtime(true); $timings=[];
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
@@ -48,7 +54,7 @@ final class Worker
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
             if($music!==null) {
-                $this->musicDelivery($job,$bot,$folder,$timings,$stage,$music);
+                $this->musicDelivery($job,$bot,$folder,$timings,$stage,$music,is_array($track)?$track:null);
                 return;
             }
             if($gallery) {
@@ -83,6 +89,12 @@ final class Worker
                 $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
                 $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
                 try { $bot->finishJob($job); } catch(Throwable) { error_log(ucfirst($service).' media delivered; status cleanup unavailable'); }
+                return;
+            }
+            if($collection!==null) {
+                $stage='inspect';
+                (new MusicMenu($bot,$this->catalog,$this->soundcloud))->open($job,$collection,$folder);
+                $timings['menu_ms']=(int)round((hrtime(true)-$started)/1e6);
                 return;
             }
             if($job['phase']==='inspect') {
@@ -141,13 +153,13 @@ final class Worker
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
-            $store->set('last_job_service',$gallery?$service:($music??'youtube'));
+            $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':'youtube')));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($gallery) $key=$service.'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
-            $notice=$bot->text($bot->ui->definition('text',$key)?$key:($music!==null?$music.'_failed':'failed'));
+            $notice=$bot->text($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($music!==null?$music.'_failed':'failed')));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally {
             $timings['total_ms']=(int)round((hrtime(true)-$started)/1e6);
@@ -160,13 +172,15 @@ final class Worker
      * Spotify or SoundCloud track: find the audio, tag it with the real title, artists and cover and send it
      * as one audio message on the same status message. Texts and settings are named after the service.
      */
-    private function musicDelivery(array $job,Bot $bot,string $folder,array &$timings,string &$stage,string $service): void
+    private function musicDelivery(array $job,Bot $bot,string $folder,array &$timings,string &$stage,string $service,?array $track=null): void
     {
         $config=$this->config; $store=$this->store; $api=$this->api;
         Download::ensureSpace($config->storage.'/downloads');
         $bot->jobMessage($job,$bot->text($service.'_downloading'));
         $started=hrtime(true);
-        $media=$service==='spotify'?($this->spotify??new Spotify($config))->fetch($job['url'],$folder):($this->soundcloud??new SoundCloud($config))->fetch($job['url'],$folder);
+        $media=$service==='spotify'
+            ?($track!==null?($this->spotify??new Spotify($config))->fromDetails($track,$folder):($this->spotify??new Spotify($config))->fetch($job['url'],$folder))
+            :($this->soundcloud??new SoundCloud($config))->fetch($job['url'],$folder);
         $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6);
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
@@ -181,7 +195,7 @@ final class Worker
             'title'=>mb_substr($media['title'],0,100),'performer'=>mb_substr($media['performer'],0,100),
             'audio'=>new \CURLFile($media['path'],'audio/mpeg',$media['name'])];
         if($media['thumbnail']!==null) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
-        $rows=$bot->ui->gallerySourceRows($service,$job['url']);
+        $rows=$bot->ui->gallerySourceRows($service,$media['page']??$job['url']);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $uploadStarted=hrtime(true);
