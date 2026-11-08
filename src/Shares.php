@@ -3,8 +3,8 @@ declare(strict_types=1);
 namespace Zero;
 
 /**
- * "Share" under a sent track: a switch_inline_query button. Anyone who sees the track can tap it, pick a chat and send
- * the same audio there through the bot's inline mode (the bot answers with the file Telegram already has, so nothing
+ * "Share" under a sent track: a switch_inline_query_chosen_chat button. Anyone who sees the track can tap it, pick a
+ * private chat (or a group) and send the same audio there through the bot's inline mode (the bot answers with the file Telegram already has, so nothing
  * is uploaded again). Each button carries a random token that names one stored file; the token is the only key.
  * Inline mode must be turned on for the bot in BotFather (/setinline); without it no share button is shown.
  */
@@ -40,11 +40,15 @@ final class Shares
         if(random_int(1,50)===1) $store->query('DELETE FROM shares WHERE created<?',[time()-self::KEEP_DAYS*86400]);
         return $token;
     }
-    /** The button row for a token. */
+    /**
+     * The button row for a token. Tapping it opens Telegram's chat picker (people's private chats and groups); the chosen
+     * chat opens with the track offered above the keyboard, and one tap on it sends the file there. A bot cannot post
+     * into someone else's private chat by itself, so that last tap is the user's own.
+     */
     public function row(string $token): array
     {
         $button=$this->bot->ui->button('music_share');
-        $button['switch_inline_query']='s:'.$token;
+        $button['switch_inline_query_chosen_chat']=['query'=>'s:'.$token,'allow_user_chats'=>true,'allow_group_chats'=>true,'allow_bot_chats'=>false,'allow_channel_chats'=>false];
         return [$button];
     }
     /** After sending: the file Telegram stored for the track, so the button can send it again anywhere. */

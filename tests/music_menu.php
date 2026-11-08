@@ -197,8 +197,9 @@ try {
     file_put_contents($mode,json_encode(['inline'=>true])); $store->set('bot_inline_checked','0'); file_put_contents($log,'');
     $tap('mm:'.$id.':a:each',12); $job=$run('media'); $audios=$called('sendAudio');
     $rowsOf=fn($call)=>json_decode((string)($call['params']['reply_markup']??'{}'),true)['inline_keyboard']??[];
-    $tokens=array_map(fn($call)=>substr((string)($rowsOf($call)[0][0]['switch_inline_query']??''),2),$audios);
+    $chosen=array_map(fn($call)=>$rowsOf($call)[0][0]['switch_inline_query_chosen_chat']??[],$audios); $tokens=array_map(fn($pick)=>substr((string)($pick['query']??''),2),$chosen);
     menuCheck($job['status']==='done'&&count($audios)===3&&count(array_filter($tokens,fn($t)=>preg_match('/^[A-Za-z0-9_-]{16}$/D',$t)))===3&&count(array_unique($tokens))===3&&($rowsOf($audios[0])[0][0]['style']??'')==='primary'&&str_contains($rowsOf($audios[0])[0][0]['text'],'اشتراک'),'every track gets its own share button');
+    menuCheck(!empty($chosen[0]['allow_user_chats'])&&!empty($chosen[0]['allow_group_chats'])&&empty($chosen[0]['allow_bot_chats'])&&empty($chosen[0]['allow_channel_chats'])&&!isset($rowsOf($audios[0])[0][0]['switch_inline_query']),'share opens Telegram\'s chat picker for people\'s private chats and groups');
     menuCheck(count($rowsOf($audios[0]))===1&&count($rowsOf($audios[2]))===2&&$rowsOf($audios[2])[1][0]['callback_data']==='mm:'.$id.':r','the last track has share and, under it, the red way back');
     $shared=$store->query('SELECT file_id,caption FROM shares WHERE token=?',[$tokens[1]])->fetch();
     menuCheck($shared&&str_starts_with($shared['file_id'],'AUDIO')&&str_contains($shared['caption'],'Album Cut Two'),'the share remembers the file Telegram stored and its caption');
