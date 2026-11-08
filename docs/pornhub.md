@@ -60,3 +60,7 @@ docker compose exec worker /opt/yt/bin/yt-dlp --ignore-config --no-playlist --sk
 ```
 
 اگر این عنوان را چاپ کرد، همان آدرس را در `GALLERY_PROXY` بگذار.
+
+### «410 Gone» از سرور ابری
+
+بعضی سایت‌ها درخواستی را که شبیه ابزار (و نه مرورگر) باشد از IP سرورهای ابری با `410 Gone` یا `403` رد می‌کنند. yt-dlp برای همین می‌تواند خودش را شبیه مرورگر Chrome معرفی کند (impersonation)، به شرطی که بستهٔ `curl-cffi` نصب باشد. از نسخهٔ 1.43.2 تصویر Docker همین بسته را دارد (`yt-dlp[default,curl-cffi]`)؛ پیش از آن yt-dlp هشدار می‌داد «`The extractor is attempting impersonation, but no impersonate target is available`». برای اعمالش باید تصویر دوباره ساخته شود (`CiroDownloader update`). اگر بعد از آن هم همان 410 آمد، سایت خود IP سرور را مسدود کرده و فقط پراکسی کمک می‌کند.

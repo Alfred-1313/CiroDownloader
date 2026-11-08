@@ -55,7 +55,7 @@ jobs:
       - name: Verify social extraction and article publishing
         run: |
           python3 -m venv /tmp/ciro-gallery-tests
-          /tmp/ciro-gallery-tests/bin/pip install 'gallery-dl==1.32.19' 'yt-dlp[default]==2026.10.26'
+          /tmp/ciro-gallery-tests/bin/pip install 'gallery-dl==1.32.19' 'yt-dlp[default,curl-cffi]==2026.10.26'
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_media.php
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php
           /tmp/ciro-gallery-tests/bin/python -B tests/pinterest_redirects.py
