@@ -8,7 +8,7 @@ Send a link to one SoundCloud track and the bot returns it as an MP3 with the tr
 
 ## How it works
 
-The bot downloads the track page with the bundled yt-dlp, converts the audio to MP3 (192 kbps) and writes the title, artist, year and cover into the file without re-encoding it. Some tracks are public only as a **30 second preview**; the bot never sends a preview as if it were the song. If no full version is available, or the downloaded audio is much shorter than the track, the request ends with the "not available" message.
+The bot downloads the track page with the bundled yt-dlp, converts the audio to MP3 (192 kbps) and writes the title, artist, year and cover into the file without re-encoding it. Some tracks are public only as a **30 second preview**, and official uploads of some labels are **DRM-encrypted**; the bot never sends a preview as if it were the song and never decrypts anything. If no full version is available, or the downloaded audio is much shorter than the track, the request ends with the "not available" message.
 
 The social-media proxy (`GALLERY_PROXY`) is used when one is set. SoundCloud is also the second source for [Spotify tracks](spotify.md) when YouTube refuses the server.
 

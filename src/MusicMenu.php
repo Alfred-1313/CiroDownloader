@@ -111,7 +111,7 @@ final class MusicMenu
         if($view['stack']) $footer[]=$ui->button('menu_back','mm:'.$id.':b');
         $footer[]=$ui->button('menu_close','mm:'.$id.':x');
         $rows[]=$footer;
-        $icon=$view['stack']?'💿':(self::ICONS[$data['kind']]??'🎧');
+        $icon=$view['stack']?(str_starts_with((string)end($view['stack'])['ref'],'a')?'💿':'📻'):(self::ICONS[$data['kind']]??'🎧');
         $tabLabel=$now['tab']!==''?preg_replace('/\s*\(\s*\)/u','',$ui->button('menu_tab_'.$now['tab'],'x',['count'=>''])['text'])??'':'';
         $info=trim($ui->text('menu_info',['label'=>$tabLabel!==''?$tabLabel:$now['sub'],'count'=>(string)count($items),'page'=>(string)($page+1),'pages'=>(string)$pages]));
         $note=!$view['stack']&&($data['note']??'')==='limited'?"\n\n".$ui->text('menu_limited'):'';

@@ -32,6 +32,8 @@ final class MediaFailure extends \RuntimeException
             preg_match('/max.filesize|larger than|too large|size limit/i',$detail)===1=>'size',
             preg_match('/private video|video unavailable|removed|age.restricted|not available in your country/i',$detail)===1=>'restricted',
             preg_match('/does not pass filter|live stream|duration limit/i',$detail)===1=>'duration',
+            // Official uploads of major labels are encrypted; they are never decrypted, so there is no version to take.
+            preg_match('/DRM.protected|has DRM|\bDRM\b/i',$detail)===1=>'format',
             $exit===124||preg_match('/timed out|unable to download webpage|network is unreachable|name resolution|connection refused/i',$detail)===1=>'network',
             preg_match('/requested format.*not available/i',$detail)===1=>'format',
             default=>'process',

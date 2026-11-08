@@ -63,7 +63,8 @@ final class Spotify
         $length=$candidate['duration']??null;
         if(!is_int($length)&&!is_float($length)) return -1000;
         $difference=abs((int)round($length)-$meta['duration']);
-        if($difference>20) return -1000;
+        // Anyone can upload to SoundCloud, so there the length must be almost exact.
+        if($difference>($strict?5:20)) return -1000;
         $raw=(string)($candidate['title']??''); $channelRaw=(string)($candidate['channel']??$candidate['uploader']??'');
         $title=self::normalize($raw); $full=self::normalize($raw,false); $channel=self::normalize($channelRaw);
         $name=self::normalize($meta['title']); $artist=self::normalize($meta['artists'][0]);
@@ -78,7 +79,7 @@ final class Spotify
         $original=self::normalize($meta['title'].' '.implode(' ',$meta['artists']),false);
         foreach(['live','cover','remix','karaoke','instrumental','nightcore','sped up','slowed','reverb','8d','acoustic','mashup','reaction','tutorial','piano','pianoforte','unplugged','demo','extended','orchestral'] as $word) {
             $pattern='/\b'.preg_quote($word,'/').'\b/u';
-            if(preg_match($pattern,$full)&&!preg_match($pattern,$original)) $score-=30;
+            if(preg_match($pattern,$full)&&!preg_match($pattern,$original)) { if($strict) return -1000; $score-=30; }
         }
         if(str_contains($full,'official audio')||str_contains($full,'audio only')) $score+=8;
         if(str_contains($full,'lyric')) $score-=5;
@@ -86,16 +87,42 @@ final class Spotify
         if(preg_match('/\b(?:official video|music video|official music video)\b/u',$full)) $score-=4;
         return $score;
     }
-    /** @return array<string,mixed>|null the best match above the minimum, or null */
-    public static function best(array $meta,array $candidates,bool $strict=false): ?array
+    /** @return list<array<string,mixed>> the results that match well enough, best first */
+    public static function ranked(array $meta,array $candidates,bool $strict=false): array
     {
-        $chosen=null; $top=self::MATCH_MINIMUM-1;
+        $scored=[];
         foreach($candidates as $candidate) {
             if(!is_array($candidate)||!preg_match($strict?'/^[0-9]{1,20}$/D':'/^[A-Za-z0-9_-]{11}$/D',(string)($candidate['id']??''))) continue;
             $score=self::score($meta,$candidate,$strict);
-            if($score>$top) { $top=$score; $chosen=$candidate; }
+            if($score>=self::MATCH_MINIMUM) $scored[]=[$score,$candidate];
         }
-        return $chosen;
+        // usort is stable, so equal scores keep the order of the site's own ranking.
+        usort($scored,fn($a,$b)=>$b[0]<=>$a[0]);
+        return array_column($scored,1);
+    }
+    /** @return array<string,mixed>|null the best match above the minimum, or null */
+    public static function best(array $meta,array $candidates,bool $strict=false): ?array
+    {
+        return self::ranked($meta,$candidates,$strict)[0]??null;
+    }
+    /**
+     * Download the best match; if that one cannot be fetched, the next two. A refusal of the whole site
+     * (blocked, cookies, network) or a size/disk problem is the same for every result, so it stops at once.
+     * @param list<array<string,mixed>> $ranked
+     * @param callable(array):array $get
+     */
+    private static function firstAudio(array $ranked,callable $get,string $folder): array
+    {
+        $last=null;
+        foreach(array_slice($ranked,0,3) as $candidate) {
+            try { return $get($candidate); }
+            catch(MediaFailure $e) {
+                if(in_array($e->reason,['blocked','cookies','network','size','storage'],true)) throw $e;
+                $last=$e;
+                foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
+            }
+        }
+        throw $last??new MediaFailure('format','No matching recording was found');
     }
 
     /**
@@ -128,17 +155,17 @@ final class Spotify
         $sources=[
             'youtube'=>function() use($runner,$meta,$folder) {
                 // Adding "audio" makes the plain audio upload (often the official one) appear before music videos.
-                $match=self::best($meta,$runner->search($meta['artists'][0].' '.$meta['title'].' audio',$folder));
-                if($match===null) throw new MediaFailure('format','No matching recording was found on YouTube');
-                return $runner->fetchBestAudio('https://www.youtube.com/watch?v='.$match['id'],$folder);
+                $ranked=self::ranked($meta,$runner->search($meta['artists'][0].' '.$meta['title'].' audio',$folder));
+                if(!$ranked) throw new MediaFailure('format','No matching recording was found on YouTube');
+                return self::firstAudio($ranked,fn($match)=>$runner->fetchBestAudio('https://www.youtube.com/watch?v='.$match['id'],$folder),$folder);
             },
             'soundcloud'=>function() use($runner,$meta,$folder) {
-                $match=self::best($meta,$runner->searchSoundCloud($meta['artists'][0].' '.$meta['title'],$folder),true);
-                if($match===null) throw new MediaFailure('format','No matching recording was found on SoundCloud');
-                return $runner->fetchSoundCloudAudio((string)$match['id'],$folder);
+                $ranked=self::ranked($meta,$runner->searchSoundCloud($meta['artists'][0].' '.$meta['title'],$folder),true);
+                if(!$ranked) throw new MediaFailure('format','No matching recording was found on SoundCloud');
+                return self::firstAudio($ranked,fn($match)=>$runner->fetchSoundCloudAudio((string)$match['id'],$folder),$folder);
             },
         ];
-        $audio=null; $failure=null; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
+        $audio=null; $failure=null; $tried=[]; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
         foreach($sources as $source=>$find) {
             try {
                 $audio=$find();
@@ -150,13 +177,17 @@ final class Spotify
                 // Too big or no disk space is the same everywhere; anything else may work from another source.
                 if(in_array($e->reason,['size','storage'],true)) throw $e;
                 error_log('Spotify source='.$source.' failed reason='.$e->reason);
-                $audio=null;
+                $tried[$source]=$e->reason; $audio=null;
                 foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
                 // Report the most useful cause: a refusal says more than "not found".
                 if($failure===null||($rank[$e->reason]??0)>($rank[$failure->reason]??0)) $failure=$e;
             }
         }
-        if($audio===null) throw $failure??new MediaFailure('format','No audio source was available');
+        if($audio===null) {
+            // The administrator sees both reasons (youtube=blocked, soundcloud=format), not only the most telling one.
+            $summary=implode(', ',array_map(fn($source,$reason)=>$source.'='.$reason,array_keys($tried),$tried));
+            throw new MediaFailure($failure?->reason??'format','Spotify audio sources failed ['.$summary.']: '.mb_substr($failure?->getMessage()??'no source',0,240));
+        }
         return Music::finish($this->config,$audio,$folder,$meta,'spotify');
     }
 }

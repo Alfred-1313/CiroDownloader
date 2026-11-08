@@ -141,6 +141,10 @@ try {
     $tap('mm:'.$menuId.':b',11); $menu=$lastMenu();
     menuCheck(str_contains($button($menu,'آلبوم‌ها')['text'],'(2)')&&($button($menu,'آلبوم‌ها')['style']??'')==='success','Back returns to the albums tab');
 
+    $tap('mm:'.$menuId.':t:playlists',11); $tap('mm:'.$menuId.':o:0',11); $menu=$lastMenu();
+    menuCheck(str_contains($menu['text'],'📻')&&!str_contains($menu['text'],'💿')&&str_contains($menu['text'],'Fixture Radio')&&in_array('🎵 Somebody Else – Playlist Cut · 00:12',$menu['labels'],true),'a playlist opens with its own icon and names each track\'s artist');
+    $tap('mm:'.$menuId.':t:albums',11);
+
     // 4. A tap on a listed track queues it like a pasted link, with no pause between taps.
     $tap('mm:'.$menuId.':o:1',11); $menu=$lastMenu();   // Old Album
     $tap('mm:'.$menuId.':o:1',11); $before=count($calls());

@@ -36,6 +36,7 @@ foreach([['title'=>'','uploader'=>'x','duration'=>9],['title'=>'No artist','dura
     soundcloudCheck($failed,'incomplete track data is refused: '.($bad['title']?:'empty title'));
 }
 
+soundcloudCheck(Zero\MediaFailure::process(1,'ERROR: [soundcloud] 431099817: This video is DRM protected')->reason==='format','an encrypted (DRM) official upload is reported as having no version to take, never decrypted');
 $temp=sys_get_temp_dir().'/ciro-soundcloud-'.bin2hex(random_bytes(6)); mkdir($temp,0700); $server=null;
 try {
     $config=new Zero\Config('123:fixture',[42],$temp.'/data'); mkdir($config->storage,0700); mkdir($config->storage.'/downloads',0700); $runner=new Zero\Download($config);

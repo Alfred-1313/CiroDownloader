@@ -72,7 +72,11 @@ try {
         'if(str_starts_with($target,"scsearch")) { $found=($mode["soundcloud"]??"ok")==="empty"?[]:['.
         '["id"=>"111000111","title"=>"Fixture Song","duration"=>30.0,"uploader"=>"Fixture Artist"],'.
         '["id"=>"222000222","title"=>"Fixture Song","duration"=>12.0,"uploader"=>"Random Upload"],'.
-        '["id"=>"333000333","title"=>"Fixture Artist - Fixture Song","duration"=>12.4,"uploader"=>"Some Fan"]];'.
+        '["id"=>"333000333","title"=>"Fixture Artist - Fixture Song","duration"=>12.4,"uploader"=>"Some Fan"],'.
+        '["id"=>"444000444","title"=>"Fixture Artist - Fixture Song (Official)","duration"=>12.3,"uploader"=>"Another Fan"],'.
+        '["id"=>"555000555","title"=>"Fixture Artist - Fixture Song (Dylan Cover)","duration"=>12.0,"uploader"=>"Cover Band"],'.
+        '["id"=>"666000666","title"=>"Fixture Artist - Fixture Song (Extended Edit)","duration"=>12.0,"uploader"=>"Remixer"],'.
+        '["id"=>"777000777","title"=>"Fixture Artist - Fixture Song","duration"=>19.0,"uploader"=>"Long Edit"]];'.
         'echo json_encode(["entries"=>$found]);exit(0); }'.
         'if(str_starts_with($target,"ytsearch")) { $found=match($mode["search"]??"ok") {'.
         '"empty"=>[],"far"=>[["id"=>"longVideo01","title"=>"Fixture Artist - Fixture Song","duration"=>420.0,"channel"=>"Fixture Artist"]],'.
@@ -80,6 +84,7 @@ try {
         '["id"=>"liveCopy001","title"=>"Fixture Artist - Fixture Song (Live)","duration"=>12.0,"channel"=>"Fixture Artist"],'.
         '["id"=>"goodMatch01","title"=>"Fixture Artist - Fixture Song (Official Audio)","duration"=>13.0,"channel"=>"Fixture Artist"]]};'.
         'echo json_encode(["entries"=>$found]);exit(0); }'.
+        'if(($mode["soundcloud"]??"ok")==="firstfails"&&str_contains($target,"333000333")) { fwrite(STDERR,"ERROR: [soundcloud] 333000333: Requested format is not available");exit(1); }'.
         '$template=$args[array_search("-o",$args,true)+1];copy('.var_export($temp.'/source.m4a',true).',str_replace("%(ext)s","m4a",$template));echo json_encode("Fixture Artist - Fixture Song (Official Audio)").PHP_EOL;');
     chmod($stub,0700); $config->ytDlp=$stub;
 
@@ -170,7 +175,7 @@ try {
     $failure(['page'=>'missing'],'پیدا نشد','a missing track page is reported as "not found"');
     $failure(['search'=>'empty','soundcloud'=>'empty'],'پیدا نشد','a search without results is reported as "not found"');
     $failure(['search'=>'far','soundcloud'=>'empty'],'پیدا نشد','a result of the wrong length is not sent');
-    $failure(['youtube'=>'blocked','soundcloud'=>'empty'],'یوتیوب و منبع جایگزین','when YouTube refuses the server and SoundCloud has nothing, the status says so');
+    $failure(['youtube'=>'blocked','soundcloud'=>'empty'],'ساوندکلاود هم نسخهٔ مطمئنی','when YouTube refuses the server and SoundCloud has nothing, the status says so');
 
     // 7. YouTube refuses the server (its bot check): the track still arrives from SoundCloud.
     file_put_contents($mode,json_encode(['youtube'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
@@ -188,9 +193,26 @@ try {
     $send($canonical,301);
     $job=$run();
     spotifyCheck($job['status']==='done'&&count(array_filter($calls(),fn($call)=>$call['method']==='sendAudio'))===1,'no good YouTube match falls back to SoundCloud');
+    // The next best result is tried when the best cannot be fetched, and the administrator sees every reason.
+    file_put_contents($mode,json_encode(['youtube'=>'blocked','soundcloud'=>'firstfails'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    $send($canonical,302); $job=$run();
+    $downloads=array_values(array_filter($searches(),fn($args)=>in_array('-o',$args,true)));
+    spotifyCheck($job['status']==='done'&&count($downloads)===2&&str_contains(end($downloads[0]),'333000333')&&str_contains(end($downloads[1]),'444000444'),'when the best SoundCloud result cannot be fetched, the next one is used');
+    file_put_contents($mode,json_encode(['youtube'=>'blocked','soundcloud'=>'empty'])); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    $send($canonical,303); $job=$run();
+    spotifyCheck($job['status']==='failed'&&str_contains($store->get('last_job_error'),'youtube=blocked, soundcloud=format'),'the failure records what each source said');
+    $health=new SpotifyUiApi(); $admin=new Zero\Bot($config,$store,$health);
+    $admin->handle(['update_id'=>9001,'message'=>['message_id'=>1,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
+    $report=(string)end($health->calls)[1]['text'];
+    spotifyCheck(str_contains($report,'youtube=blocked, soundcloud=format')&&str_contains($report,'ساوندکلاود هم نسخهٔ مطمئنی'),'the administrator\'s health report shows the reason and what the user was told');
+    file_put_contents($mode,'{}');
     // Strict matching and the social-media proxy.
     $strictMeta=['title'=>'Fixture Song','artists'=>['Fixture Artist'],'duration'=>12,'year'=>'','cover'=>''];
     $nameOnly=['id'=>'222000222','title'=>'Fixture Song','duration'=>12.0,'channel'=>'Random Upload'];
+    $cover=['id'=>'555000555','title'=>'Fixture Artist - Fixture Song (Dylan Cover)','duration'=>12.0,'channel'=>'Cover Band']; $longer=['id'=>'777000777','title'=>'Fixture Artist - Fixture Song','duration'=>19.0,'channel'=>'Long Edit'];
+    $official=['id'=>'333000333','title'=>'Fixture Artist - Fixture Song','duration'=>13.0,'channel'=>'Some Fan'];
+    spotifyCheck(Zero\Spotify::best($strictMeta,[$cover,$longer],true)===null&&Zero\Spotify::best($strictMeta,[$cover,$longer,$official],true)['id']==='333000333','uploads by anyone must be almost the exact length and not a cover or edit');
+    spotifyCheck(array_column(Zero\Spotify::ranked($strictMeta,[$official,['id'=>'444000444','title'=>'Fixture Artist - Fixture Song','duration'=>12.0,'channel'=>'Another Fan']],true),'id')===['444000444','333000333'],'results are ranked best first');
     spotifyCheck(Zero\Spotify::best($strictMeta,[$nameOnly],true)===null&&Zero\Spotify::best($strictMeta,[['id'=>'abcdefghijk']+$nameOnly])!==null,'uploads by anyone need both the name and the artist, official channels only one');
     $proxied=clone $config; $proxied->galleryProxy='socks5://proxy-user:proxy-pass@127.0.0.1:1080'; file_put_contents($ytLog,''); file_put_contents($mode,'{}');
     (new Zero\Download($proxied))->searchSoundCloud('Fixture Artist Fixture Song',$temp);

@@ -152,6 +152,7 @@ final class Worker
             $detail=diagnosticMessage($e->getMessage());
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
+            $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
             $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':'youtube')));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
