@@ -403,7 +403,7 @@
     "spotify_uploading":{"audience":"user","label":"ارسال آهنگ اسپاتیفای","group":"spotify","value":"📤 آهنگ آماده شد؛ در حال ارسال به تلگرام…"},
     "spotify_caption":{"audience":"user","label":"کپشن آهنگ اسپاتیفای","group":"spotify","value":"<b>🎧 {title}</b>\n<blockquote>خواننده: <b>{artist}</b>\nمدت: <b>{duration}</b></blockquote>","caption":true,"variables":["title","artist","year","duration","url"]},
     "spotify_error_cookies":{"audience":"user","label":"خطای کوکی در آهنگ اسپاتیفای","group":"spotify","value":"🍪 برای پیدا کردن این آهنگ به کوکی یوتیوب نیاز شد، ولی کوکی معتبر نبود؛ مدیر باید کوکی یوتیوب را به‌روز کند."},
-    "spotify_error_blocked":{"audience":"user","label":"خطای دسترسی آهنگ اسپاتیفای","group":"spotify","value":"⚠️ یوتیوب، که فایل صوتی این آهنگ را از آن می‌گیرم، دسترسی سرور را محدود کرده است؛ کمی بعد دوباره تلاش کن یا به مدیر خبر بده."},
+    "spotify_error_blocked":{"audience":"user","label":"خطای دسترسی آهنگ اسپاتیفای","group":"spotify","value":"⚠️ یوتیوب و منبع جایگزین هر دو دسترسی سرور را نپذیرفتند و آهنگ دریافت نشد؛ کمی بعد دوباره تلاش کن یا به مدیر خبر بده."},
     "spotify_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال اسپاتیفای","group":"spotify","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
     "spotify_error_network":{"audience":"user","label":"خطای اتصال اسپاتیفای","group":"spotify","value":"⚠️ اتصال به اسپاتیفای یا یوتیوب برقرار نشد؛ کمی بعد دوباره تلاش کن."},
     "spotify_error_size":{"audience":"user","label":"حجم آهنگ اسپاتیفای","group":"spotify","value":"⚠️ حجم فایل این آهنگ از سقف ارسال ربات بیشتر است."},

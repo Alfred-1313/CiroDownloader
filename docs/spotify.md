@@ -7,12 +7,13 @@ Send a link to one Spotify track and the bot returns it as an MP3 with the real 
 1. The bot reads the public page of the track (`open.spotify.com/embed/track/ID`) for the title, artists, length, release year and cover.
 2. It searches YouTube for `ARTIST TITLE audio` and picks the result whose **length is closest** to the track and whose title or channel shows the name or the artist. Live, cover, remix, karaoke, slowed, instrumental and similar versions lose to the studio recording unless the Spotify track itself is that version. If nothing matches well enough, the bot says the track was not found instead of sending something random.
 3. The best audio of that video is downloaded through the existing YouTube path (same yt-dlp, proxy, PO Token and cookie options), converted to MP3 and tagged with the Spotify title, artists, year and cover.
+4. **If YouTube refuses the server** (the "Sign in to confirm you're not a bot" check that datacenter addresses often get) or has no good match, the bot tries **SoundCloud** with the same length check and a stricter text check: the upload must show both the track name and the artist, and previews (about 30 s) are rejected because their length does not fit. This second source needs no cookies and uses the social-media proxy (`GALLERY_PROXY`) when one is set. The worker log shows `Spotify source=youtube` or `Spotify source=soundcloud` for each request.
 
-Spotify's own audio streams are protected and are never downloaded. The result is the matching recording from YouTube, so it can differ slightly from Spotify's master (for example a remaster). Tracks that were never uploaded to YouTube, very new releases and some region-limited tracks may not be found.
+Spotify's own audio streams are protected and are never downloaded. The result is the matching recording from YouTube, so it can differ slightly from Spotify's master (for example a remaster). Tracks that were never uploaded to YouTube, very new releases and some region-limited tracks may not be found; SoundCloud has fewer official uploads, so a track served from it is a fan upload with the right title, artist and length.
 
 ## Cookies
 
-Spotify needs none: the public track page is readable without an account. The YouTube step uses the YouTube cookies you already configured only when YouTube asks for them (see [cookies](cookies.md)); with "cookies as a last resort" on, it tries anonymously first. The optional social-media proxy (`GALLERY_PROXY`) also covers the Spotify page and cover, and the YouTube proxy covers the YouTube step.
+Spotify needs none: the public track page is readable without an account. The YouTube step uses the YouTube cookies you already configured (see [cookies](cookies.md)); with "cookies as a last resort" on, it tries anonymously first. If YouTube still refuses, the SoundCloud source above takes over, so Spotify keeps working without fresh YouTube cookies. The optional social-media proxy (`GALLERY_PROXY`) also covers the Spotify page and cover, and the YouTube proxy covers the YouTube step.
 
 ## Supported links
 

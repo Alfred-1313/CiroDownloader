@@ -68,9 +68,10 @@ final class Spotify
     }
     /**
      * How well a YouTube result matches the track: its length must be close and its title or channel
-     * must show the name or the artist. Negative means "not this recording".
+     * must show the name or the artist. Negative means "not this recording". With $strict (uploads by
+     * anyone, as on SoundCloud) both the name and the artist must show.
      */
-    public static function score(array $meta,array $candidate): int
+    public static function score(array $meta,array $candidate,bool $strict=false): int
     {
         $length=$candidate['duration']??null;
         if(!is_int($length)&&!is_float($length)) return -1000;
@@ -84,6 +85,7 @@ final class Spotify
         $topic=str_ends_with(mb_strtolower(trim($channelRaw)),'- topic')&&$artist!==''&&str_contains($channel,$artist);
         $channelHit=$artist!==''&&($channel===$artist||str_contains($channel,$artist));
         if(!$nameHit&&!$artistHit&&!$channelHit) return -1000;
+        if($strict&&!($nameHit&&($artistHit||$channelHit))) return -1000;
         $score=70-6*$difference+($nameHit?30:0)+($artistHit?15:0)+($topic?40:($channelHit?30:0));
         // A different version of the song is not the track that was asked for.
         $original=self::normalize($meta['title'].' '.implode(' ',$meta['artists']),false);
@@ -98,12 +100,12 @@ final class Spotify
         return $score;
     }
     /** @return array<string,mixed>|null the best match above the minimum, or null */
-    public static function best(array $meta,array $candidates): ?array
+    public static function best(array $meta,array $candidates,bool $strict=false): ?array
     {
         $chosen=null; $top=self::MATCH_MINIMUM-1;
         foreach($candidates as $candidate) {
-            if(!is_array($candidate)||!preg_match('/^[A-Za-z0-9_-]{11}$/D',(string)($candidate['id']??''))) continue;
-            $score=self::score($meta,$candidate);
+            if(!is_array($candidate)||!preg_match($strict?'/^[0-9]{1,20}$/D':'/^[A-Za-z0-9_-]{11}$/D',(string)($candidate['id']??''))) continue;
+            $score=self::score($meta,$candidate,$strict);
             if($score>$top) { $top=$score; $chosen=$candidate; }
         }
         return $chosen;
@@ -129,14 +131,40 @@ final class Spotify
         $id=self::id($url); if($id===null) throw new MediaFailure('format','Invalid Spotify track URL');
         $meta=$this->metadata($id);
         $runner=new Download($this->config);
-        // Adding "audio" makes the plain audio upload (often the official one) appear before music videos.
-        $query=$meta['artists'][0].' '.$meta['title'].' audio';
-        $match=self::best($meta,$runner->search($query,$folder));
-        if($match===null) throw new MediaFailure('format','No matching recording was found');
-        $video='https://www.youtube.com/watch?v='.$match['id'];
-        $audio=$runner->fetchBestAudio($video,$folder);
-        // The search already compared lengths; this guards against a different file being served.
-        if(abs($audio['duration']-$meta['duration'])>30) throw new MediaFailure('format','Downloaded length does not match the track');
+        // YouTube has the official uploads, so it goes first. When it refuses this server (its bot check) or has
+        // no good match, SoundCloud is tried, so Spotify does not depend on YouTube cookies alone.
+        $sources=[
+            'youtube'=>function() use($runner,$meta,$folder) {
+                // Adding "audio" makes the plain audio upload (often the official one) appear before music videos.
+                $match=self::best($meta,$runner->search($meta['artists'][0].' '.$meta['title'].' audio',$folder));
+                if($match===null) throw new MediaFailure('format','No matching recording was found on YouTube');
+                return $runner->fetchBestAudio('https://www.youtube.com/watch?v='.$match['id'],$folder);
+            },
+            'soundcloud'=>function() use($runner,$meta,$folder) {
+                $match=self::best($meta,$runner->searchSoundCloud($meta['artists'][0].' '.$meta['title'],$folder),true);
+                if($match===null) throw new MediaFailure('format','No matching recording was found on SoundCloud');
+                return $runner->fetchSoundCloudAudio((string)$match['id'],$folder);
+            },
+        ];
+        $audio=null; $failure=null; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
+        foreach($sources as $source=>$find) {
+            try {
+                $audio=$find();
+                // The search already compared lengths; this guards against a different file being served.
+                if(abs($audio['duration']-$meta['duration'])>30) throw new MediaFailure('format','Downloaded length does not match the track');
+                error_log('Spotify source='.$source);
+                break;
+            } catch(MediaFailure $e) {
+                // Too big or no disk space is the same everywhere; anything else may work from another source.
+                if(in_array($e->reason,['size','storage'],true)) throw $e;
+                error_log('Spotify source='.$source.' failed reason='.$e->reason);
+                $audio=null;
+                foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
+                // Report the most useful cause: a refusal says more than "not found".
+                if($failure===null||($rank[$e->reason]??0)>($rank[$failure->reason]??0)) $failure=$e;
+            }
+        }
+        if($audio===null) throw $failure??new MediaFailure('format','No audio source was available');
         $performer=implode(', ',$meta['artists']);
         $cover=$this->cover($meta['cover'],$folder);
         // Put the real names (and the cover) in the file, without re-encoding the audio.

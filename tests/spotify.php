@@ -65,6 +65,12 @@ try {
     file_put_contents($stub,"#!/usr/bin/env php\n<?php\n".
         '$args=array_slice($argv,1);file_put_contents('.var_export($ytLog,true).',json_encode($args).PHP_EOL,FILE_APPEND);'.
         '$mode=json_decode((string)file_get_contents('.var_export($mode,true).'),true)?:[];$target=end($args);'.
+        'if(($mode["youtube"]??"ok")==="blocked"&&(str_starts_with($target,"ytsearch")||str_contains($target,"youtube.com"))) { fwrite(STDERR,"ERROR: [youtube] x: Sign in to confirm you’re not a bot. Use --cookies for the authentication.");exit(1); }'.
+        'if(str_starts_with($target,"scsearch")) { $found=($mode["soundcloud"]??"ok")==="empty"?[]:['.
+        '["id"=>"111000111","title"=>"Fixture Song","duration"=>30.0,"uploader"=>"Fixture Artist"],'.
+        '["id"=>"222000222","title"=>"Fixture Song","duration"=>12.0,"uploader"=>"Random Upload"],'.
+        '["id"=>"333000333","title"=>"Fixture Artist - Fixture Song","duration"=>12.4,"uploader"=>"Some Fan"]];'.
+        'echo json_encode(["entries"=>$found]);exit(0); }'.
         'if(str_starts_with($target,"ytsearch")) { $found=match($mode["search"]??"ok") {'.
         '"empty"=>[],"far"=>[["id"=>"longVideo01","title"=>"Fixture Artist - Fixture Song","duration"=>420.0,"channel"=>"Fixture Artist"]],'.
         'default=>[["id"=>"otherSong01","title"=>"Totally Different Video","duration"=>12.0,"channel"=>"Somebody"],'.
@@ -159,8 +165,35 @@ try {
         spotifyCheck($job['status']==='failed'&&str_contains(end($texts),$expected)&&$store->get('last_job_service')==='spotify',$label);
     };
     $failure(['page'=>'missing'],'پیدا نشد','a missing track page is reported as "not found"');
-    $failure(['search'=>'empty'],'پیدا نشد','a search without results is reported as "not found"');
-    $failure(['search'=>'far'],'پیدا نشد','a result of the wrong length is not sent');
+    $failure(['search'=>'empty','soundcloud'=>'empty'],'پیدا نشد','a search without results is reported as "not found"');
+    $failure(['search'=>'far','soundcloud'=>'empty'],'پیدا نشد','a result of the wrong length is not sent');
+    $failure(['youtube'=>'blocked','soundcloud'=>'empty'],'یوتیوب و منبع جایگزین','when YouTube refuses the server and SoundCloud has nothing, the status says so');
+
+    // 7. YouTube refuses the server (its bot check): the track still arrives from SoundCloud.
+    file_put_contents($mode,json_encode(['youtube'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    $send($canonical,300);
+    $job=$run(); if($job['status']!=='done') throw new RuntimeException('Fallback job failed: '.$store->get('last_job_error'));
+    $audio=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendAudio')); $yt=$searches();
+    $downloads=array_values(array_filter($yt,fn($args)=>in_array('-o',$args,true)));
+    spotifyCheck(count($audio)===1&&$audio[0]['params']['title']==='Fixture Song'&&$audio[0]['params']['performer']==='Fixture Artist, Guest Singer','a blocked YouTube still ends with the tagged audio message');
+    spotifyCheck(str_starts_with(end($yt[0]),'ytsearch')&&count($downloads)===1&&end($downloads[0])==='https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A333000333','after YouTube refuses, the upload with the artist and title in its text is downloaded, not the 30 s preview or the unrelated upload');
+    spotifyCheck(!in_array('--cookies',$downloads[0],true)&&!str_contains(implode(' ',$downloads[0]),'youtube'),'the second source is reached without YouTube cookies or YouTube options');
+    $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$temp.'/delivered-audio'],$temp,30),true);
+    spotifyCheck(($probe['format']['tags']['title']??'')==='Fixture Song'&&in_array('mjpeg',array_column($probe['streams'],'codec_name'),true),'the fallback audio is tagged with the Spotify title and cover too');
+    // YouTube has no good match: SoundCloud is tried as well.
+    file_put_contents($mode,json_encode(['search'=>'empty'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users');
+    $send($canonical,301);
+    $job=$run();
+    spotifyCheck($job['status']==='done'&&count(array_filter($calls(),fn($call)=>$call['method']==='sendAudio'))===1,'no good YouTube match falls back to SoundCloud');
+    // Strict matching and the social-media proxy.
+    $strictMeta=['title'=>'Fixture Song','artists'=>['Fixture Artist'],'duration'=>12,'year'=>'','cover'=>''];
+    $nameOnly=['id'=>'222000222','title'=>'Fixture Song','duration'=>12.0,'channel'=>'Random Upload'];
+    spotifyCheck(Zero\Spotify::best($strictMeta,[$nameOnly],true)===null&&Zero\Spotify::best($strictMeta,[['id'=>'abcdefghijk']+$nameOnly])!==null,'uploads by anyone need both the name and the artist, official channels only one');
+    $proxied=clone $config; $proxied->galleryProxy='socks5://proxy-user:proxy-pass@127.0.0.1:1080'; file_put_contents($ytLog,''); file_put_contents($mode,'{}');
+    (new Zero\Download($proxied))->searchSoundCloud('Fixture Artist Fixture Song',$temp);
+    $sc=$searches()[0];
+    spotifyCheck($sc[array_search('--proxy',$sc,true)+1]==='socks5://proxy-user:proxy-pass@127.0.0.1:1080','the social-media proxy is used for SoundCloud');
+    $store->query('DELETE FROM jobs'); $store->query('DELETE FROM users');
     $store->set('admins_only','1'); file_put_contents($mode,'{}'); file_put_contents($log,''); file_put_contents($ytLog,'');
     $store->set('admins_only','0'); $send($canonical,200); $store->set('admins_only','1');
     $job=$run();

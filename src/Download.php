@@ -226,6 +226,40 @@ final class Download
         }
         return $result;
     }
+    private static function soundCloudUrl(string $id): string { return 'https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A'.$id; }
+    /** A downloader run for a site that is not YouTube: no YouTube cookies, the social-media proxy when one is set. */
+    private function plain(string $url,array $options,string $folder,int $seconds): string
+    {
+        $proxy=$this->config->galleryProxy!==''?['--proxy',$this->config->galleryProxy]:[];
+        return $this->run(array_merge($this->base(),$options,$proxy,['--',$url]),$folder,$seconds);
+    }
+    /**
+     * The first SoundCloud search results for a text. Used as a second source when YouTube refuses the server.
+     * @return list<array{id:string,title:string,duration:?float,channel:string,url:string}>
+     */
+    public function searchSoundCloud(string $query,string $folder,int $count=8): array
+    {
+        $query=trim(preg_replace('/[\x00-\x1F\x7F]+|\s+/u',' ',$query)??'');
+        if($query===''||mb_strlen($query)>300) throw new MediaFailure('format','Invalid search text');
+        $json=$this->plain('scsearch'.max(1,min(10,$count)).':'.$query,['--flat-playlist','--dump-single-json','--skip-download'],$folder,min(60,$this->config->timeout));
+        try { $data=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
+        catch(\JsonException) { throw new MediaFailure('format','Search result is invalid'); }
+        $result=[];
+        foreach(is_array($data['entries']??null)?$data['entries']:[] as $entry) {
+            if(!is_array($entry)||!preg_match('/^[0-9]{1,20}$/D',(string)($entry['id']??''))) continue;
+            $result[]=['id'=>(string)$entry['id'],'title'=>mb_substr((string)($entry['title']??''),0,300),
+                'duration'=>is_numeric($entry['duration']??null)?(float)$entry['duration']:null,
+                'channel'=>mb_substr((string)($entry['uploader']??$entry['channel']??''),0,200),'url'=>self::soundCloudUrl((string)$entry['id'])];
+        }
+        return $result;
+    }
+    /** The audio of one SoundCloud track found with searchSoundCloud, as a tagged-ready MP3. */
+    public function fetchSoundCloudAudio(string $id,string $folder): array
+    {
+        if(!preg_match('/^[0-9]{1,20}$/D',$id)) throw new MediaFailure('format','Invalid SoundCloud track');
+        $url=self::soundCloudUrl($id);
+        return $this->audioDownload($url,$folder,'ba/b',fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout));
+    }
     public static function posterUrl(array $info,string $url): string
     {
         $canonical=youtubeUrl($url);
@@ -276,14 +310,15 @@ final class Download
         if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
         return $this->audioDownload($canonical,$folder,'ba/b');
     }
-    private function audioDownload(string $canonical,string $folder,string $selector): array
+    /** @param ?callable(list<string>):string $runner downloads with the given options; null means YouTube with its cookies */
+    private function audioDownload(string $canonical,string $folder,string $selector,?callable $runner=null): array
     {
-        $title=$this->youtube($canonical,[
+        $options=[
             '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject','-f',$selector,
-            '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],
-            $folder,$this->config->timeout);
+            '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'];
+        $title=$runner?$runner($options):$this->youtube($canonical,$options,$folder,$this->config->timeout);
         $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>
             in_array(strtolower(pathinfo($file,PATHINFO_EXTENSION)),['m4a','webm','mp4','mkv','opus','ogg','mp3','aac','wav','flac'],true)));
         if(count($files)!==1) throw new MediaFailure('format','Downloader did not produce one complete audio source');
