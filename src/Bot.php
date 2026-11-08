@@ -142,7 +142,7 @@ final class Bot
             $reason=MediaFailure::process(1,$detail)->reason;
         }
         $service=$this->store->get('last_job_service');
-        $key=(in_array($service,[...galleryServices(),'spotify'],true)?$service.'_':'').'error_'.$reason;
+        $key=(in_array($service,[...galleryServices(),...musicServices()],true)?$service.'_':'').'error_'.$reason;
         return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed');
     }
     public function qualityMenu(array $job,array $media): void
@@ -227,9 +227,9 @@ final class Bot
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
-            try { $this->jobMessage($job,$this->text(($service=galleryService($url))?$service.'_queued':(spotifyUrl($url)?'spotify_queued':'queued'))); }
+            try { $this->jobMessage($job,$this->text(($service=galleryService($url)??musicService($url))?$service.'_queued':'queued')); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
-            Reactions::apply($this->store,$this->api,$chat,$sourceMessage);
+            Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null);
         } elseif($result!=='duplicate') $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
     }
     public function handle(array $update): void

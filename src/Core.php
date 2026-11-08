@@ -404,7 +404,7 @@ final class Store
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),galleryService($url)??(spotifyUrl($url)?'spotify':'inspect'),$chat<0?max(0,$thread):0]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),galleryService($url)??musicService($url)??'inspect',$chat<0?max(0,$thread):0]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -543,13 +543,37 @@ function spotifyUrl(string $input): ?string
     return 'https://open.spotify.com/track/'.$match[1];
 }
 
+/** One SoundCloud track (or its on.soundcloud.com share link); sets, profiles, likes and private links are not accepted. */
+function soundcloudUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(!str_contains($input,'://')) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return null;
+    $host=strtolower($parts['host']??''); $path=$parts['path']??'';
+    if($host==='on.soundcloud.com') return preg_match('~^/([A-Za-z0-9]{4,32})/?$~D',$path,$match)?'https://on.soundcloud.com/'.$match[1]:null;
+    if(!in_array($host,['soundcloud.com','www.soundcloud.com','m.soundcloud.com'],true)||!preg_match('~^/([A-Za-z0-9_-]{1,64})/([A-Za-z0-9_-]{1,128})/?$~D',$path,$match)) return null;
+    $pages=['discover','stream','you','charts','upload','pages','settings','jobs','search','mobile','messages','notifications','feed','terms-of-use','people','stations','tags','popular','creators','music','help','legal'];
+    $lists=['tracks','albums','sets','reposts','likes','spotlight','comments','following','followers','popular-tracks','playlists','recommended'];
+    if(in_array(strtolower($match[1]),$pages,true)||in_array(strtolower($match[2]),$lists,true)) return null;
+    return 'https://soundcloud.com/'.$match[1].'/'.$match[2];
+}
+
+/** Music services: callback prefixes live here with the other service registries. */
+const MUSIC_PREFIXES=['spotify'=>'sp','soundcloud'=>'sc'];
+function musicServices(): array { return array_keys(MUSIC_PREFIXES); }
+function musicPrefix(string $service): string { return MUSIC_PREFIXES[$service]??throw new \InvalidArgumentException('Unknown music service'); }
+function musicFromPrefix(string $prefix): ?string { $service=array_search($prefix,MUSIC_PREFIXES,true); return $service===false?null:$service; }
+function musicService(string $input): ?string { return spotifyUrl($input)?'spotify':(soundcloudUrl($input)?'soundcloud':null); }
+
 const GALLERY_PREFIXES=['instagram'=>'ig','pinterest'=>'pin','tiktok'=>'tt','twitter'=>'x'];
 function galleryServices(): array { return array_keys(GALLERY_PREFIXES); }
 function galleryPrefix(string $service): string { return GALLERY_PREFIXES[$service]??throw new \InvalidArgumentException('Unknown media service'); }
 function galleryFromPrefix(string $prefix): ?string { $service=array_search($prefix,GALLERY_PREFIXES,true); return $service===false?null:$service; }
 function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),default=>null}; }
 function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input); }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input); }
 
 function lockProcess(string $path): mixed
 {

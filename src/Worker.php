@@ -8,12 +8,13 @@ require_once __DIR__.'/TikTok.php';
 require_once __DIR__.'/Twitter.php';
 require_once __DIR__.'/Articles.php';
 require_once __DIR__.'/Spotify.php';
+require_once __DIR__.'/SoundCloud.php';
 
 final class WorkerStopped extends \RuntimeException {}
 
 final class Worker
 {
-    public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null) {}
+    public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null) {}
 
     public function recover(array $job): void
     {
@@ -38,7 +39,7 @@ final class Worker
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
         $stage='download'; $audio=$job['phase']==='audio';
-        $service=galleryService($job['url']); $gallery=$service!==null; $music=$job['phase']==='spotify'&&spotifyUrl($job['url'])!==null;
+        $service=galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']); if($music!==null&&$job['phase']!==$music) $music=null;
         $started=hrtime(true); $timings=[];
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
@@ -46,8 +47,8 @@ final class Worker
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
-            if($music) {
-                $this->spotifyDelivery($job,$bot,$folder,$timings,$stage);
+            if($music!==null) {
+                $this->musicDelivery($job,$bot,$folder,$timings,$stage,$music);
                 return;
             }
             if($gallery) {
@@ -140,13 +141,13 @@ final class Worker
             error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
-            $store->set('last_job_service',$gallery?$service:($music?'spotify':'youtube'));
+            $store->set('last_job_service',$gallery?$service:($music??'youtube'));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($gallery) $key=$service.'_'.$key;
-            elseif($music) $key='spotify_'.$key;
+            elseif($music!==null) $key=$music.'_'.$key;
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
-            $notice=$bot->text($bot->ui->definition('text',$key)?$key:($music?'spotify_failed':'failed'));
+            $notice=$bot->text($bot->ui->definition('text',$key)?$key:($music!==null?$music.'_failed':'failed'));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally {
             $timings['total_ms']=(int)round((hrtime(true)-$started)/1e6);
@@ -156,16 +157,16 @@ final class Worker
     }
 
     /**
-     * Spotify track: read its public page, find the matching YouTube audio, tag it with the real
-     * title, artists and cover and send it as one audio message on the same status message.
+     * Spotify or SoundCloud track: find the audio, tag it with the real title, artists and cover and send it
+     * as one audio message on the same status message. Texts and settings are named after the service.
      */
-    private function spotifyDelivery(array $job,Bot $bot,string $folder,array &$timings,string &$stage): void
+    private function musicDelivery(array $job,Bot $bot,string $folder,array &$timings,string &$stage,string $service): void
     {
         $config=$this->config; $store=$this->store; $api=$this->api;
         Download::ensureSpace($config->storage.'/downloads');
-        $bot->jobMessage($job,$bot->text('spotify_downloading'));
+        $bot->jobMessage($job,$bot->text($service.'_downloading'));
         $started=hrtime(true);
-        $media=($this->spotify??new Spotify($config))->fetch($job['url'],$folder);
+        $media=$service==='spotify'?($this->spotify??new Spotify($config))->fetch($job['url'],$folder):($this->soundcloud??new SoundCloud($config))->fetch($job['url'],$folder);
         $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6);
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
@@ -173,14 +174,14 @@ final class Worker
         }
         $stage='upload';
         if($config->api==='http://ciro-telegram-api:8081') Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
-        $bot->jobMessage($job,$bot->text('spotify_uploading'));
-        $caption=$bot->ui->fitCaption($bot->text('spotify_caption',['title'=>mb_substr($media['title'],0,100),'artist'=>mb_substr($media['performer'],0,150),
+        $bot->jobMessage($job,$bot->text($service.'_uploading'));
+        $caption=$bot->ui->fitCaption($bot->text($service.'_caption',['title'=>mb_substr($media['title'],0,100),'artist'=>mb_substr($media['performer'],0,150),
             'year'=>$media['year'],'duration'=>Ui::duration($media['length']),'url'=>$job['url']]));
         $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
             'title'=>mb_substr($media['title'],0,100),'performer'=>mb_substr($media['performer'],0,100),
             'audio'=>new \CURLFile($media['path'],'audio/mpeg',$media['name'])];
         if($media['thumbnail']!==null) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
-        $rows=$bot->ui->gallerySourceRows('spotify',$job['url']);
+        $rows=$bot->ui->gallerySourceRows($service,$job['url']);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $uploadStarted=hrtime(true);
@@ -188,7 +189,7 @@ final class Worker
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         try { $bot->finishJob($job); }
-        catch(Throwable) { error_log('Spotify audio delivered; status cleanup unavailable'); }
+        catch(Throwable) { error_log(ucfirst($service).' audio delivered; status cleanup unavailable'); }
     }
 
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void

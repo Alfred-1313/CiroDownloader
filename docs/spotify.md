@@ -13,7 +13,7 @@ Spotify's own audio streams are protected and are never downloaded. The result i
 
 ## Cookies
 
-Spotify needs none: the public track page is readable without an account. The YouTube step uses the YouTube cookies you already configured (see [cookies](cookies.md)); with "cookies as a last resort" on, it tries anonymously first. If YouTube still refuses, the SoundCloud source above takes over, so Spotify keeps working without fresh YouTube cookies. The optional social-media proxy (`GALLERY_PROXY`) also covers the Spotify page and cover, and the YouTube proxy covers the YouTube step.
+Spotify needs none: the public track page is readable without an account. The YouTube step uses the YouTube cookies you already configured (see [cookies](cookies.md)); with "cookies as a last resort" on, it tries anonymously first. If YouTube still refuses, the [SoundCloud](soundcloud.md) source above takes over, so Spotify keeps working without fresh YouTube cookies. The optional social-media proxy (`GALLERY_PROXY`) also covers the Spotify page and cover, and the YouTube proxy covers the YouTube step.
 
 ## Supported links
 

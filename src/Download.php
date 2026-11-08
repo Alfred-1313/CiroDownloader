@@ -42,6 +42,8 @@ final class MediaFailure extends \RuntimeException
 
 final class Download
 {
+    /** SoundCloud also lists 30 s previews as formats; they are skipped, so a track that has only a preview fails cleanly. */
+    private const FULL_AUDIO='ba[format_id!*=preview]/b[format_id!*=preview]';
     public function __construct(private Config $config) {}
     public static function ensureSpace(string $folder,int $required=268435456): void
     {
@@ -258,7 +260,23 @@ final class Download
     {
         if(!preg_match('/^[0-9]{1,20}$/D',$id)) throw new MediaFailure('format','Invalid SoundCloud track');
         $url=self::soundCloudUrl($id);
-        return $this->audioDownload($url,$folder,'ba/b',fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout));
+        return $this->audioDownload($url,$folder,self::FULL_AUDIO,fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout));
+    }
+    /**
+     * One SoundCloud track page: its audio as MP3 plus the track's own details (title, artists, length, cover, date).
+     * Only the full track is taken; the 30 s previews SoundCloud offers for some tracks are never chosen.
+     * @return array{audio:array,info:array}
+     */
+    public function fetchSoundCloudTrack(string $url,string $folder): array
+    {
+        if(!preg_match('~^https://soundcloud\.com/[A-Za-z0-9_-]{1,64}/[A-Za-z0-9_-]{1,128}$~D',$url)) throw new MediaFailure('format','Invalid SoundCloud track address');
+        $audio=$this->audioDownload($url,$folder,self::FULL_AUDIO,fn(array $options)=>$this->plain($url,$options,$folder,$this->config->timeout),['--write-info-json']);
+        $file=$folder.'/source.info.json'; $info=[];
+        if(is_file($file)&&filesize($file)<=4194304) {
+            $decoded=json_decode((string)file_get_contents($file),true);
+            if(is_array($decoded)) $info=$decoded;
+        }
+        return ['audio'=>$audio,'info'=>$info];
     }
     public static function posterUrl(array $info,string $url): string
     {
@@ -311,13 +329,13 @@ final class Download
         return $this->audioDownload($canonical,$folder,'ba/b');
     }
     /** @param ?callable(list<string>):string $runner downloads with the given options; null means YouTube with its cookies */
-    private function audioDownload(string $canonical,string $folder,string $selector,?callable $runner=null): array
+    private function audioDownload(string $canonical,string $folder,string $selector,?callable $runner=null,array $extra=[]): array
     {
-        $options=[
+        $options=array_merge([
             '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject','-f',$selector,
-            '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'];
+            '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],$extra);
         $title=$runner?$runner($options):$this->youtube($canonical,$options,$folder,$this->config->timeout);
         $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>
             in_array(strtolower(pathinfo($file,PATHINFO_EXTENSION)),['m4a','webm','mp4','mkv','opus','ogg','mp3','aac','wav','flac'],true)));

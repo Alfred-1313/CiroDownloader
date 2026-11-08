@@ -115,7 +115,7 @@ try {
     spotifyCheck(str_contains($queued[0]['params']['text'],'اسپاتیفای')&&$store->query('SELECT phase FROM jobs')->fetchColumn()==='spotify','the status message names Spotify and the job waits in the media lane');
     spotifyCheck($store->claim('inspect')===null,'the YouTube inspection lane does not take a Spotify job');
     $reaction=array_values(array_filter($calls(),fn($call)=>$call['method']==='setMessageReaction'));
-    spotifyCheck(count($reaction)===1&&json_decode($reaction[0]['params']['reaction'],true)[0]['emoji']==='👾','the accepted link receives the configured reaction');
+    spotifyCheck(count($reaction)===1&&json_decode($reaction[0]['params']['reaction'],true)[0]['emoji']==='🔥','the accepted music link receives the music reaction (Telegram has no music emoji, so 🔥 by default)');
     $store->query("UPDATE jobs SET status='queued'");
     $job=$run();
     if($job['status']!=='done') throw new RuntimeException('Spotify job failed: '.$store->get('last_job_error'));

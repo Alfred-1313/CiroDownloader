@@ -15,6 +15,7 @@ require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Bot.php';
 require dirname(__DIR__).'/src/Download.php';
 require dirname(__DIR__).'/src/Spotify.php';
+require dirname(__DIR__).'/src/SoundCloud.php';
 umask(0077);
 
 function line(string $label,string $value): void { printf("%-34s %s\n",$label,$value); }
@@ -84,7 +85,7 @@ try {
     if($link!=='') {
         section('Your link');
         $service=Zero\galleryService($link);
-        line('Service',$service??(Zero\youtubeUrl($link)?'youtube':(Zero\spotifyUrl($link)?'spotify':'unknown')));
+        line('Service',$service??(Zero\youtubeUrl($link)?'youtube':(Zero\musicService($link)??'unknown')));
         line('Host',(string)parse_url($link,PHP_URL_HOST));
         if($service!==null) {
             attempt('Download and prepare',function() use($config,$service,$link,$folder,$runner,$api,$admin,&$sent,&$summary) {
@@ -123,6 +124,12 @@ try {
                 $found=Zero\Spotify::best($meta,(new Zero\Download($config))->search($meta['artists'][0].' '.$meta['title'].' audio',$folder));
                 line('Finding the YouTube match',ms($started).' ms ('.($found?'found':'none').')');
                 line('Note','Downloading is not timed here; send the link to the bot and read the worker log.');
+            });
+        } elseif(Zero\soundcloudUrl($link)) {
+            attempt('SoundCloud',function() use($config,$link,$folder) {
+                $work=$folder.'/job'; mkdir($work,0700); $started=microtime(true);
+                $media=(new Zero\SoundCloud($config))->fetch($link,$work);
+                line('Download + prepare',ms($started).' ms, '.mb((int)filesize($media['path'])));
             });
         } else line('Result','This link is not supported.');
     }

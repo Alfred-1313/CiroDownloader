@@ -1,0 +1,77 @@
+<?php
+declare(strict_types=1);
+namespace Zero;
+require_once __DIR__.'/Music.php';
+
+/**
+ * A SoundCloud track link becomes an MP3 with the track's own title, artist and cover. Public tracks need
+ * no account or cookie. Tracks that SoundCloud offers only as a 30 s preview, private tracks and anything
+ * that is not a single track are refused.
+ */
+final class SoundCloud
+{
+    private const HOPS=3;
+    /** $shortBase is only changed by tests, which serve the share-link redirect from a local fixture. */
+    public function __construct(private Config $config,private ?string $shortBase=null) {}
+
+    /** The canonical track address; an on.soundcloud.com share link is followed through at most three validated hops. */
+    public function resolve(string $url): string
+    {
+        for($hop=0;$hop<=self::HOPS;$hop++) {
+            $canonical=soundcloudUrl($url);
+            if($canonical===null) throw new MediaFailure('format','Not a SoundCloud track address');
+            if(!str_starts_with($canonical,'https://on.soundcloud.com/')) return $canonical;
+            $target=$this->shortBase!==null?rtrim($this->shortBase,'/').'/'.basename($canonical):$canonical;
+            $url=$this->location($target);
+        }
+        throw new MediaFailure('format','Too many redirects from a SoundCloud share link');
+    }
+
+    private function location(string $url): string
+    {
+        $location=''; $ch=curl_init($url);
+        $options=[CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>15,CURLOPT_PROTOCOLS=>CURLPROTO_HTTP|CURLPROTO_HTTPS,
+            CURLOPT_USERAGENT=>'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+            CURLOPT_HEADERFUNCTION=>function($handle,string $line) use (&$location): int { if(stripos($line,'location:')===0) $location=trim(substr($line,9)); return strlen($line); },
+            // Only the redirect matters; the body is dropped.
+            CURLOPT_WRITEFUNCTION=>fn($handle,string $chunk): int => 0];
+        if($this->config->galleryProxy!=='') $options[CURLOPT_PROXY]=$this->config->galleryProxy;
+        curl_setopt_array($ch,$options);
+        curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $errno=curl_errno($ch); curl_close($ch);
+        if($location===''||$status<300||$status>399) throw new MediaFailure($errno!==0&&$errno!==23||$status>=500?'network':'format','SoundCloud share link did not redirect: '.($status?:$errno));
+        if(str_starts_with($location,'/')) $location='https://soundcloud.com'.$location;
+        return $location;
+    }
+
+    /** @return array{title:string,artists:list<string>,duration:int,year:string,cover:string} */
+    public static function metadata(array $info): array
+    {
+        $title=trim((string)($info['title']??''));
+        $artists=[];
+        foreach(is_array($info['artists']??null)?$info['artists']:[] as $artist) if(is_string($artist)&&trim($artist)!=='') $artists[]=mb_substr(trim($artist),0,100);
+        if(!$artists&&is_string($info['uploader']??null)&&trim($info['uploader'])!=='') $artists[]=mb_substr(trim($info['uploader']),0,100);
+        $duration=(int)round((float)($info['duration']??0));
+        if($title===''||!$artists||$duration<1||$duration>43200) throw new MediaFailure('format','SoundCloud track data is incomplete');
+        $cover=''; $best=0;
+        foreach(is_array($info['thumbnails']??null)?$info['thumbnails']:[] as $thumbnail) {
+            $url=(string)($thumbnail['url']??''); $host=strtolower((string)parse_url($url,PHP_URL_HOST));
+            $size=(int)($thumbnail['width']??0)?:(preg_match('/^t(\d+)x\d+$/',(string)($thumbnail['id']??''),$m)?(int)$m[1]:0);
+            if(str_starts_with($url,'https://')&&($host==='sndcdn.com'||str_ends_with($host,'.sndcdn.com'))&&$size>=$best) { $cover=$url; $best=$size; }
+        }
+        $stamp=(int)($info['release_timestamp']??$info['timestamp']??0);
+        return ['title'=>mb_substr($title,0,200),'artists'=>array_slice($artists,0,5),'duration'=>$duration,'year'=>$stamp>0?gmdate('Y',$stamp):'','cover'=>$cover];
+    }
+
+    /**
+     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} see Music::finish
+     */
+    public function fetch(string $url,string $folder): array
+    {
+        $track=$this->resolve($url);
+        $result=(new Download($this->config))->fetchSoundCloudTrack($track,$folder);
+        $meta=self::metadata($result['info']);
+        // A 30 s preview of a longer track is not the track, even if a format slipped through.
+        if($result['audio']['duration']+30<$meta['duration']) throw new MediaFailure('format','Only a preview of the track was available');
+        return Music::finish($this->config,$result['audio'],$folder,$meta,'soundcloud');
+    }
+}

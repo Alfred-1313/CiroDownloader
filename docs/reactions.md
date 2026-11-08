@@ -9,3 +9,7 @@ Only one standard reaction emoji can be selected. Arbitrary emoji, multiple emoj
 Denied, full, busy, cooldown and duplicate requests do not receive a reaction. A rejected or failed reaction never changes the job's outcome or replaces media diagnostics. Reaction calls have a two-second connection timeout and a three-second total timeout, without retries. Logs record only the reaction error code.
 
 The HTTP regression in `tests/reactions.php` checks the actual API payload and timeout behavior against a local endpoint. Availability of a particular reaction in a deployed chat still depends on Telegram and that chat's settings.
+
+## Music links
+
+Telegram has no music emoji among the reactions a bot may use, and custom-emoji reactions work only where chat administrators allowed them. Spotify and SoundCloud links therefore use their own choice, **🔥 by default**, shown in the same screen (**⚙️ قابلیت‌ها ← ری‌اکشن لینک**) under "ری‌اکشن روی لینک موسیقی": one of the preset emoji, or "مثل بقیهٔ لینک‌ها". When reactions are turned off, music links get none either. The choice is stored as `link_reaction.music`.

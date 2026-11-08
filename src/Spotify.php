@@ -1,6 +1,7 @@
 <?php
 declare(strict_types=1);
 namespace Zero;
+require_once __DIR__.'/Music.php';
 
 /**
  * A Spotify track link becomes an MP3 in three steps: read the public page of the track
@@ -11,7 +12,7 @@ namespace Zero;
  */
 final class Spotify
 {
-    private const MAX_PAGE=2097152, MAX_COVER=3145728, MATCH_MINIMUM=40, DEFAULT_BASE='https://open.spotify.com';
+    private const MATCH_MINIMUM=40, DEFAULT_BASE='https://open.spotify.com';
     /** $base is only changed by tests, which serve the track page from a local fixture. */
     public function __construct(private Config $config,private string $base=self::DEFAULT_BASE) {}
 
@@ -21,24 +22,10 @@ final class Spotify
         return preg_match('~^https://open\.spotify\.com/track/([A-Za-z0-9]{22})$~D',$url,$match)===1?$match[1]:null;
     }
 
-    private function fetchText(string $url,int $limit): string
-    {
-        $body=''; $ch=curl_init($url);
-        $options=[CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>20,CURLOPT_HTTPHEADER=>['Accept-Language: en'],
-            CURLOPT_USERAGENT=>'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-            CURLOPT_WRITEFUNCTION=>function($handle,string $chunk) use (&$body,$limit): int { $body.=$chunk; return strlen($body)>$limit?0:strlen($chunk); }];
-        if($this->config->galleryProxy!=='') $options[CURLOPT_PROXY]=$this->config->galleryProxy;
-        curl_setopt_array($ch,$options);
-        $ok=curl_exec($ch); $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE); $errno=curl_errno($ch); curl_close($ch);
-        // Error 23 is the size guard stopping a download that is larger than any real page.
-        if($ok===false||$status!==200) throw new MediaFailure($errno===23||$status===404?'format':(($errno!==0||$status>=500||$status===429?'network':'format')),'Spotify page unavailable: '.($status?:$errno));
-        return $body;
-    }
-
     /** @return array{title:string,artists:list<string>,duration:int,year:string,cover:string} */
     public function metadata(string $id): array
     {
-        $html=$this->fetchText(rtrim($this->base,'/').'/embed/track/'.$id,self::MAX_PAGE);
+        $html=Music::get($this->config,rtrim($this->base,'/').'/embed/track/'.$id,Music::MAX_PAGE,'Spotify page');
         if(!preg_match('~<script id="__NEXT_DATA__" type="application/json">(.*?)</script>~s',$html,$match)) throw new MediaFailure('format','Spotify page has no track data');
         $data=json_decode($match[1],true);
         $entity=$data['props']['pageProps']['state']['data']['entity']??null;
@@ -111,20 +98,8 @@ final class Spotify
         return $chosen;
     }
 
-    private function cover(string $url,string $folder): ?string
-    {
-        if($url==='') return null;
-        try {
-            $raw=$folder.'/cover-source'; $jpg=$folder.'/cover.jpg';
-            file_put_contents($raw,$this->fetchText($url,self::MAX_COVER));
-            // Telegram wants a small JPEG for the thumbnail.
-            (new Download($this->config))->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$raw,'-vf',"scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease",'-frames:v','1','-q:v','5',$jpg],$folder,60);
-            return is_file($jpg)&&filesize($jpg)>0&&filesize($jpg)<=204800?$jpg:null;
-        } catch(\Throwable) { return null; }
-    }
-
     /**
-     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} duration is the file's, length the track's own
+     * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} see Music::finish
      */
     public function fetch(string $url,string $folder): array
     {
@@ -165,22 +140,6 @@ final class Spotify
             }
         }
         if($audio===null) throw $failure??new MediaFailure('format','No audio source was available');
-        $performer=implode(', ',$meta['artists']);
-        $cover=$this->cover($meta['cover'],$folder);
-        // Put the real names (and the cover) in the file, without re-encoding the audio.
-        $tagged=$folder.'/tagged.mp3';
-        $command=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$audio['path']];
-        if($cover!==null) array_push($command,'-i',$cover,'-map','0:a','-map','1:v','-c','copy','-id3v2_version','3','-metadata:s:v','title=Cover','-metadata:s:v','comment=Cover (front)');
-        else array_push($command,'-map','0:a','-c','copy','-id3v2_version','3');
-        array_push($command,'-map_metadata','-1','-metadata','title='.$meta['title'],'-metadata','artist='.$performer);
-        if($meta['year']!=='') array_push($command,'-metadata','date='.$meta['year']);
-        $command[]=$tagged;
-        try { $runner->run($command,$folder,120); }
-        catch(MediaFailure) { $tagged=$audio['path']; }
-        clearstatcache(true,$tagged);
-        if(!is_file($tagged)||filesize($tagged)<1||filesize($tagged)>$this->config->maxBytes) $tagged=$audio['path'];
-        $name=trim(preg_replace('/[\\\\\/:*?"<>|\x00-\x1F]+/u',' ',$performer.' - '.$meta['title'])??'');
-        return ['path'=>$tagged,'title'=>$meta['title'],'performer'=>$performer,'duration'=>$audio['duration'],'length'=>$meta['duration'],'year'=>$meta['year'],'thumbnail'=>$cover,
-            'name'=>mb_substr($name!==''?$name:'spotify',0,120).'.mp3'];
+        return Music::finish($this->config,$audio,$folder,$meta,'spotify');
     }
 }

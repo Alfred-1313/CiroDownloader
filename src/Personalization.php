@@ -29,7 +29,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'music'=>['spotify'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'music'=>musicServices(),'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -164,8 +164,16 @@ final class Personalization
         }
         $rows[]=[$ui->button('reaction_custom','custom:reaction:input')];
         $rows[]=[$ui->button('reaction_off','custom:reaction:off')];
+        $rows[]=[$this->heading($ui->label('reaction_music_heading'))];
+        foreach(array_chunk(Reactions::PRESETS,4,true) as $choices) {
+            $row=[];
+            foreach($choices as $index=>$emoji) $row[]=$ui->button('reaction_choice','custom:reaction:music:'.$index,['emoji'=>$emoji]);
+            $rows[]=$row;
+        }
+        $rows[]=[$ui->button('reaction_music_same','custom:reaction:music:same')];
         $rows[]=[$ui->button('back_features','custom:features')];
-        $this->send($chat,$ui->text('reaction_info',['reaction'=>$current!==''?$current:$ui->plain('state_off')]),$rows,$message);
+        $music=Reactions::selected($this->bot->store,true);
+        $this->send($chat,$ui->text('reaction_info',['reaction'=>$current!==''?$current:$ui->plain('state_off'),'music'=>$music!==''?$music:$ui->plain('state_off')]),$rows,$message);
     }
     private function beginReaction(int $chat,int $user,int $message): void
     {
@@ -195,11 +203,11 @@ final class Personalization
             'errors'=>[],
         ];
         foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
-        $screens['spotify']=[['text','spotify_queued'],['text','spotify_downloading'],['text','spotify_uploading'],['text','spotify_caption'],['button','source_spotify']];
+        foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
         if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
-        if(in_array($section,[...galleryServices(),'spotify'],true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
+        if(in_array($section,[...galleryServices(),...musicServices()],true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
         return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
     }
     /** Texts first, then buttons, so a screen reads as two clear lists. */
@@ -224,9 +232,9 @@ final class Personalization
             $rows[]=[$this->choice($section.'_mode_pages','custom:'.$prefix.'mode:pages',!$article)];
             $rows[]=[$this->choice($section.'_mode_article','custom:'.$prefix.'mode:article',$article)];
             $rows[]=[$this->switchButton($section.'_source_toggle','custom:'.$prefix.'source',$ui->gallerySourceEnabled($section))];
-        } elseif($section==='spotify') {
+        } elseif(in_array($section,musicServices(),true)) {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
-            $rows[]=[$this->switchButton('spotify_source_toggle','custom:spsource',$ui->gallerySourceEnabled('spotify'))];
+            $rows[]=[$this->switchButton($section.'_source_toggle','custom:'.musicPrefix($section).'source',$ui->gallerySourceEnabled($section))];
         } elseif($section==='cover') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$ui->button('cover_use_parts','custom:covermode:parts')];
@@ -255,7 +263,7 @@ final class Personalization
         if($page+1<$pages) $navigation[]=$ui->button('next',$this->sectionAddress($section,$page+1));
         if($navigation) $rows[]=$navigation;
         $rows[]=[$ui->button('back_custom','custom:home'),$ui->button('close','custom:close')];
-        $text=$section==='spotify'?$ui->text('spotify_section_info'):(in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)])));
+        $text=in_array($section,musicServices(),true)?$ui->text($section.'_section_info'):(in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)])));
         $this->send($chat,$text,$rows,$message);
     }
     private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void
@@ -594,7 +602,11 @@ final class Personalization
         if($op==='home') $this->home($chat,$message);
         elseif($op==='reaction') {
             if($kind==='input') $this->beginReaction($chat,$user,$message);
-            else {
+            elseif($kind==='music') {
+                if($key==='same') $this->bot->store->set('link_reaction.music','same');
+                elseif(ctype_digit($key)&&isset(Reactions::PRESETS[(int)$key])) $this->bot->store->set('link_reaction.music',Reactions::PRESETS[(int)$key]);
+                $this->reactions($chat,$message);
+            } else {
                 if($kind==='off') $this->bot->store->set('link_reaction','');
                 elseif(ctype_digit($kind)&&isset(Reactions::PRESETS[(int)$kind])) $this->bot->store->set('link_reaction',Reactions::PRESETS[(int)$kind]);
                 $this->reactions($chat,$message);
@@ -625,9 +637,10 @@ final class Personalization
             $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
             $this->section($chat,$service,$message);
         }
-        elseif($op==='spsource') {
-            $this->bot->store->set('spotify.source_button',$ui->gallerySourceEnabled('spotify')?'0':'1');
-            $this->section($chat,'spotify',$message);
+        elseif(in_array($op,['spsource','scsource'],true)) {
+            $service=musicFromPrefix(substr($op,0,-6));
+            $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
+            $this->section($chat,$service,$message);
         }
         elseif($op==='covermode'&&in_array($kind,['parts','legacy'],true)) $this->coverMode($chat,$message,$kind);
         elseif($op==='mediamode'&&in_array($kind,['video','audio'],true)&&in_array($key,['parts','legacy'],true)) $this->mediaMode($chat,$message,$kind,$key);
