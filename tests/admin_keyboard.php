@@ -100,8 +100,9 @@ try {
     $bot2->handle(adminMessage($bot2->label('admin')));
     adminCheck(str_contains((string)end($api2->calls)[1]['text'],$bot2->label('cookie_settings'))&&in_array($bot2->label('cookie_settings'),adminLabels($api2),true)&&in_array($bot2->label('cookies'),adminLabels($api2),true),'the panel offers cookie import and cookie settings as two separate controls');
     $bot2->handle(adminMessage($bot2->label('cookie_settings')));
-    adminCheck(adminLabels($api2)===array_map(fn($key)=>$bot2->label($key),['cookie_mode','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now','cookie_back_admin']),'cookie settings open their own switches without any import control');
-    $bot2->handle(adminMessage($bot2->label('cookie_back_admin')));
+    $settings=end($api2->calls)[1];
+    adminCheck(!isset($settings['reply_markup']['keyboard'])&&in_array('cs:m',array_column(array_merge(...$settings['reply_markup']['inline_keyboard']),'callback_data'),true)&&!in_array($bot2->label('cookie_youtube'),array_column(array_merge(...$settings['reply_markup']['inline_keyboard']),'text'),true),'cookie settings open inline controls without any import control');
+    $bot2->handle(['callback_query'=>['id'=>'b','from'=>['id'=>42],'message'=>['message_id'=>900,'chat'=>['id'=>42,'type'=>'private']],'data'=>'admin']]);
     adminCheck(in_array($bot2->label('cookie_settings'),adminLabels($api2),true),'Back from the settings returns to the management panel');
     Zero\Download::clean($second); Zero\Download::clean($third);
 } finally { Zero\Download::clean($temp); }

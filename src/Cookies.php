@@ -15,16 +15,49 @@ final class Cookies
     {
         $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['settings'=>$this->bot->ui->label('cookie_settings')]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_guide'],['cookie_back_admin']]));
     }
-    /** The settings screen: how cookies are used, alerts, keep-alive and the check interval. It has no import controls. */
-    private function settings(int $chat,string $notice=''): void
+    /** One inline switch: green when on, red when off, with its state in the label. */
+    private function switchButton(string $key,string $data,bool $on): array
+    {
+        $ui=$this->bot->ui; $button=$ui->button($key,$data,['state'=>$ui->plain($on?'switch_on':'switch_off')]);
+        $button['style']=$on?'success':'danger';
+        return $button;
+    }
+    /** The settings screen: real inline controls (switches, the interval choice, check now), edited in place by `cs:` callbacks. */
+    public function settings(int $chat,string $notice='',int $message=0): void
     {
         $ui=$this->bot->ui; $store=$this->bot->store; $minutes=CookieHealth::minutes($store);
-        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_settings_panel',[
-            'mode'=>$ui->plain($store->get('cookies.fallback','0')==='1'?'cookie_mode_fallback':'cookie_mode_always'),
-            'alerts'=>$ui->plain($store->get('cookies.alerts','1')==='1'?'cookie_alerts_on':'cookie_alerts_off'),
-            'keepalive'=>$ui->plain($store->get('cookies.keepalive','1')==='1'?'cookie_keepalive_on':'cookie_keepalive_off'),
-            'interval'=>$ui->plainWith('cookie_interval_state',['every'=>$minutes<60?$minutes.' دقیقه':($minutes/60).' ساعت']),
-        ]).($notice!==''?"\n\n".$notice:''),$this->keyboard([['cookie_mode'],['cookie_alerts'],['cookie_keepalive'],['cookie_interval'],['cookie_check_now'],['cookie_back_admin']]));
+        $rows=[
+            [$this->switchButton('cs_mode','cs:m',$store->get('cookies.fallback','0')==='1')],
+            [$this->switchButton('cs_alerts','cs:a',$store->get('cookies.alerts','1')==='1')],
+            [$this->switchButton('cs_keepalive','cs:k',$store->get('cookies.keepalive','1')==='1')],
+        ];
+        $row=[];
+        foreach(CookieHealth::INTERVALS as $every) {
+            $button=$ui->button('cs_every_'.$every,'cs:i:'.$every);
+            if($every===$minutes) { $button['text']=$ui->plainWith('mark_chosen',['label'=>$button['text']]); $button['style']='success'; }
+            $row[]=$button;
+            if(count($row)===3) { $rows[]=$row; $row=[]; }
+        }
+        if($row) $rows[]=$row;
+        $rows[]=[$ui->button('cs_check_now','cs:n')];
+        $rows[]=[$ui->button('back_admin','admin'),$ui->button('cs_close','cs:x')];
+        $this->bot->send($chat,$this->bot->text('cookie_settings_panel').($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    /** A tap on the settings screen. Only administrators in a private chat get here (the caller enforces it). */
+    public function callback(int $chat,string $op,int $message): void
+    {
+        $store=$this->bot->store;
+        if($op==='x') { try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return; }
+        $notice='';
+        if($op==='m') $store->set('cookies.fallback',$store->get('cookies.fallback','0')==='1'?'0':'1');
+        elseif($op==='a') $store->set('cookies.alerts',$store->get('cookies.alerts','1')==='1'?'0':'1');
+        elseif($op==='k') $store->set('cookies.keepalive',$store->get('cookies.keepalive','1')==='1'?'0':'1');
+        elseif(preg_match('/^i:(\d{2,4})$/D',$op,$match)&&in_array((int)$match[1],CookieHealth::INTERVALS,true)) $store->set('cookies.check_minutes',$match[1]);
+        elseif($op==='n') {
+            // The worker's next loop sees the pass as due and starts it.
+            $store->set('cookie_sweep_last','0'); $notice=$this->bot->text('cookie_settings_notice');
+        } else return;
+        $this->settings($chat,$notice,$message);
     }
     private function youtube(int $chat,string $notice=''): void
     {
@@ -61,9 +94,9 @@ final class Cookies
             $this->settings($chat);
         }
         elseif($action==='cookie_check_now') {
-            // The worker's next loop sees the pass as due and starts it.
+            // Old keyboards still show this label; it behaves like the inline button.
             $this->bot->store->set('cookie_sweep_last','0');
-            $this->settings($chat,$this->bot->text('cookie_check_started'));
+            $this->settings($chat,$this->bot->text('cookie_settings_notice'));
         }
         elseif($action==='cookie_keepalive') {
             $this->bot->store->set('cookies.keepalive',$this->bot->store->get('cookies.keepalive','1')==='1'?'0':'1');

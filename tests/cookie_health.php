@@ -15,6 +15,7 @@ final class HealthApi implements Zero\Api {
     public function sent(): array { return array_values(array_filter($this->calls,fn($c)=>$c[0]==='sendMessage')); }
     public function last(string $method): ?array { foreach(array_reverse($this->calls) as $call) if($call[0]===$method) return $call[1]; return null; }
 }
+function settingsButton(HealthApi $api,string $data): ?array { foreach($api->last('sendMessage')['reply_markup']['inline_keyboard']??[] as $row) foreach($row as $button) if(($button['callback_data']??'')===$data) return $button; return null; }
 function igJar(string $session,int $expires=2147483647): string {
     return "# Netscape HTTP Cookie File\n#HttpOnly_.instagram.com\tTRUE\t/\tTRUE\t$expires\tsessionid\t$session\n.instagram.com\tTRUE\t/\tTRUE\t0\tcsrftoken\tX\n";
 }
@@ -161,14 +162,14 @@ try {
     healthCheck($health->keepAlive($now+200*3600)===0&&file_get_contents($runLog)==='','the switch turns it off');
     $store->set('cookies.keepalive','1');
     $before=$store->get('cookies.keepalive'); $send($bot->label('cookies')); $send($bot->label('cookie_keepalive'));
-    healthCheck($store->get('cookies.keepalive')!==$before&&str_contains($api->last('sendMessage')['text'],'نگه‌دارندهٔ کوکی'),'the keep-alive switch flips and the menu shows its state');
+    healthCheck($store->get('cookies.keepalive')!==$before&&str_contains(settingsButton($api,'cs:k')['text']??'','نگه‌دارندهٔ یوتیوب')&&(settingsButton($api,'cs:k')['style']??'')===($store->get('cookies.keepalive')==='1'?'success':'danger'),'the keep-alive switch flips and the settings button shows its state in green or red');
     $send($bot->label('cookie_keepalive'),7); healthCheck($store->get('cookies.keepalive')==='0','ordinary users cannot flip it');
     $store->set('cookies.keepalive','1');
     // The interval is the administrator's choice and "check now" makes the next pass due at once.
     $store->set('cookie_sweep_last',(string)time());
     healthCheck(Zero\CookieHealth::dueAt($store)===false,'a pass is not due right after one');
     $seen=[]; for($i=0;$i<7;$i++) { $send($bot->label('cookies')); $send($bot->label('cookie_interval')); $seen[]=$store->get('cookies.check_minutes'); }
-    healthCheck($seen===['720','1440','30','60','180','360','720']&&str_contains((string)$api->last('sendMessage')['text'],'هر'),'the interval button cycles 30 minutes, 1, 3, 6, 12 and 24 hours and the menu shows it');
+    healthCheck($seen===['720','1440','30','60','180','360','720']&&(settingsButton($api,'cs:i:720')['style']??'')==='success'&&(settingsButton($api,'cs:i:30')['style']??'')==='','the old interval label still cycles 30 minutes, 1, 3, 6, 12 and 24 hours and the current choice is green');
     $store->set('cookies.check_minutes','30'); $store->set('cookie_sweep_last',(string)(time()-31*60));
     healthCheck(Zero\CookieHealth::dueAt($store)===true,'a shorter interval makes the pass due sooner');
     $send($bot->label('cookie_check_now'),7); healthCheck($store->get('cookie_sweep_last')!=='0','ordinary users cannot start a check');
@@ -181,7 +182,7 @@ try {
     $yt->markWorking($id); $health->keepAlive($t+7*3600);
     healthCheck(count($api->sent())===$before+count($new),'and only once a day');
     $before=$store->get('cookies.alerts'); $send($bot->label('cookies')); $send($bot->label('cookie_alerts'));
-    healthCheck($store->get('cookies.alerts')!==$before&&str_contains($api->last('sendMessage')['text'],'هشدار کوکی'),'the alerts switch flips and the menu shows its state');
+    healthCheck($store->get('cookies.alerts')!==$before&&str_contains(settingsButton($api,'cs:a')['text']??'','هشدار به مدیران'),'the alerts switch flips and the settings button shows its state');
     $send($bot->label('cookie_alerts'),7); $state=$store->get('cookies.alerts'); $send($bot->label('cookie_alerts'),7);
     healthCheck($store->get('cookies.alerts')===$state,'ordinary users cannot flip the alerts switch');
 } finally { Zero\Download::clean($temp); }

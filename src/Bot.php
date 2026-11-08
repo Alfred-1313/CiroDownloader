@@ -363,6 +363,7 @@ final class Bot
             elseif($action==='admin') $this->panel($chat,$menu);
             elseif($action==='admins:cancel') $this->panel($chat,$menu);
             elseif($action==='health') $this->health($chat);
+            elseif(str_starts_with($action,'cs:')) (new Cookies($this))->callback($chat,substr($action,3),$menu);
             elseif(str_starts_with($action,'rp:')) (new Reports($this))->show($chat,substr($action,3),$menu);
             elseif($action==='cookies') (new Cookies($this))->handle($chat,$user,'cookies');
             elseif(in_array($action,['cookies:info','cookies:import'],true)) {
