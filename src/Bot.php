@@ -114,10 +114,10 @@ final class Bot
         $on=$this->store->enabled();
         AdminCommands::register($this->api,$this->store,$this->ui,$chat);
         $this->sendKeyboard($chat,$this->text('admin_panel',['state'=>$this->text($on?'state_on':'state_off'),'commands'=>AdminCommands::lines($this->ui),
-            'health'=>$this->ui->label('health'),'cookies'=>$this->ui->label('cookies'),'add_admin'=>$this->ui->label('add_admin')],['state','commands']),[
+            'health'=>$this->ui->label('health'),'cookies'=>$this->ui->label('cookies'),'cookie_settings'=>$this->ui->label('cookie_settings'),'add_admin'=>$this->ui->label('add_admin')],['state','commands']),[
             [$this->replyButton('customize'),$this->replyButton('health')],
-            [$this->replyButton('cookies'),$this->replyButton('update')],
-            [$this->replyButton('add_admin')],
+            [$this->replyButton('cookies'),$this->replyButton('cookie_settings')],
+            [$this->replyButton('update'),$this->replyButton('add_admin')],
             [$this->replyButton($on?'off':'on')],
             [$this->replyButton('back_home')],
         ]);

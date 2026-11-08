@@ -30,10 +30,10 @@ try {
     $bot->handle(adminMessage('/start'));
     adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('admin')],'the main keyboard contains Help and the administrator entrance');
     $bot->handle(adminMessage($bot->label('admin')));
-    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','update','add_admin','off','back_home']);
+    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','cookie_settings','update','add_admin','off','back_home']);
     adminCheck(adminLabels($api)===$expected&&!isset(end($api->calls)[1]['reply_markup']['inline_keyboard']),'entering administration replaces the main reply keyboard with the administration tools');
     adminCheck(end($api->calls)[1]['reply_markup']['resize_keyboard']&&end($api->calls)[1]['reply_markup']['is_persistent'],'the administration keyboard stays available while navigating tools');
-    foreach(['customize','health','cookies','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
+    foreach(['customize','health','cookies','cookie_settings','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
 
     $bot->handle(adminMessage($bot->label('customize')));
     adminCheck(str_contains(json_encode(end($api->calls)[1]['reply_markup']),'custom:section:cover'),'the Personalization reply control opens the grouped user-only editor');
@@ -42,7 +42,7 @@ try {
     $bot->handle(adminMessage($bot->label('health')));
     adminCheck(str_contains(end($api->calls)[1]['text'],'کاربران ثبت‌شده'),'the status reply control opens the private statistics');
     $bot->handle(adminMessage($bot->label('cookies')));
-    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_alerts'),$bot->label('cookie_keepalive'),$bot->label('cookie_interval'),$bot->label('cookie_check_now'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
+    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
     $bot->handle(adminMessage($bot->label('cookie_youtube')));
     adminCheck(in_array($bot->label('cookie_view'),adminLabels($api),true)&&in_array($bot->label('cookie_remove'),adminLabels($api),true),'the YouTube service exposes separate import, view and delete controls');
     $bot->handle(adminMessage($bot->label('cookie_upload')));
@@ -71,7 +71,7 @@ try {
 
     $bot->handle(adminMessage('/start',7));
     adminCheck(adminLabels($api)===[$bot->label('help')],'ordinary users receive only their own keyboard');
-    foreach(['admin','customize','health','cookies','update','add_admin','off','on','back_home'] as $key) {
+    foreach(['admin','customize','health','cookies','cookie_settings','update','add_admin','off','on','back_home'] as $key) {
         $before=count($api->calls); $bot->handle(adminMessage($bot->label($key),7));
         foreach(array_slice($api->calls,$before) as $call) if(isset($call[1]['reply_markup']['keyboard'])&&count($call[1]['reply_markup']['keyboard'])>1) throw new RuntimeException('Administrator keyboard leaked through '.$key);
     }
@@ -96,5 +96,12 @@ try {
     $third=sys_get_temp_dir().'/ciro-admin-refused-'.bin2hex(random_bytes(6)); mkdir($third,0700); $store3=new Zero\Store($third);
     (new Zero\Bot(new Zero\Config('123:fake',[42],$third),$store3,$refusing))->handle(adminMessage('/admin'));
     adminCheck(end($refusing->calls)[0]==='sendMessage'&&$store3->get('commands.42')==='','a refused command menu never stops the panel from opening');
+    // Cookie settings are their own entry in the panel, apart from the cookie import.
+    $bot2->handle(adminMessage($bot2->label('admin')));
+    adminCheck(str_contains((string)end($api2->calls)[1]['text'],$bot2->label('cookie_settings'))&&in_array($bot2->label('cookie_settings'),adminLabels($api2),true)&&in_array($bot2->label('cookies'),adminLabels($api2),true),'the panel offers cookie import and cookie settings as two separate controls');
+    $bot2->handle(adminMessage($bot2->label('cookie_settings')));
+    adminCheck(adminLabels($api2)===array_map(fn($key)=>$bot2->label($key),['cookie_mode','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now','cookie_back_admin']),'cookie settings open their own switches without any import control');
+    $bot2->handle(adminMessage($bot2->label('cookie_back_admin')));
+    adminCheck(in_array($bot2->label('cookie_settings'),adminLabels($api2),true),'Back from the settings returns to the management panel');
     Zero\Download::clean($second); Zero\Download::clean($third);
 } finally { Zero\Download::clean($temp); }

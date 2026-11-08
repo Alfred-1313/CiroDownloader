@@ -26,7 +26,16 @@ try {
     $new=str_replace('FAKE_SESSION_A','FAKE_SESSION_B',$old); Zero\saveYouTubeCookies($config,$old);
     $click=function(string $key) use($bot): void { $bot->handle(cookieMessage($bot->label($key))); };
     $bot->handle(cookieMessage('/cookies'));
-    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_mode'),$bot->label('cookie_alerts'),$bot->label('cookie_keepalive'),$bot->label('cookie_interval'),$bot->label('cookie_check_now'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and the cookie-mode switch');
+    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and no settings switches');
+    $import=(string)end($api->calls)[1]['text'];
+    managerCookieCheck(str_contains($import,'<b>🍪 ایمپورت کوکی</b>')&&str_contains($import,$bot->label('cookie_settings'))&&!str_contains($import,'نگه‌دارنده روشن'),'the import screen only points to the separate settings screen');
+    $click('cookie_settings');
+    managerCookieCheck(cookieLabels($api)===array_map(fn($key)=>$bot->label($key),['cookie_mode','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now','cookie_back_admin']),'cookie settings are a separate screen with only the mode, alerts, keep-alive, interval and check-now switches');
+    $settings=(string)end($api->calls)[1]['text'];
+    managerCookieCheck(str_contains($settings,'<b>🛠 تنظیمات کوکی</b>')&&str_contains($settings,'حالت استفاده')&&str_contains($settings,'بررسی خودکار: هر')&&!str_contains($settings,$bot->label('cookie_youtube')),'the settings screen shows every state and contains no import control');
+    $click('cookie_mode'); $click('cookie_mode');
+    managerCookieCheck(str_contains((string)end($api->calls)[1]['text'],'تنظیمات کوکی')&&cookieLabels($api)[0]===$bot->label('cookie_mode'),'a switch redraws the settings screen, not the import screen');
+    $click('cookies');
     $click('cookie_youtube');
     managerCookieCheck(cookieLabels($api)===array_map(fn($key)=>$bot->label($key),['cookie_upload','cookie_view','cookie_remove','cookie_back_services']),'YouTube has independent import, view, delete and Back reply controls');
     $click('cookie_upload');

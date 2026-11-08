@@ -4,20 +4,27 @@ namespace Zero;
 
 final class Cookies
 {
-    public const REPLIES=['cookies','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_mode','cookie_guide','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now'];
+    public const REPLIES=['cookies','cookie_settings','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_back_youtube','cookie_back_admin','cookie_mode','cookie_guide','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now'];
     public function __construct(private Bot $bot) {}
     private function keyboard(array $keys): array
     {
         return array_map(fn($row)=>array_map(fn($key)=>$this->bot->replyButton($key),$row),$keys);
     }
+    /** The import screen: one entry per service, nothing else. */
     private function services(int $chat): void
     {
-        $mode=$this->bot->ui->plain($this->bot->store->get('cookies.fallback','0')==='1'?'cookie_mode_fallback':'cookie_mode_always');
-        $alerts=$this->bot->ui->plain($this->bot->store->get('cookies.alerts','1')==='1'?'cookie_alerts_on':'cookie_alerts_off');
-        $keepalive=$this->bot->ui->plain($this->bot->store->get('cookies.keepalive','1')==='1'?'cookie_keepalive_on':'cookie_keepalive_off');
-        $minutes=CookieHealth::minutes($this->bot->store);
-        $interval=$this->bot->ui->plainWith('cookie_interval_state',['every'=>$minutes<60?$minutes.' دقیقه':($minutes/60).' ساعت']);
-        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['mode'=>$mode,'alerts'=>$alerts,'keepalive'=>$keepalive,'interval'=>$interval]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_mode'],['cookie_alerts'],['cookie_keepalive'],['cookie_interval'],['cookie_check_now'],['cookie_guide'],['cookie_back_admin']]));
+        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['settings'=>$this->bot->ui->label('cookie_settings')]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_guide'],['cookie_back_admin']]));
+    }
+    /** The settings screen: how cookies are used, alerts, keep-alive and the check interval. It has no import controls. */
+    private function settings(int $chat,string $notice=''): void
+    {
+        $ui=$this->bot->ui; $store=$this->bot->store; $minutes=CookieHealth::minutes($store);
+        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_settings_panel',[
+            'mode'=>$ui->plain($store->get('cookies.fallback','0')==='1'?'cookie_mode_fallback':'cookie_mode_always'),
+            'alerts'=>$ui->plain($store->get('cookies.alerts','1')==='1'?'cookie_alerts_on':'cookie_alerts_off'),
+            'keepalive'=>$ui->plain($store->get('cookies.keepalive','1')==='1'?'cookie_keepalive_on':'cookie_keepalive_off'),
+            'interval'=>$ui->plainWith('cookie_interval_state',['every'=>$minutes<60?$minutes.' دقیقه':($minutes/60).' ساعت']),
+        ]).($notice!==''?"\n\n".$notice:''),$this->keyboard([['cookie_mode'],['cookie_alerts'],['cookie_keepalive'],['cookie_interval'],['cookie_check_now'],['cookie_back_admin']]));
     }
     private function youtube(int $chat,string $notice=''): void
     {
@@ -43,28 +50,29 @@ final class Cookies
         elseif($action==='cookie_back_admin') $this->bot->panel($chat);
         elseif($action==='cookie_upload') $this->bot->beginCookieImport($chat,$user);
         elseif(in_array($action,['cookie_view','cookie_export'],true)) (new CookieJars($this->bot))->view($chat,'yt');
+        elseif($action==='cookie_settings') $this->settings($chat);
         elseif($action==='cookie_alerts') {
             $this->bot->store->set('cookies.alerts',$this->bot->store->get('cookies.alerts','1')==='1'?'0':'1');
-            $this->services($chat);
+            $this->settings($chat);
         }
         elseif($action==='cookie_interval') {
             $all=CookieHealth::INTERVALS; $now=CookieHealth::minutes($this->bot->store);
             $this->bot->store->set('cookies.check_minutes',(string)$all[(array_search($now,$all,true)+1)%count($all)]);
-            $this->services($chat);
+            $this->settings($chat);
         }
         elseif($action==='cookie_check_now') {
             // The worker's next loop sees the pass as due and starts it.
             $this->bot->store->set('cookie_sweep_last','0');
-            $this->bot->sendKeyboard($chat,$this->bot->text('cookie_check_started'),$this->keyboard([['cookie_youtube'],['cookie_back_services']]));
+            $this->settings($chat,$this->bot->text('cookie_check_started'));
         }
         elseif($action==='cookie_keepalive') {
             $this->bot->store->set('cookies.keepalive',$this->bot->store->get('cookies.keepalive','1')==='1'?'0':'1');
-            $this->services($chat);
+            $this->settings($chat);
         }
         elseif($action==='cookie_guide') $this->bot->send($chat,$this->bot->text('cookie_guide'));
         elseif($action==='cookie_mode') {
             $this->bot->store->set('cookies.fallback',$this->bot->store->get('cookies.fallback','0')==='1'?'0':'1');
-            $this->services($chat);
+            $this->settings($chat);
         }
         elseif($action==='cookie_remove') $this->remove($chat,$user);
         elseif($action==='cookie_delete_confirm') {
