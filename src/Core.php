@@ -534,6 +534,24 @@ function youtubeUrl(string $input): ?string
     return is_string($id) && preg_match('/^[A-Za-z0-9_-]{11}$/D', $id) ? 'https://www.youtube.com/watch?v='.$id : null;
 }
 
+/**
+ * One Pornhub video, as https://www.pornhub.com/view_video.php?viewkey=KEY. Only video pages (and their embed form)
+ * on pornhub.com and its language subdomains; channels, models, playlists and every other host are refused.
+ */
+function pornhubUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:[a-z]{2,3}\.)?pornhub\.com/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])) return null;
+    if(!preg_match('/^(?:(?:www|m|[a-z]{2})\.)?pornhub\.com$/D',strtolower($u['host']??''))) return null;
+    $key='';
+    if(($u['path']??'')==='/view_video.php') { parse_str($u['query']??'',$q); $key=is_string($q['viewkey']??null)?$q['viewkey']:''; }
+    elseif(preg_match('~^/embed/([A-Za-z0-9]{5,40})/?$~D',$u['path']??'',$m)) $key=$m[1];
+    return preg_match('/^[A-Za-z0-9]{5,40}$/D',$key)?'https://www.pornhub.com/view_video.php?viewkey='.$key:null;
+}
+
 function instagramUrl(string $input): ?string
 {
     $input=trim($input);

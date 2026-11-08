@@ -31,6 +31,14 @@ final class Bot
     public function label(string $key): string { return $this->ui->label($key); }
     public function admin(int $id): bool { return $this->store->isAdmin($id,$this->config->admins); }
     public function allowed(int $id,?int $chat=null): bool { return !($chat<0&&!$this->store->groupsEnabled())&&($this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1')); }
+    /**
+     * Pornhub links: off unless the administrator turns them on, only in a private chat with the bot, and by default only
+     * for administrators. Everyone else gets the usual "send a supported link" answer, so the site is never advertised.
+     */
+    public function adultAllowed(int $user,int $chat): bool
+    {
+        return $chat>0&&$chat===$user&&$this->store->get('adult.pornhub','0')==='1'&&($this->store->get('adult.admins_only','1')!=='1'||$this->admin($user));
+    }
     public function denial(?int $chat=null): string { return $this->text($chat<0&&!$this->store->groupsEnabled()?'groups_disabled':($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline')); }
     public function button(string $key,string $data): array { return $this->ui->button($key,$data); }
     public function replyButton(string $key): array { return $this->ui->button($key); }
@@ -461,6 +469,7 @@ final class Bot
         if($state==='tt_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('tt_cookie_waiting')); return; }
         if($state==='x_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('x_cookie_waiting')); return; }
         $url=mediaUrl($text);
+        if(!$url&&($adult=pornhubUrl($text))!==null&&$this->adultAllowed($user,$chat)) $url=$adult;
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));
     }

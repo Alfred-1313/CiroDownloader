@@ -10,7 +10,7 @@ namespace Zero;
 final class Reports
 {
     public const SCREENS=['stats','services','cookies','errors','server'];
-    private const SERVICES=['youtube','instagram','pinterest','tiktok','twitter','spotify','soundcloud','menu','batch'];
+    private const SERVICES=['youtube','instagram','pinterest','tiktok','twitter','spotify','soundcloud','menu','batch','pornhub'];
     public function __construct(private Bot $bot) {}
 
     /** The buttons under the main status message. */

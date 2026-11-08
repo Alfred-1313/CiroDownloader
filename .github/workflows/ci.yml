@@ -78,6 +78,7 @@ jobs:
           php tests/cookie_formats.php
           php tests/cookie_health.php
           php tests/reports.php
+          php tests/pornhub.php
           php tests/network_options.php
           php tests/media.php
           php tests/downloader_access.php

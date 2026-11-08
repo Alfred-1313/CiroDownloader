@@ -29,7 +29,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'music'=>[...musicServices(),'menu','batch'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),'pornhub'],'music'=>[...musicServices(),'menu','batch'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -53,6 +53,9 @@ final class Personalization
             [$this->heading($ui->label('feat_access'),'feat_access')],
             [$this->switchButton('admins_only','custom:access',$store->get('admins_only','0')==='1')],
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
+            [$this->heading($ui->label('feat_adult'),'feat_adult')],
+            [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
+            [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
             [$this->heading($ui->label('feat_reaction'),'feat_reaction')],
             [$ui->button('reaction_settings','custom:reaction')],
             [$this->heading($ui->label('feat_limits'),'feat_limits')],
@@ -210,6 +213,7 @@ final class Personalization
         $screens['batch']=array_merge(array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','more','failed','stopping',
                 'source_youtube','source_soundcloud','source_original','reason_blocked','reason_format','reason_network','reason_cookies','reason_size','reason_storage','reason_restricted','reason_duration','reason_process']),
             [['button','batch_stop'],['button','batch_resume'],['button','batch_back'],['button','music_share']]);
+        $screens['pornhub']=[['text','pornhub_caption'],['text','pornhub_error_size'],['text','pornhub_error_restricted'],['text','pornhub_error_format'],['text','pornhub_error_network'],['text','pornhub_error_blocked']];
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
@@ -706,6 +710,12 @@ final class Personalization
         }
         elseif($op==='access') {
             $this->bot->store->set('admins_only',$this->bot->store->get('admins_only','0')==='1'?'0':'1');
+            $this->features($chat,$message);
+        } elseif($op==='adult') {
+            $this->bot->store->set('adult.pornhub',$this->bot->store->get('adult.pornhub','0')==='1'?'0':'1');
+            $this->features($chat,$message);
+        } elseif($op==='adultadmins') {
+            $this->bot->store->set('adult.admins_only',$this->bot->store->get('adult.admins_only','1')==='1'?'0':'1');
             $this->features($chat,$message);
         } elseif($op==='groups_mode') {
             $this->bot->store->set('groups_enabled',$this->bot->store->groupsEnabled()?'0':'1');

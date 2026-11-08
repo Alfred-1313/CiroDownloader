@@ -223,19 +223,65 @@ final class Download
         ]<=>[($a['vcodec']??'none')==='none'?1:0,(float)($a['abr']??$a['tbr']??0)]);
         return array_map(fn($format)=>['id'=>(string)$format['format_id']],array_slice($formats,0,8));
     }
+    /** A video page this class downloads with a quality choice: YouTube (with its cookies) or Pornhub (no cookies). */
+    private static function videoPage(string $url): array
+    {
+        if($canonical=youtubeUrl($url)) return [$canonical,'youtube'];
+        if($canonical=pornhubUrl($url)) return [$canonical,'pornhub'];
+        throw new \RuntimeException('Invalid video URL');
+    }
+    /** Runs yt-dlp for a video page: YouTube through its cookie jars, anything else plainly (with the social proxy when set). */
+    private function videoRun(string $site,string $canonical,array $options,string $folder,int $seconds,bool $forceCookies=false): string
+    {
+        return $site==='youtube'?$this->youtube($canonical,$options,$folder,$seconds,$forceCookies):$this->plain($canonical,$options,$folder,$seconds);
+    }
     public function inspect(string $url,string $folder,bool $forceCookies=false): array
     {
-        $canonical=youtubeUrl($url);
-        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
-        $json=$this->youtube($canonical,['--dump-single-json','--skip-download'],$folder,min(120,$this->config->timeout),$forceCookies);
+        [$canonical,$site]=self::videoPage($url);
+        $json=$this->videoRun($site,$canonical,['--dump-single-json','--skip-download'],$folder,min(120,$this->config->timeout),$forceCookies);
         try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
         catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
+        if($site==='pornhub') {
+            // The same quality menu as YouTube, without the audio choice; qualities that cannot be sent are not offered.
+            $options=self::sizedOptions($info,$this->config->maxBytes);
+            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>self::trustedPoster($info,'phncdn.com')];
+        }
         $options=self::qualityOptions($info);
         $audio=self::audioOptions($info);
         if($audio) $options['audio']=$audio;
         if(!$options) throw new MediaFailure('format','No downloadable media formats found');
         return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options,'poster'=>self::posterUrl($info,$canonical)];
+    }
+    /**
+     * Qualities of a site whose formats carry picture and sound together (HLS or MP4), keyed like YouTube's. A format
+     * whose size (stated, or estimated from its bitrate and the length) is above the upload limit is left out; when that
+     * leaves nothing, the video is too large for this bot.
+     */
+    public static function sizedOptions(array $info,int $maxBytes): array
+    {
+        if(!empty($info['is_live'])||($info['live_status']??'')==='is_live') throw new MediaFailure('duration','Live streams are not supported');
+        $duration=(float)($info['duration']??0); $formats=array_values(array_filter(is_array($info['formats']??null)?$info['formats']:[],'is_array')); $tooBig=false; $options=[];
+        // H.264 first (sent without re-encoding), then the smallest of each height.
+        usort($formats,fn($a,$b)=>[str_starts_with((string)($a['vcodec']??'avc1'),'avc1')?0:1,(float)($a['tbr']??0)]<=>[str_starts_with((string)($b['vcodec']??'avc1'),'avc1')?0:1,(float)($b['tbr']??0)]);
+        foreach($formats as $format) {
+            $id=(string)($format['format_id']??'');
+            if(!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)||in_array($format['vcodec']??'',['none','images'],true)||($format['acodec']??'')==='none'||!empty($format['has_drm'])||($format['protocol']??'')==='mhtml') continue;
+            $height=(int)($format['height']??0); $width=(int)($format['width']??0); $height=$width>0?min($width,$height):$height;
+            if(!in_array($height,Config::VIDEO_QUALITIES,true)) continue;
+            $size=is_numeric($format['filesize']??null)?(float)$format['filesize']:(is_numeric($format['filesize_approx']??null)?(float)$format['filesize_approx']:((float)($format['tbr']??0)>0&&$duration>0?(float)$format['tbr']*125*$duration:null));
+            if($size!==null&&$size>$maxBytes*0.95) { $tooBig=true; continue; }
+            if(count($options[$height]??[])<8) $options[$height][]=['id'=>$id,'audio'=>true];
+        }
+        if(!$options) throw $tooBig?new MediaFailure('size','Every quality is larger than the upload limit'):new MediaFailure('format','No downloadable media formats found');
+        ksort($options,SORT_NUMERIC);
+        return $options;
+    }
+    /** The page's picture when it is HTTPS on the site's own image host, otherwise none. */
+    public static function trustedPoster(array $info,string $host): string
+    {
+        $thumbnail=(string)($info['thumbnail']??''); $parts=parse_url($thumbnail); $name=strtolower((string)($parts['host']??''));
+        return $parts&&($parts['scheme']??'')==='https'&&($name===$host||str_ends_with($name,'.'.$host))&&!isset($parts['user'])&&!isset($parts['pass'])&&!isset($parts['port'])&&strlen($thumbnail)<=2048?$thumbnail:'';
     }
     /**
      * The first YouTube search results for a text, as {id,title,duration,channel}. Only what a
@@ -439,8 +485,7 @@ final class Download
     }
     public function fetch(string $url, string $folder, ?int $quality=null, array $formats=[]): array
     {
-        $canonical=youtubeUrl($url);
-        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        [$canonical,$site]=self::videoPage($url);
         $target=$quality??480;
         if($target<72||$target>8640) throw new MediaFailure('format','Invalid selected resolution');
         $selector=[];
@@ -449,7 +494,7 @@ final class Download
             $selector[]=$format['id'].(!empty($format['audio'])?'':'+ba');
         }
         if($quality!==null&&!$selector) throw new MediaFailure('format','The selected quality has no saved formats');
-        $title=$this->youtube($canonical,[
+        $title=$this->videoRun($site,$canonical,[
             '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',

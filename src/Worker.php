@@ -47,13 +47,19 @@ final class Worker
         if($music===null&&is_array($track)&&in_array($job['phase'],musicServices(),true)) $music=$job['phase'];
         if($music!==null&&$job['phase']!==$music) $music=null;
         $collection=$job['phase']==='inspect'?collectionUrl($job['url']):null;
-        $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':'youtube')));
+        $adult=pornhubUrl($job['url'])!==null;
+        $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':($adult?'pornhub':'youtube'))));
         $started=hrtime(true); $timings=[];
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
+            }
+            // Turned off, or no longer allowed for this person, since the link was accepted: nothing is fetched.
+            if($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'])) {
+                $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+                $bot->jobMessage($job,$bot->text('invalid')); return;
             }
             if($job['phase']==='batch') {
                 $this->musicBatch($job,$bot,$folder,$timings,$stage);
@@ -113,7 +119,7 @@ final class Worker
                     $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                     $bot->jobMessage($job,$bot->denial((int)$job['chat_id']));
                 } else {
-                    $store->set('youtube_probe_url',$job['url']);
+                    if(!$adult) $store->set('youtube_probe_url',$job['url']);
                     $bot->qualityMenu($job,$info);
                 }
                 return;
@@ -136,11 +142,17 @@ final class Worker
                 Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
             }
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
-            $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
-                'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Ui::duration($media['duration']),'url'=>$job['url']]);
-            $link=$bot->ui->button($audio?'source_audio':'source_video'); $link['url']=$job['url'];
-            $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
-                'reply_markup'=>['inline_keyboard'=>[[$link]]]];
+            if($adult) {
+                // Its own short caption and no link back to the site.
+                $caption=$bot->ui->fitCaption($bot->text('pornhub_caption',['title'=>mb_substr($media['title'],0,100),'quality'=>$media['quality']??'','duration'=>Ui::duration($media['duration'])]));
+                $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
+            } else {
+                $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
+                    'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Ui::duration($media['duration']),'url'=>$job['url']]);
+                $link=$bot->ui->button($audio?'source_audio':'source_video'); $link['url']=$job['url'];
+                $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
+                    'reply_markup'=>['inline_keyboard'=>[[$link]]]];
+            }
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             $uploadStarted=hrtime(true);
             if($audio) $api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
@@ -160,12 +172,13 @@ final class Worker
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
-            $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':'youtube')));
+            $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':($adult?'pornhub':'youtube'))));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             try { $store->pushError($label,$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'),$store->get('last_job_sources')); } catch(Throwable) {}
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($gallery) $key=$service.'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
+            elseif($adult) $key=$bot->ui->definition('text','pornhub_'.$key)?'pornhub_'.$key:'failed';
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
             $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($music!==null?$music.'_failed':'failed'))));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
