@@ -141,15 +141,15 @@ try {
     $tap('mm:'.$id.':a:each',12); menuCheck(str_contains($answer()['text']??'','در راه است')&&$store->query("SELECT COUNT(*) FROM jobs WHERE phase='batch'")->fetchColumn()==1,'a second tap while it runs queues nothing');
     file_put_contents($log,''); $job=$run('media');
     $progress=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'آماده‌سازی آهنگ‌ها')));
-    menuCheck($job['status']==='done'&&count($progress)>=1&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id'])&&!$called('sendAudio'),'progress with a stop button shows on the menu message, and no track is sent on its own');
-    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true);
-    menuCheck(count($groups)===1&&count($media)===3&&array_unique(array_column($media,'type'))===['audio']&&!isset($media[0]['caption'])&&!isset($media[1]['caption'])&&isset($media[2]['caption']),'all three tracks arrive as one group with a single caption, on the last track');
-    $caption=$media[2]['caption'];
-    menuCheck(str_contains($caption,'<blockquote><b>🎧 New Album</b>')&&str_contains($caption,'3 آهنگ · بخش 1 از 1')&&str_contains($caption,"• Fixture Artist - Album Cut One\n• Fixture Artist - Album Cut Two\n• Fixture Artist - Album Cut Three")&&substr_count($caption,'<blockquote>')===2,'the caption is a bold quote with the title and a quote listing "• artist - title" for every track');
-    menuCheck(array_column($media,'title')===['Album Cut One','Album Cut Two','Album Cut Three']&&$groups[0]['uploads']['f0']['mime']==='audio/mp4'&&str_ends_with($groups[0]['uploads']['f0']['name'],'.m4a'),'in album order, with their titles, as M4A files');
+    menuCheck($job['status']==='done'&&count($progress)>=1&&str_contains((string)$progress[0]['params']['reply_markup'],'mb:'.$job['id'])&&count($called('sendAudio'))===1,'progress with a stop button shows on the menu message; only the last track is sent on its own');
+    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true); $single=$called('sendAudio')[0]['params'];
+    menuCheck(count($groups)===1&&count($media)===2&&array_unique(array_column($media,'type'))===['audio']&&!isset($media[0]['caption'])&&!isset($media[1]['caption'])&&!isset($groups[0]['params']['reply_markup']),'the first tracks arrive together as one group without caption or buttons');
+    $caption=$single['caption'];
+    menuCheck(str_starts_with($caption,'<b>🎧 New Album</b>'."\n\n")&&str_contains($caption,"<blockquote expandable>• Album Cut One\n• Album Cut Two\n• Album Cut Three</blockquote>")&&substr_count($caption,'<blockquote')===1&&!str_contains($caption,'Fixture Artist')&&!str_contains($caption,'بخش')&&!str_contains($caption,'⚠️'),'the last track carries the caption: the album in bold, an empty line and a collapsed quote of track names only');
+    menuCheck(array_column($media,'title')===['Album Cut One','Album Cut Two']&&$single['title']==='Album Cut Three'&&$groups[0]['uploads']['f0']['mime']==='audio/mp4'&&str_ends_with($groups[0]['uploads']['f0']['name'],'.m4a'),'in album order, with their titles, as M4A files');
     $row=$store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch(); $state=json_decode($row['data'],true)['batch']; $lastId=end($state['delivered']);
-    $marked=$called('editMessageReplyMarkup'); $mark=end($marked); $markButton=json_decode($mark['params']['reply_markup'],true)['inline_keyboard'][0][0];
-    menuCheck($state['state']==='done'&&count($state['delivered'])===3&&(int)$mark['params']['message_id']===$lastId&&$markButton['callback_data']==='mm:'.$id.':r'&&($markButton['style']??'')==='danger'&&str_starts_with($markButton['text'],'🔙'),'the last message carries a red "🔙 back to the previous menu" button');
+    $markButton=json_decode($single['reply_markup'],true)['inline_keyboard'][0][0];
+    menuCheck($state['state']==='done'&&count($state['delivered'])===3&&$markButton['callback_data']==='mm:'.$id.':r'&&($markButton['style']??'')==='danger'&&str_starts_with($markButton['text'],'🔙')&&!$called('editMessageReplyMarkup'),'the last message itself has the red "🔙 back to the previous menu" button (sent with it, not added afterwards)');
     $deleted=array_values(array_filter($called('deleteMessage'),fn($call)=>(int)$call['params']['message_id']===$menuMessage));
     menuCheck(count($deleted)===1&&(int)$row['message_id']===$lastId&&(int)$state['carrier']===$lastId&&is_dir($config->storage.'/music-batches'),'the old menu message is deleted, the last track becomes the menu\'s anchor and the prepared tracks stay for a quick way back');
     file_put_contents($log,''); $tap('mm:'.$id.':r',12,$lastId);
@@ -170,16 +170,18 @@ try {
     $resume=$button($paused,'ادامه دانلود');
     menuCheck(($resume['style']??'')==='success'&&$resume['callback_data']==='mm:'.$id.':c'&&str_contains($resume['text'],'0 از 3'),'it offers a green "continue download" with the progress');
     $tap('mm:'.$id.':c',12); file_put_contents($log,''); $job=$run('media');
-    menuCheck($job['status']==='done'&&count($called('sendMediaGroup'))===1&&count(json_decode($called('sendMediaGroup')[0]['params']['media'],true))===3,'continuing finishes the job and sends everything together');
+    menuCheck($job['status']==='done'&&count($called('sendMediaGroup'))===1&&count(json_decode($called('sendMediaGroup')[0]['params']['media'],true))===2&&count($called('sendAudio'))===1,'continuing finishes the job and sends everything together');
     $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
 
     // ZIP: the files go out as a group of documents, split by the upload limit, in album order.
     $config->maxBytes=2097152+262144; $zipSize=filesize($temp.'/source.m4a'); file_put_contents($log,'');
     $tap('mm:'.$id.':a:zip',12); $job=$run('media');
-    $groups=$called('sendMediaGroup'); $media=json_decode($groups[0]['params']['media'],true);
+    $docs=$called('sendDocument');
     $zip=new ZipArchive(); $zip->open($temp.'/delivered-0.zip'); $names=[]; for($i=0;$i<$zip->numFiles;$i++) $names[]=$zip->getNameIndex($i); $method=$zip->statIndex(0)['comp_method']; $zip->close();
-    menuCheck($job['status']==='done'&&count($groups)===1&&count($media)>=2&&array_unique(array_column($media,'type'))===['document']&&!isset($media[0]['caption'])&&isset(end($media)['caption'])&&str_contains(end($media)['caption'],'ZIP')&&str_contains(end($media)['caption'],'• Fixture Artist - Album Cut Two')&&str_ends_with($groups[0]['uploads']['f0']['name'],'(1).zip'),'ZIP mode sends the ZIP files together as one group of documents, each below the upload limit');
-    menuCheck($names===['01 - Fixture Artist - Album Cut One.m4a','02 - Fixture Artist - Album Cut Two.m4a']&&count($media)===2&&$method===ZipArchive::CM_STORE,'files keep the album order and their tagged names, stored without compression');
+    $docButton=json_decode((string)($docs[1]['params']['reply_markup']??'{}'),true)['inline_keyboard'][0][0]??[];
+    menuCheck($job['status']==='done'&&count($docs)===2&&!$called('sendMediaGroup')&&!isset($docs[0]['params']['caption'])&&!isset($docs[0]['params']['reply_markup'])&&str_ends_with($docs[0]['uploads']['document']['name'],'(1).zip')&&str_ends_with($docs[1]['uploads']['document']['name'],'(2).zip'),'ZIP mode sends the files below the upload limit; only the last one has the caption and the button');
+    menuCheck(str_starts_with($docs[1]['params']['caption'],'<b>🗜 New Album</b>'."\n\n<blockquote expandable>")&&str_contains($docs[1]['params']['caption'],'• Album Cut Two')&&str_contains($docs[1]['params']['caption'],'• Album Cut Three')&&!str_contains($docs[1]['params']['caption'],'Fixture Artist')&&($docButton['callback_data']??'')==='mm:'.$id.':r'&&($docButton['style']??'')==='danger','the last ZIP lists the track names in a collapsed quote and has the red back button');
+    menuCheck($names===['01 - Fixture Artist - Album Cut One.m4a','02 - Fixture Artist - Album Cut Two.m4a']&&$method===ZipArchive::CM_STORE,'files keep the album order and their tagged names, stored without compression');
     $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id); $config->maxBytes=49000000;
 
     // A track that cannot be found is skipped and counted; one left over is sent on its own.
@@ -188,19 +190,39 @@ try {
     $tap('mm:'.$id.':t:singles',14); $tap('mm:'.$id.':o:0',14); $tap('mm:'.$id.':a:each',14);
     file_put_contents($log,''); $menuBefore=$anchor($id); $job=$run('media'); $single=$called('sendAudio');
     $singleCaption=(string)($single[0]['params']['caption']??''); $singleMarkup=json_decode((string)($single[0]['params']['reply_markup']??'{}'),true)['inline_keyboard'][0][0]??[];
-    menuCheck($job['status']==='done'&&count($single)===1&&!$called('sendMediaGroup')&&str_contains($singleCaption,'• Fixture Artist - Single Cut')&&str_contains($singleCaption,'⚠️ 1 آهنگ پیدا یا دریافت نشد')&&($singleMarkup['callback_data']??'')==='mm:'.$id.':r'&&($singleMarkup['style']??'')==='danger'&&$anchor($id)!==$menuBefore&&count(array_filter($called('deleteMessage'),fn($call)=>(int)$call['params']['message_id']===$menuBefore))===1,'a track that cannot be found is skipped and counted in the caption; the one left is sent alone with the back button and the old menu is deleted');
+    $notes=array_values(array_filter(array_merge($called('editMessageCaption'),$called('editMessageText')),fn($call)=>str_contains((string)($call['params']['caption']??$call['params']['text']??''),'Missing Song')));
+    menuCheck($job['status']==='done'&&count($single)===1&&!$called('sendMediaGroup')&&str_contains($singleCaption,'• Single Cut')&&!str_contains($singleCaption,'Missing Song')&&!str_contains($singleCaption,'⚠️')&&!str_contains($singleCaption,'پیدا یا دریافت نشد')&&($singleMarkup['callback_data']??'')==='mm:'.$id.':r'&&($singleMarkup['style']??'')==='danger'&&$anchor($id)!==$menuBefore&&count(array_filter($called('deleteMessage'),fn($call)=>(int)$call['params']['message_id']===$menuBefore))===1,'the one track left is sent alone with its caption and the back button, the old menu is deleted, and the failed track is not in the caption');
+    menuCheck($notes&&str_contains((string)($notes[0]['params']['caption']??$notes[0]['params']['text']),'• Missing Song')&&str_contains((string)($notes[0]['params']['caption']??$notes[0]['params']['text']),'<blockquote>'),'the status message names the track that could not be found, in a quote');
     $fresh(); $send('https://open.spotify.com/album/'.$albumId,13); $run('inspect'); $album=$lastMenu();
     menuCheck($album['photo']==='https://image-cdn-fa.spotifycdn.com/image/album-'.$albumId&&!array_filter($album['data'],fn($value)=>str_contains($value,':t:'))&&in_array('mm:'.(int)$store->query('SELECT id FROM music_menus')->fetchColumn().':a:zip',$album['data'],true),'an album page opens with its cover, its tracks and "download all"');
 
-    // The caption never passes Telegram's limit: a long list is cut with "and N more", names are escaped.
-    $groupCaption=new ReflectionMethod(Zero\Worker::class,'groupCaption'); $groupCaption->setAccessible(true);
-    $many=[]; for($i=1;$i<=50;$i++) $many[]=['performer'=>'Artist '.str_repeat('x',20),'title'=>'Track number '.$i.' '.str_repeat('y',40)];
-    $big=$groupCaption->invoke($worker,$bot,'batch_zip_caption',['title'=>'Big','count'=>'50','parts'=>'3'],$many,"\n".$bot->text('batch_failed_note',['failed'=>'2']));
-    menuCheck(Zero\TextFormat::length(html_entity_decode(strip_tags($big),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=1024&&preg_match('/… و \d+ آهنگ دیگر/u',$big)===1&&substr_count($big,'•')>5&&str_contains($big,'⚠️ 2 آهنگ'),'a long list is cut to fit the caption limit with "and N more" and still shows the note');
-    $odd=$groupCaption->invoke($worker,$bot,'batch_caption',['title'=>'T','count'=>'1','part'=>'1','parts'=>'1'],[['performer'=>'<b>A&B</b>','title'=>'x<script>']],'');
-    menuCheck(str_contains($odd,'• &lt;b&gt;A&amp;B&lt;/b&gt; - x&lt;script&gt;')&&!str_contains($odd,'<script>'),'track names are escaped in the caption');
-    $solo=$groupCaption->invoke($worker,$bot,'batch_caption',['title'=>'T','count'=>'1','part'=>'1','parts'=>'1'],[['performer'=>'','title'=>'Only Title']],'');
-    menuCheck(str_contains($solo,'• Only Title')&&!str_contains($solo,' - Only Title'),'a track without an artist is listed by its title alone');
+    // The caption never passes Telegram's limit: a long list is cut with "and N more", names are escaped, artists are not shown.
+    $listCaption=new ReflectionMethod(Zero\Worker::class,'listCaption'); $listCaption->setAccessible(true);
+    $many=[]; for($i=1;$i<=50;$i++) $many[]=['performer'=>'Artist','title'=>'Track number '.$i.' '.str_repeat('y',40)];
+    $big=$listCaption->invoke($worker,$bot,'batch_zip_caption',['title'=>'Big','count'=>'50','parts'=>'3'],$many);
+    menuCheck(Zero\TextFormat::length(html_entity_decode(strip_tags($big),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=1024&&preg_match('/… و \d+ آهنگ دیگر/u',$big)===1&&substr_count($big,'•')>5&&!str_contains($big,'Artist'),'a long list is cut to fit the caption limit with "and N more"');
+    $odd=$listCaption->invoke($worker,$bot,'batch_caption',['title'=>'T','count'=>'1'],[['performer'=>'x','title'=>'<b>A&B</b> x<script>']]);
+    menuCheck(str_contains($odd,'• &lt;b&gt;A&amp;B&lt;/b&gt; x&lt;script&gt;')&&!str_contains($odd,'<script>'),'track names are escaped in the caption');
+    $failedBlock=new ReflectionMethod(Zero\Worker::class,'failedBlock'); $failedBlock->setAccessible(true);
+    $names=$failedBlock->invoke($worker,$bot,array_map(fn($i)=>'Song '.$i.'<i>',range(1,9)));
+    menuCheck(substr_count($names,'• Song')===6&&str_contains($names,'… و 3 آهنگ دیگر')&&!str_contains($names,'<i>')&&$failedBlock->invoke($worker,$bot,[])==='','the failed names are escaped, at most six are listed and the rest is counted');
+
+    // The preparation pool starts the next track as soon as a slot frees up and never runs more than MUSIC_PARALLEL at once.
+    $pool=new ReflectionMethod(Zero\Worker::class,'preparePool'); $pool->setAccessible(true);
+    $poolTracks=[]; foreach(['Slow One','Fast Two','Fast Three','Fast Four','Fast Five','Fast Six'] as $name) $poolTracks[]=['m'=>['title'=>$name,'artists'=>['Fixture Artist'],'duration'=>12,'year'=>'2020','cover'=>'']];
+    $poolDir=$temp.'/pool'; mkdir($poolDir,0700); file_put_contents($temp.'/pool.jsonl',''); file_put_contents($mode,json_encode(['pool'=>true])); $config->musicParallel=3; $afterCalls=0;
+    $pool->invoke($worker,[0,1,2,3,4,5],$poolTracks,'spotify',$poolDir,function() use(&$afterCalls) { $afterCalls++; return true; });
+    $times=array_map(fn($line)=>json_decode($line,true),file($temp.'/pool.jsonl',FILE_IGNORE_NEW_LINES)); $byName=[]; foreach($times as $time) $byName[trim(str_replace('audio','',$time['name']))]=$time;
+    $peak=0; foreach($times as $a) $peak=max($peak,count(array_filter($times,fn($b)=>$b['start']<=$a['start']&&$b['end']>$a['start'])));
+    $ready=count(glob($poolDir.'/*.json'));
+    menuCheck($ready===6&&$afterCalls===6&&$peak<=3,'all six tracks are prepared, never more than three at the same time');
+    menuCheck($byName['Fixture Artist Fast Four']['start']<$byName['Fixture Artist Slow One']['end']&&$byName['Fixture Artist Fast Six']['start']<$byName['Fixture Artist Slow One']['end'],'a slow track does not hold the others back: later tracks start while it is still running');
+    foreach(glob($poolDir.'/*') as $leftover) { if(is_dir($leftover)) Zero\Download::clean($leftover); else @unlink($leftover); }
+    // The pool stops starting new tracks when the check says so, and the ones already running finish.
+    foreach(glob($poolDir.'/*.json') as $f) @unlink($f); file_put_contents($mode,'{}'); $config->musicParallel=2; $calls=0;
+    $pool->invoke($worker,[0,1,2,3,4,5],$poolTracks,'spotify',$poolDir,function() use(&$calls) { $calls++; return false; });
+    menuCheck(count(glob($poolDir.'/*.json'))===2&&$calls===1,'when the check refuses, only the running tracks finish and nothing new starts');
+    $config->musicParallel=4; file_put_contents($mode,'{}');
 
     // 7. Artists Deezer does not know come from Apple's catalogue; without either only Spotify's popular tracks are shown.
     $fresh(); $send('https://open.spotify.com/artist/'.$bandId,16); $run('inspect'); $band=$lastMenu();

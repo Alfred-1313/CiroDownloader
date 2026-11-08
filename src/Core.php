@@ -12,6 +12,8 @@ final class Config
     public bool $cookieFallback=false;
     /** Music keeps MP3 and AAC (M4A) sources as they are: faster and smaller. Off converts everything to MP3. */
     public bool $musicCopy=true;
+    /** How many tracks of a whole album are prepared at the same time (MUSIC_PARALLEL, 1 to 8). */
+    public int $musicParallel=4;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
     public string $galleryProxy='';
     /** TikTok: prefer H.264 streams so videos are remuxed instead of re-encoded (much faster). */
@@ -71,6 +73,9 @@ final class Config
             getenv('YT_DLP_BIN') ?: '/opt/yt/bin/yt-dlp',3600,
             getenv('YOUTUBE_COOKIES_FILE')?:'', $proxy,(int)$concurrency,
             getenv('GALLERY_DL_BIN')?:'/opt/yt/bin/gallery-dl',getenv('INSTAGRAM_COOKIES_FILE')?:'',getenv('PINTEREST_COOKIES_FILE')?:'',getenv('TIKTOK_COOKIES_FILE')?:'',getenv('TWITTER_COOKIES_FILE')?:'');
+        $parallel=getenv('MUSIC_PARALLEL');
+        if($parallel!==false&&$parallel!==''&&!preg_match('/^[1-8]$/D',$parallel)) throw new \RuntimeException('MUSIC_PARALLEL must be between 1 and 8');
+        if($parallel!==false&&$parallel!=='') $config->musicParallel=(int)$parallel;
         $config->tiktokPreferH264=(getenv('TIKTOK_PREFER_H264')?:'1')!=='0';
         $config->galleryProxy=$galleryProxy; $config->youtubePotUrl=rtrim($potUrl,'/');
         return $config;
@@ -218,7 +223,7 @@ final class Telegram implements FileApi
         $ch = self::handle();
         curl_setopt_array($ch, [CURLOPT_URL => $this->config->api . '/bot' . $this->config->token . '/' . $method, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
             // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
-            CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 524288, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
+            CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 1048576, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
             CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
             CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto','sendMediaGroup','sendDocument'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
         $body = curl_exec($ch);

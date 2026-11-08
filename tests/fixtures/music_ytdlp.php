@@ -6,7 +6,12 @@ $args=array_slice($argv,1); $target=end($args);
 file_put_contents(FIXTURE_ROOT.'/yt.jsonl',json_encode($args).PHP_EOL,FILE_APPEND);
 $mode=json_decode((string)@file_get_contents(FIXTURE_ROOT.'/mode.json'),true)?:[];
 if(str_starts_with($target,'ytsearch')) {
-    $text=substr($target,(int)strpos($target,':')+1); $name=preg_replace('/ audio$/','',$text);
+    $text=substr($target,(int)strpos($target,':')+1);
+    // Pool test: a "Slow" track holds its slot for a while; start and end times show how tracks overlap.
+    if(!empty($mode['pool'])) {
+        $started=microtime(true); if(str_contains($text,'Slow')) usleep(2500000);
+        file_put_contents(FIXTURE_ROOT.'/pool.jsonl',json_encode(['name'=>$text,'start'=>$started,'end'=>microtime(true)]).PHP_EOL,FILE_APPEND);
+    } $name=preg_replace('/ audio$/','',$text);
     echo json_encode(['entries'=>str_contains($text,'Missing')||($mode['youtube']??'ok')==='empty'?[]:[['id'=>'goodMatch01','title'=>$name.' (Official Audio)','duration'=>12.0,'channel'=>'Fixture Artist']]]);
     exit(0);
 }

@@ -55,3 +55,7 @@ docker compose run --rm --no-deps -T worker php bin/speedtest.php
 ## Music
 
 A song is the web page (about 1 s), a YouTube search (about 1.5 s), the audio download and the cover. The old step that re-encoded everything to MP3 (2 to 10 s per song on one CPU, and 192 kbps for a 128 kbps source, which only made the upload bigger) is gone: AAC and MP3 sources are copied. "Download all" prepares three tracks at the same time. Upload time still depends on the server's link to Telegram; `bin/speedtest.php` measures it.
+
+## موسیقی و «دانلود همه»
+
+آماده‌سازی آهنگ‌های یک آلبوم در یک **استخر** انجام می‌شود: همزمان `MUSIC_PARALLEL` آهنگ (پیش‌فرض 4، بین 1 تا 8 در `.env`) آماده می‌شود و هر آهنگ تمام‌شده بلافاصله جای خود را به آهنگ بعدی می‌دهد؛ آهنگ کند بقیه را معطل نمی‌کند. عدد بزرگ‌تر آماده‌سازی را سریع‌تر می‌کند اما فشار بیشتری روی CPU، پهنای باند و محدودیت یوتیوب می‌آورد؛ اگر یوتیوب IP سرور را زیاد رد می‌کرد، عدد را کمتر کن. آپلود تلگرام با بافر 1 مگابایتی، بدون انتظار `100-continue` و یک اتصال مشترک انجام می‌شود؛ سرعت نهایی آن به پهنای باند خروجی سرور بستگی دارد. تغییر `MUSIC_PARALLEL` به راه‌اندازی مجدد سرویس نیاز دارد.

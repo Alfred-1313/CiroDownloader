@@ -22,6 +22,12 @@ try {
     }
     netCheck($bad===5,'unsupported schemes, credentials and queries are refused');
     loadConfig([],$temp);
+    // Music: how many tracks of an album are prepared at once.
+    putenv('MUSIC_PARALLEL');
+    netCheck(loadConfig([],$temp)->musicParallel===4,'whole albums prepare four tracks at once by default');
+    putenv('MUSIC_PARALLEL=6'); netCheck(loadConfig([],$temp)->musicParallel===6,'MUSIC_PARALLEL sets how many');
+    $bad=0; foreach(['0','9','x','2.5'] as $value) { putenv('MUSIC_PARALLEL='.$value); try { loadConfig([],$temp); } catch(RuntimeException) { $bad++; } }
+    putenv('MUSIC_PARALLEL'); netCheck($bad===4,'MUSIC_PARALLEL outside 1 to 8 is refused');
 
     // YouTube: the provider is only passed to yt-dlp when configured.
     $trace=$temp.'/yt-args'; $stub=$temp.'/yt';
