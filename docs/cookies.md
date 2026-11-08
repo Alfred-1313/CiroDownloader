@@ -56,3 +56,7 @@
 - **/health:** تعداد کوکی هر سرویس و کوکی‌های ردشده را نشان می‌دهد.
 
 درباره‌ی مسیر خروجی و پراکسی: [network.md](network.md).
+
+## Guest cookies
+
+An export taken while **logged out** holds only visitor cookies (`VISITOR_INFO1_LIVE`, `YSC`, `PREF`, `VISITOR_PRIVACY_METADATA`). The bot accepts the format (JSON, Netscape or header string) but marks the import as a guest cookie: such cookies do not get a blocked server past YouTube's "confirm you're not a bot" check. Sign in to the Google account in the browser, open a video, and export again; a useful export contains `SID`, `SAPISID` or `__Secure-3PSID`.

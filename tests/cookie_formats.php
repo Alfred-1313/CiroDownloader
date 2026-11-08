@@ -91,4 +91,14 @@ try {
     formatCheck(str_contains($text,'docs/cookie-guide.md')&&str_contains($text,'Cookie-Editor')&&str_contains($text,'robots.txt'),'the cookie services menu offers a short guide for computer, Android and iPhone');
     $before=count($api->calls); $send($bot->label('cookie_guide'),7);
     formatCheck(!array_filter(array_slice($api->calls,$before),fn($c)=>str_contains((string)($c[1]['text']??''),'docs/cookie-guide.md')),'ordinary users cannot open the administrator cookie guide');
+    // A YouTube export taken while logged out (only VISITOR_INFO1_LIVE, YSC, PREF) is converted but marked as a guest cookie.
+    $guestJson=json_encode([['name'=>'VISITOR_INFO1_LIVE','value'=>'GUEST1','domain'=>'.youtube.com','hostOnly'=>false,'path'=>'/','secure'=>true,'httpOnly'=>true,'session'=>false,'expirationDate'=>2147483000],
+        ['name'=>'YSC','value'=>'GUEST2','domain'=>'.youtube.com','hostOnly'=>false,'path'=>'/','secure'=>true,'httpOnly'=>true,'session'=>true]]);
+    $youtubePool=Zero\youtubeCookiePool($config); $guest=$youtubePool->normalize($guestJson);
+    $account=$guest."\n.youtube.com\tTRUE\t/\tTRUE\t2147483000\t__Secure-3PSID\tSIGNED_IN";
+    formatCheck($youtubePool->isGuest($guest)&&!$youtubePool->isGuest($account),'a logged-out YouTube export is recognised as a guest cookie');
+    $summary=Zero\CookieJars::ingestContent($guestJson,$youtubePool);
+    formatCheck(in_array(['cookies','guest'],$summary['notes'],true)&&$summary['added']===1,'importing it still works, with a note that it has no account');
+    $summary=Zero\CookieJars::ingestContent($account,$youtubePool);
+    formatCheck(!in_array(['cookies','guest'],$summary['notes'],true),'an export with a signed-in account has no such note');
 } finally { Zero\Download::clean($temp); }

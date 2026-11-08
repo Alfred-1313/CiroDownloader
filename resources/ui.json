@@ -450,7 +450,9 @@
     "batch_stopped":{"audience":"user","label":"دانلود همهٔ متوقف‌شده","group":"menu","value":"<blockquote><b>⏹ {title}</b></blockquote>\nدانلود متوقف شد؛ {done} از {total} آهنگ ارسال شد.","variables":["title","done","total","failed"]},
     "batch_zip_caption":{"audience":"user","label":"کپشن فایل ZIP","group":"menu","value":"<b>🗜 {title}</b>\nبخش {part} · {count} آهنگ","caption":true,"variables":["title","count","part"]},
     "batch_failed":{"audience":"user","label":"خطای دانلود همه","group":"menu","value":"⚠️ دانلود همهٔ آهنگ‌ها انجام نشد؛ جزئیات برای مدیر ثبت شد."},
-    "batch_stopping":{"audience":"user","label":"تأیید توقف","group":"menu","value":"⏹ بعد از آهنگ فعلی متوقف می‌شود."}
+    "batch_stopping":{"audience":"user","label":"تأیید توقف","group":"menu","value":"⏹ بعد از آهنگ فعلی متوقف می‌شود."},
+    "cookie_reason_guest":{"audience":"admin","label":"هشدار کوکی مهمان","group":"cookies","value":"بدون ورود به حساب گرفته شده (کوکی مهمان)؛ برای عبور از بررسی «ربات نیستم» کافی نیست"},
+    "cookie_guest_hint":{"audience":"admin","label":"راهنمای کوکی مهمان","group":"cookies","value":"<blockquote><b>⚠️ این کوکی بدون ورود به حساب گرفته شده است.</b></blockquote>\nکوکی‌هایی مثل VISITOR_INFO1_LIVE و YSC حساب ندارند و یوتیوب با آن‌ها IP سرور را باز نمی‌کند. در مرورگر وارد حساب گوگل شو، یک ویدیو باز کن و دوباره کوکی بگیر؛ باید کوکی‌هایی مثل SID یا __Secure-3PSID در آن باشد."}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},

@@ -139,8 +139,11 @@ final class Spotify
      * @param array{title:string,artists:list<string>,duration:int,year:string,cover:string} $meta
      * @return array{path:string,title:string,performer:string,duration:int,length:int,year:string,thumbnail:?string,name:string} see Music::finish
      */
-    /** @param list<string> $only the sources to try, in order (SoundCloud tracks that cannot be taken directly use YouTube only) */
-    public function fromDetails(array $meta,string $folder,array $only=['youtube','soundcloud']): array
+    /**
+     * @param list<string> $only the sources to try, in order
+     * @param list<string> $skipSoundCloud SoundCloud tracks not to take (a locked original that sent us here)
+     */
+    public function fromDetails(array $meta,string $folder,array $only=['youtube','soundcloud'],array $skipSoundCloud=[]): array
     {
         $title=trim((string)($meta['title']??'')); $artists=array_values(array_filter((array)($meta['artists']??[]),fn($name)=>is_string($name)&&trim($name)!==''));
         $duration=(int)($meta['duration']??0);
@@ -160,8 +163,9 @@ final class Spotify
                 if(!$ranked) throw new MediaFailure('format','No matching recording was found on YouTube');
                 return self::firstAudio($ranked,fn($match)=>$runner->fetchBestAudio('https://www.youtube.com/watch?v='.$match['id'],$folder),$folder);
             },
-            'soundcloud'=>function() use($runner,$meta,$folder) {
-                $ranked=self::ranked($meta,$runner->searchSoundCloud($meta['artists'][0].' '.$meta['title'],$folder),true);
+            'soundcloud'=>function() use($runner,$meta,$folder,$skipSoundCloud) {
+                $found=array_filter($runner->searchSoundCloud($meta['artists'][0].' '.$meta['title'],$folder),fn($result)=>!in_array((string)$result['id'],$skipSoundCloud,true));
+                $ranked=self::ranked($meta,array_values($found),true);
                 if(!$ranked) throw new MediaFailure('format','No matching recording was found on SoundCloud');
                 return self::firstAudio($ranked,fn($match)=>$runner->fetchSoundCloudAudio((string)$match['id'],$folder),$folder);
             },

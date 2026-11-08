@@ -65,9 +65,10 @@ try {
         '$mode=json_decode((string)file_get_contents('.var_export($mode,true).'),true)?:[];$target=end($args);'.
         'if(($mode["download"]??"ok")==="unavailable") { fwrite(STDERR,"ERROR: [soundcloud] fixture: Requested format is not available");exit(1); }'.
         // An official upload with DRM: its details can be read, its audio cannot; the same recording is then looked up on YouTube.
-        'if(in_array("--ignore-no-formats-error",$args,true)) { echo json_encode(["title"=>"Fixture Song","artists"=>["Fixture Artist, Guest"],"uploader"=>"Fixture Artist","duration"=>(($mode["download"]??"ok")==="preview"?200.0:12.4),"timestamp"=>1556841600,"webpage_url"=>"https://soundcloud.com/fixture-artist/fixture-song"]);exit(0); }'.
+        'if(in_array("--ignore-no-formats-error",$args,true)) { echo json_encode(["id"=>"431099817","title"=>"Fixture Song","artists"=>["Fixture Artist, Guest"],"uploader"=>"Fixture Artist","duration"=>(($mode["download"]??"ok")==="preview"?200.0:12.4),"timestamp"=>1556841600,"webpage_url"=>"https://soundcloud.com/fixture-artist/fixture-song"]);exit(0); }'.
+        'if(str_starts_with($target,"scsearch")) { echo json_encode(["entries"=>($mode["scsearch"]??"ok")==="empty"?[]:[["id"=>"431099817","title"=>"Fixture Song","duration"=>12.4,"uploader"=>"Fixture Artist"],["id"=>"777000777","title"=>"Fixture Artist - Fixture Song","duration"=>12.3,"uploader"=>"A Fan"]]]);exit(0); }'.
         'if(str_starts_with($target,"ytsearch")) { if(($mode["youtube"]??"ok")==="blocked") { fwrite(STDERR,"ERROR: [youtube] x: Sign in to confirm you’re not a bot.");exit(1); } echo json_encode(["entries"=>[["id"=>"goodMatch01","title"=>"Fixture Artist - Fixture Song (Official Audio)","duration"=>12.0,"channel"=>"Fixture Artist"]]]);exit(0); }'.
-        'if(($mode["download"]??"ok")==="drm"&&str_contains($target,"soundcloud.com")) { fwrite(STDERR,"ERROR: [soundcloud] 431099817: This video is DRM protected");exit(1); }'.
+        'if(($mode["download"]??"ok")==="drm"&&($target==="https://soundcloud.com/fixture-artist/fixture-song"||str_contains($target,"431099817"))) { fwrite(STDERR,"ERROR: [soundcloud] 431099817: This video is DRM protected");exit(1); }'.
         '$template=$args[array_search("-o",$args,true)+1];copy('.var_export($temp.'/source.m4a',true).',str_replace("%(ext)s","m4a",$template));'.
         'if(in_array("--write-info-json",$args,true)) file_put_contents(str_replace("%(ext)s","info.json",$template),json_encode(['.
         '"title"=>"Fixture Song","artists"=>["Fixture Artist"],"uploader"=>"fixture uploader","duration"=>(($mode["download"]??"ok")==="preview"?200.0:12.4),"timestamp"=>1556841600,'.
@@ -174,8 +175,12 @@ try {
     $audio=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendAudio')); $steps=array_map(fn($args)=>end($args),$searches());
     soundcloudCheck($job['status']==='done'&&count($audio)===1&&$audio[0]['params']['title']==='Fixture Song'&&$audio[0]['params']['performer']==='Fixture Artist, Guest','a DRM-protected SoundCloud track still arrives, from the same recording on YouTube');
     soundcloudCheck(count($steps)===4&&$steps[0]===$canonical&&$steps[1]===$canonical&&str_starts_with($steps[2],'ytsearch')&&str_contains($steps[2],'Fixture Artist Fixture Song')&&$steps[3]==='https://www.youtube.com/watch?v=goodMatch01','order: SoundCloud\'s file, its details, a YouTube search, the YouTube audio; no SoundCloud search again');
-    $failure(['download'=>'drm','youtube'=>'blocked'],'یوتیوب هم','when YouTube refuses the server too, the message says so');
-    soundcloudCheck($store->get('last_job_sources')==='soundcloud=format, youtube=blocked','the administrator sees what each source said');
+    // Like Spotify: when YouTube refuses the server, another upload of the same song on SoundCloud is used, never the locked original.
+    file_put_contents($mode,json_encode(['download'=>'drm','youtube'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    $send($canonical,151); $job=$run(); $steps=array_map(fn($args)=>end($args),$searches());
+    soundcloudCheck($job['status']==='done'&&end($steps)==='https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A777000777'&&!in_array('https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A431099817',$steps,true),'with YouTube blocked, another SoundCloud upload of the song is sent, as for Spotify');
+    $failure(['download'=>'drm','youtube'=>'blocked','scsearch'=>'empty'],'یوتیوب هم','when no other source has it either, the message says so');
+    soundcloudCheck($store->get('last_job_sources')==='original=format, youtube=blocked, soundcloud=format','the administrator sees what each source said');
     file_put_contents($mode,'{}'); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
     $store->set('admins_only','0'); $send($canonical,200); $store->set('admins_only','1');
     $job=$run();

@@ -50,6 +50,8 @@ final class CookieJars
             if($content===null) { $summary['invalid']++; $summary['notes'][]=[$name,$reason]; continue; }
             try {
                 $content=$pool->normalize($content);
+                // Cookies taken while logged out do not get past a service's "sign in" check; say so before anything else.
+                if($pool->isGuest($content)) $summary['notes'][]=[$name,'guest'];
                 if($single&&$verify!==null) { $content=$verify($content); $summary['live']=true; }
                 $summary[$pool->add($content)['status']]++;
             } catch(\Throwable $e) {
@@ -86,6 +88,9 @@ final class CookieJars
         catch(\Throwable $e) {
             error_log('Cookie import failure: '.get_class($e));
             if($explain) $notice=$explain($e);
+            // A refused live check with logged-out cookies is explained by that, not only by the server.
+            try { if($pool&&isset($message['text'])&&$pool->isGuest($pool->normalize((string)$message['text']))) $notice.="\n\n".$bot->text('cookie_guest_hint'); }
+            catch(\Throwable) {}
         }
         $this->notice($chat,$menuKey,$notice);
         if(isset($message['message_id'])) {

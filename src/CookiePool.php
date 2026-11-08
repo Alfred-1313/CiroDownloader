@@ -18,6 +18,18 @@ final class CookiePool
     private $validate;
     /** @var callable(string):string */
     private $identity;
+    /** True when the export carries none of the service's sign-in cookies: it was taken while logged out. */
+    public function isGuest(string $content): bool
+    {
+        if(!$this->sessionNames) return false;
+        foreach(preg_split('/\r?\n/',$content) as $line) {
+            if(str_starts_with($line,'#HttpOnly_')) $line=substr($line,10);
+            elseif($line===''||str_starts_with($line,'#')) continue;
+            $fields=explode("\t",$line);
+            if(count($fields)===7&&in_array($fields[5],$this->sessionNames,true)&&$fields[6]!=='') return false;
+        }
+        return true;
+    }
     public function __construct(private string $primary,callable $validate,callable $identity,private string $domain='',private array $sessionNames=[])
     {
         $this->validate=$validate; $this->identity=$identity;

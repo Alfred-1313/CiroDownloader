@@ -109,17 +109,19 @@ final class SoundCloud
         } catch(MediaFailure $direct) {
             if(in_array($direct->reason,['size','storage'],true)) throw $direct;
             // The file itself cannot be taken here (DRM on an official upload, a preview only, or SoundCloud refused):
-            // read its details and find the same recording on YouTube, exactly as for a Spotify track.
+            // read its details and find the same recording exactly as for a Spotify track: YouTube, then another
+            // upload of it on SoundCloud (never the locked original again).
             foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
             error_log('SoundCloud direct download failed reason='.$direct->reason.'; trying the same recording on YouTube');
             try {
                 $info=$runner->soundCloudInfo($track,$folder);
                 $meta=self::metadata($info);
                 $meta['artists']=array_values(array_filter(array_map('trim',explode(',',implode(',',$meta['artists'])))));
-                $media=(new Spotify($this->config))->fromDetails($meta,$folder,['youtube']);
+                $media=(new Spotify($this->config))->fromDetails($meta,$folder,['youtube','soundcloud'],[(string)($info['id']??'')]);
             } catch(MediaFailure $other) {
                 $reason=in_array($other->reason,['blocked','cookies','network'],true)?$other->reason:$direct->reason;
-                throw new MediaFailure($reason,'SoundCloud audio sources failed [soundcloud='.$direct->reason.', youtube='.$other->reason.']: '.mb_substr($other->getMessage(),0,240));
+                $tried=preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,4})\]/',$other->getMessage(),$found)===1?$found[1]:'details='.$other->reason;
+                throw new MediaFailure($reason,'SoundCloud audio sources failed [original='.$direct->reason.', '.$tried.']: '.mb_substr($other->getMessage(),0,240));
             }
             $page=soundcloudUrl((string)($info['webpage_url']??''));
             return $media+['page'=>$page!==null&&!str_contains($page,'api.soundcloud.com')?$page:$track];
