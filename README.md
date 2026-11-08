@@ -2,7 +2,7 @@
 
 # Ciro Downloader
 
-YouTube and Instagram media through Telegram.
+YouTube, Instagram, Pinterest, TikTok, X and Spotify tracks through Telegram.
 
 ![PHP 8.3](https://img.shields.io/badge/PHP-8.3-777BB4?style=flat-square&logo=php&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?style=flat-square&logo=docker&logoColor=white)
@@ -25,4 +25,4 @@ For uploads over 50 MB, obtain a Telegram **API ID** and **API hash**, then enab
 
 Cookies per service (computer and phone guide): [docs/cookie-guide.md](docs/cookie-guide.md); several accounts, ZIP import and rotation: [docs/cookies.md](docs/cookies.md).
 
-Proxy and PO Token options: [docs/network.md](docs/network.md).
+Proxy and PO Token options: [docs/network.md](docs/network.md). Spotify tracks (no cookies needed): [docs/spotify.md](docs/spotify.md).

@@ -69,6 +69,7 @@ jobs:
           php tests/parallel_worker.php
           php tests/parallel_worker.php --group
           php tests/speed.php
+          php tests/spotify.php
           php tests/speedtest.php
           php tests/cookie_pool.php
           php tests/cookie_formats.php

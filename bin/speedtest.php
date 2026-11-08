@@ -14,6 +14,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Bot.php';
 require dirname(__DIR__).'/src/Download.php';
+require dirname(__DIR__).'/src/Spotify.php';
 umask(0077);
 
 function line(string $label,string $value): void { printf("%-34s %s\n",$label,$value); }
@@ -83,7 +84,7 @@ try {
     if($link!=='') {
         section('Your link');
         $service=Zero\galleryService($link);
-        line('Service',$service??(Zero\youtubeUrl($link)?'youtube':'unknown'));
+        line('Service',$service??(Zero\youtubeUrl($link)?'youtube':(Zero\spotifyUrl($link)?'spotify':'unknown')));
         line('Host',(string)parse_url($link,PHP_URL_HOST));
         if($service!==null) {
             attempt('Download and prepare',function() use($config,$service,$link,$folder,$runner,$api,$admin,&$sent,&$summary) {
@@ -111,6 +112,16 @@ try {
             attempt('Inspect',function() use($runner,$config,$link,$folder,&$summary) {
                 $started=microtime(true); $info=(new Zero\Download($config))->inspect($link,$folder);
                 $summary['inspect']=ms($started); line('Reading the video details',$summary['inspect'].' ms ('.count($info['options']).' choices)');
+                line('Note','Downloading is not timed here; send the link to the bot and read the worker log.');
+            });
+        } elseif($track=Zero\spotifyUrl($link)) {
+            attempt('Spotify',function() use($config,$track,$folder) {
+                $spotify=new Zero\Spotify($config); $started=microtime(true);
+                $meta=$spotify->metadata((string)Zero\Spotify::id($track));
+                line('Reading the Spotify page',ms($started).' ms');
+                $started=microtime(true);
+                $found=Zero\Spotify::best($meta,(new Zero\Download($config))->search($meta['artists'][0].' '.$meta['title'].' audio',$folder));
+                line('Finding the YouTube match',ms($started).' ms ('.($found?'found':'none').')');
                 line('Note','Downloading is not timed here; send the link to the bot and read the worker log.');
             });
         } else line('Result','This link is not supported.');

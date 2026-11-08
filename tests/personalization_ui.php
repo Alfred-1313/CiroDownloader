@@ -26,15 +26,15 @@ try {
     // Main screen: white titles, one entry per screen, legend, reset and close.
     $bot->handle(uiInput('/customize'));
     $titles=array_values(array_filter(uiButtons($api),fn($b)=>str_starts_with($b['callback_data']??'','custom:hint:')));
-    uiCheck(count($titles)===5&&!array_filter($titles,fn($b)=>isset($b['style'])),'the main screen has five white title buttons');
-    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','help','group','access','progress','errors'] as $section) uiCheck(uiFind($api,'custom:section:'.$section)!==null,'one entry opens each screen: '.$section);
+    uiCheck(count($titles)===6&&!array_filter($titles,fn($b)=>isset($b['style'])),'the main screen has six white title buttons');
+    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','spotify','help','group','access','progress','errors'] as $section) uiCheck(uiFind($api,'custom:section:'.$section)!==null,'one entry opens each screen: '.$section);
     uiCheck(uiFind($api,'custom:features')!==null&&uiFind($api,'custom:resetall')!==null&&uiFind($api,'custom:close')!==null,'the main screen offers features, reset-all and close');
     uiCheck(str_contains(uiText($api),'🟢')&&str_contains(uiText($api),'⬜️')&&str_contains(uiText($api),'✏️')&&str_contains(uiText($api),'🔘'),'a legend explains white titles, green changes and the markers');
     uiCheck(!uiFind($api,'custom:groups:text')&&!uiFind($api,'custom:groups:button')&&!uiFind($api,'custom:sections'),'the old parallel text, caption and button trees are gone from the main screen');
     uiCheck(!array_filter(uiButtons($api),fn($b)=>($b['style']??'')==='success'),'nothing is green before anything is customized');
 
     // Titles explain themselves and never cancel pending input.
-    foreach(['home_youtube','home_social','home_general','home_status','home_features','sec_texts','sec_buttons','sec_settings','feat_group','feat_access','feat_reaction','feat_limits'] as $id) {
+    foreach(['home_youtube','home_social','home_music','home_general','home_status','home_features','sec_texts','sec_buttons','sec_settings','feat_group','feat_access','feat_reaction','feat_limits'] as $id) {
         $bot->handle(uiClick('custom:hint:'.$id)); $answer=end($api->calls);
         uiCheck($answer[0]==='answerCallbackQuery'&&$answer[1]['show_alert']===true&&$answer[1]['text']!==''&&mb_strlen($answer[1]['text'])<=200,'a title shows a short alert: '.$id);
     }

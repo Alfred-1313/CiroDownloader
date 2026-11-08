@@ -205,6 +205,27 @@ final class Download
         if(!$options) throw new MediaFailure('format','No downloadable media formats found');
         return ['title'=>mb_substr((string)($info['title']??'YouTube'),0,180),'options'=>$options,'poster'=>self::posterUrl($info,$canonical)];
     }
+    /**
+     * The first YouTube search results for a text, as {id,title,duration,channel}. Only what a
+     * flat listing offers is read, so one search is a single quick request.
+     * @return list<array{id:string,title:string,duration:?float,channel:string}>
+     */
+    public function search(string $query,string $folder,int $count=6): array
+    {
+        $query=trim(preg_replace('/[\x00-\x1F\x7F]+|\s+/u',' ',$query)??'');
+        if($query===''||mb_strlen($query)>300) throw new MediaFailure('format','Invalid search text');
+        $json=$this->youtube('ytsearch'.max(1,min(10,$count)).':'.$query,['--flat-playlist','--dump-single-json','--skip-download'],$folder,min(60,$this->config->timeout));
+        try { $data=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
+        catch(\JsonException) { throw new MediaFailure('format','Search result is invalid'); }
+        $result=[];
+        foreach(is_array($data['entries']??null)?$data['entries']:[] as $entry) {
+            if(!is_array($entry)||!preg_match('/^[A-Za-z0-9_-]{11}$/D',(string)($entry['id']??''))) continue;
+            $result[]=['id'=>(string)$entry['id'],'title'=>mb_substr((string)($entry['title']??''),0,300),
+                'duration'=>is_numeric($entry['duration']??null)?(float)$entry['duration']:null,
+                'channel'=>mb_substr((string)($entry['channel']??$entry['uploader']??''),0,200)];
+        }
+        return $result;
+    }
     public static function posterUrl(array $info,string $url): string
     {
         $canonical=youtubeUrl($url);
@@ -246,10 +267,21 @@ final class Download
             $selector[]=$format['id'];
         }
         if(!$selector) throw new MediaFailure('format','No saved audio formats are available');
+        return $this->audioDownload($canonical,$folder,implode('/',$selector));
+    }
+    /** The best audio of a video without listing its formats first; one request fewer than inspect + fetchAudio. */
+    public function fetchBestAudio(string $url,string $folder): array
+    {
+        $canonical=youtubeUrl($url);
+        if(!$canonical) throw new \RuntimeException('Invalid YouTube URL');
+        return $this->audioDownload($canonical,$folder,'ba/b');
+    }
+    private function audioDownload(string $canonical,string $folder,string $selector): array
+    {
         $title=$this->youtube($canonical,[
             '--concurrent-fragments','4',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
-            '--match-filter','!is_live','--break-on-reject','-f',implode('/',$selector),
+            '--match-filter','!is_live','--break-on-reject','-f',$selector,
             '--print','after_move:%(title)j','-o',$folder.'/source.%(ext)s'],
             $folder,$this->config->timeout);
         $files=array_values(array_filter(glob($folder.'/source.*')?:[],fn($file)=>

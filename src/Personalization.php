@@ -29,7 +29,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>galleryServices(),'music'=>['spotify'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -195,10 +195,11 @@ final class Personalization
             'errors'=>[],
         ];
         foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
+        $screens['spotify']=[['text','spotify_queued'],['text','spotify_downloading'],['text','spotify_uploading'],['text','spotify_caption'],['button','source_spotify']];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
         if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
-        if(in_array($section,galleryServices(),true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
+        if(in_array($section,[...galleryServices(),'spotify'],true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
         return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
     }
     /** Texts first, then buttons, so a screen reads as two clear lists. */
@@ -223,6 +224,9 @@ final class Personalization
             $rows[]=[$this->choice($section.'_mode_pages','custom:'.$prefix.'mode:pages',!$article)];
             $rows[]=[$this->choice($section.'_mode_article','custom:'.$prefix.'mode:article',$article)];
             $rows[]=[$this->switchButton($section.'_source_toggle','custom:'.$prefix.'source',$ui->gallerySourceEnabled($section))];
+        } elseif($section==='spotify') {
+            $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
+            $rows[]=[$this->switchButton('spotify_source_toggle','custom:spsource',$ui->gallerySourceEnabled('spotify'))];
         } elseif($section==='cover') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$ui->button('cover_use_parts','custom:covermode:parts')];
@@ -251,7 +255,7 @@ final class Personalization
         if($page+1<$pages) $navigation[]=$ui->button('next',$this->sectionAddress($section,$page+1));
         if($navigation) $rows[]=$navigation;
         $rows[]=[$ui->button('back_custom','custom:home'),$ui->button('close','custom:close')];
-        $text=in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)]));
+        $text=$section==='spotify'?$ui->text('spotify_section_info'):(in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)])));
         $this->send($chat,$text,$rows,$message);
     }
     private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void
@@ -368,7 +372,7 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['description'=>'متن نمونهٔ پست اینستاگرام','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        return ['description'=>'متن نمونهٔ پست اینستاگرام','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50'];
     }
@@ -620,6 +624,10 @@ final class Personalization
             $service=galleryFromPrefix(substr($op,0,-6));
             $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
             $this->section($chat,$service,$message);
+        }
+        elseif($op==='spsource') {
+            $this->bot->store->set('spotify.source_button',$ui->gallerySourceEnabled('spotify')?'0':'1');
+            $this->section($chat,'spotify',$message);
         }
         elseif($op==='covermode'&&in_array($kind,['parts','legacy'],true)) $this->coverMode($chat,$message,$kind);
         elseif($op==='mediamode'&&in_array($kind,['video','audio'],true)&&in_array($key,['parts','legacy'],true)) $this->mediaMode($chat,$message,$kind,$key);

@@ -404,7 +404,7 @@ final class Store
             elseif ((int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),galleryService($url)??'inspect',$chat<0?max(0,$thread):0]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id) VALUES(?,?,?,?,?,0,?,?)", [$update,$user,$chat,$url,time(),galleryService($url)??(spotifyUrl($url)?'spotify':'inspect'),$chat<0?max(0,$thread):0]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -529,13 +529,27 @@ function twitterUrl(string $input): ?string
     return 'https://x.com/'.(($match[1]??'')==='i'||empty($match[1])?'i/web':$match[1]).'/status/'.$match[2];
 }
 
+/** One Spotify track link; albums, playlists, artists, episodes and shortened links are not accepted. */
+function spotifyUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?open\.spotify\.com/~i',$input)) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)
+        ||!in_array(strtolower($parts['host']??''),['open.spotify.com','play.spotify.com'],true)
+        ||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])
+        ||!preg_match('~^/(?:intl-[a-z]{2}(?:-[A-Za-z]{2,4})?/|embed/)?track/([A-Za-z0-9]{22})/?$~D',$parts['path']??'',$match)) return null;
+    return 'https://open.spotify.com/track/'.$match[1];
+}
+
 const GALLERY_PREFIXES=['instagram'=>'ig','pinterest'=>'pin','tiktok'=>'tt','twitter'=>'x'];
 function galleryServices(): array { return array_keys(GALLERY_PREFIXES); }
 function galleryPrefix(string $service): string { return GALLERY_PREFIXES[$service]??throw new \InvalidArgumentException('Unknown media service'); }
 function galleryFromPrefix(string $prefix): ?string { $service=array_search($prefix,GALLERY_PREFIXES,true); return $service===false?null:$service; }
 function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),default=>null}; }
 function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input); }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input); }
 
 function lockProcess(string $path): mixed
 {
