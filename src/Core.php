@@ -13,7 +13,7 @@ final class Config
     /** Music keeps MP3 and AAC (M4A) sources as they are: faster and smaller. Off converts everything to MP3. */
     public bool $musicCopy=true;
     /** How many tracks of a whole album are prepared at the same time (MUSIC_PARALLEL, 1 to 8). */
-    public int $musicParallel=4;
+    public int $musicParallel=6;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
     public string $galleryProxy='';
     /** TikTok: prefer H.264 streams so videos are remuxed instead of re-encoded (much faster). */

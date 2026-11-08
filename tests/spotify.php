@@ -178,6 +178,7 @@ try {
     $failure(['youtube'=>'blocked','soundcloud'=>'empty'],'ساوندکلاود هم نسخهٔ مطمئنی','when YouTube refuses the server and SoundCloud has nothing, the status says so');
 
     // 7. YouTube refuses the server (its bot check): the track still arrives from SoundCloud.
+    $flag=$config->storage.'/.youtube-blocked'; @unlink($flag);
     file_put_contents($mode,json_encode(['youtube'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
     $send($canonical,300);
     $job=$run(); if($job['status']!=='done') throw new RuntimeException('Fallback job failed: '.$store->get('last_job_error'));
@@ -188,17 +189,28 @@ try {
     spotifyCheck(!in_array('--cookies',$downloads[0],true)&&!str_contains(implode(' ',$downloads[0]),'youtube'),'the second source is reached without YouTube cookies or YouTube options');
     $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-show_format','-of','json',$temp.'/delivered-audio'],$temp,30),true);
     spotifyCheck(($probe['format']['tags']['title']??'')==='Fixture Song'&&in_array('mjpeg',array_column($probe['streams'],'codec_name'),true),'the fallback audio is tagged with the Spotify title and cover too');
+    // Right after that refusal, the next tracks ask SoundCloud first, so they do not each wait for the same refusal.
+    spotifyCheck(is_file($flag)&&Zero\Spotify::youtubeRefused($config),'a YouTube refusal is remembered for the other tracks');
+    file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    $send($canonical,310); $job=$run(); $yt=$searches();
+    spotifyCheck($job['status']==='done'&&str_starts_with(end($yt[0]),'scsearch')&&!array_filter($yt,fn($args)=>str_starts_with(end($args),'ytsearch')),'while it is remembered, SoundCloud goes first and YouTube is not asked when SoundCloud has the track');
+    file_put_contents($mode,json_encode(['soundcloud'=>'empty'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    $send($canonical,311); $job=$run(); $yt=$searches();
+    spotifyCheck($job['status']==='done'&&str_starts_with(end($yt[0]),'scsearch')&&array_filter($yt,fn($args)=>str_starts_with(end($args),'ytsearch'))&&!is_file($flag),'YouTube is still tried when SoundCloud has nothing, and a YouTube success forgets the refusal');
+    file_put_contents($flag,''); touch($flag,time()-Zero\Spotify::REFUSED_SECONDS-5);
+    spotifyCheck(!Zero\Spotify::youtubeRefused($config),'an old refusal expires after fifteen minutes');
+    @unlink($flag);
     // YouTube has no good match: SoundCloud is tried as well.
     file_put_contents($mode,json_encode(['search'=>'empty'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users');
     $send($canonical,301);
     $job=$run();
     spotifyCheck($job['status']==='done'&&count(array_filter($calls(),fn($call)=>$call['method']==='sendAudio'))===1,'no good YouTube match falls back to SoundCloud');
     // The next best result is tried when the best cannot be fetched, and the administrator sees every reason.
-    file_put_contents($mode,json_encode(['youtube'=>'blocked','soundcloud'=>'firstfails'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    @unlink($flag); file_put_contents($mode,json_encode(['youtube'=>'blocked','soundcloud'=>'firstfails'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
     $send($canonical,302); $job=$run();
     $downloads=array_values(array_filter($searches(),fn($args)=>in_array('-o',$args,true)));
     spotifyCheck($job['status']==='done'&&count($downloads)===2&&str_contains(end($downloads[0]),'333000333')&&str_contains(end($downloads[1]),'444000444'),'when the best SoundCloud result cannot be fetched, the next one is used');
-    file_put_contents($mode,json_encode(['youtube'=>'blocked','soundcloud'=>'empty'])); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
+    @unlink($flag); file_put_contents($mode,json_encode(['youtube'=>'blocked','soundcloud'=>'empty'])); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
     $send($canonical,303); $job=$run();
     spotifyCheck($job['status']==='failed'&&str_contains($store->get('last_job_error'),'youtube=blocked, soundcloud=format'),'the failure records what each source said');
     $health=new SpotifyUiApi(); $admin=new Zero\Bot($config,$store,$health);

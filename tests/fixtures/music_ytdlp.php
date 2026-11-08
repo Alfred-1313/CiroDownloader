@@ -8,6 +8,8 @@ $mode=json_decode((string)@file_get_contents(FIXTURE_ROOT.'/mode.json'),true)?:[
 if(str_starts_with($target,'ytsearch')) {
     $text=substr($target,(int)strpos($target,':')+1);
     // Pool test: a "Slow" track holds its slot for a while; start and end times show how tracks overlap.
+    // A named slow track keeps its search busy, so the progress can be seen while it waits.
+    if(!empty($mode['slow'])&&str_contains($text,(string)$mode['slow'])) usleep(4500000);
     if(!empty($mode['pool'])) {
         $started=microtime(true); if(str_contains($text,'Slow')) usleep(2500000);
         file_put_contents(FIXTURE_ROOT.'/pool.jsonl',json_encode(['name'=>$text,'start'=>$started,'end'=>microtime(true)]).PHP_EOL,FILE_APPEND);

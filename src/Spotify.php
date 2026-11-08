@@ -46,6 +46,14 @@ final class Spotify
             'year'=>preg_match('/^(\d{4})/',(string)($entity['releaseDate']['isoString']??''),$year)?$year[1]:'','cover'=>$cover];
     }
 
+    /** How long (seconds) YouTube is asked second after it refused the server. */
+    public const REFUSED_SECONDS=900;
+    /** True while YouTube's last answer to this server was its bot check (shared by every worker process through a file). */
+    public static function youtubeRefused(Config $config): bool
+    {
+        $flag=$config->storage.'/.youtube-blocked'; clearstatcache(true,$flag);
+        return is_file($flag)&&time()-(int)filemtime($flag)<self::REFUSED_SECONDS;
+    }
     /** Lower case words only. Text in brackets is kept unless $dropBrackets, which removes "(Remastered)"-style notes. */
     private static function normalize(string $text,bool $dropBrackets=true): string
     {
@@ -171,6 +179,10 @@ final class Spotify
             },
         ];
         $sources=array_intersect_key($sources,array_flip($only));
+        // When YouTube refused this server a moment ago (its bot check), asking it again first costs every track the
+        // same slow failure. For a while SoundCloud goes first; YouTube is still tried when SoundCloud has no match.
+        $flag=$this->config->storage.'/.youtube-blocked';
+        if(isset($sources['youtube'],$sources['soundcloud'])&&self::youtubeRefused($this->config)) $sources=['soundcloud'=>$sources['soundcloud'],'youtube'=>$sources['youtube']];
         $clock=hrtime(true); $audio=null; $failure=null; $tried=[]; $rank=['blocked'=>3,'cookies'=>2,'network'=>1];
         foreach($sources as $source=>$find) {
             try {
@@ -178,11 +190,13 @@ final class Spotify
                 // The search already compared lengths; this guards against a different file being served.
                 if(abs($audio['duration']-$meta['duration'])>30) throw new MediaFailure('format','Downloaded length does not match the track');
                 error_log('Spotify source='.$source);
+                if($source==='youtube'&&is_file($flag)) @unlink($flag);
                 break;
             } catch(MediaFailure $e) {
                 // Too big or no disk space is the same everywhere; anything else may work from another source.
                 if(in_array($e->reason,['size','storage'],true)) throw $e;
                 error_log('Spotify source='.$source.' failed reason='.$e->reason);
+                if($source==='youtube'&&$e->reason==='blocked') @touch($flag);
                 $tried[$source]=$e->reason; $audio=null;
                 foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
                 // Report the most useful cause: a refusal says more than "not found".

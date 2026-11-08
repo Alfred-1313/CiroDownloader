@@ -179,6 +179,8 @@ try {
     file_put_contents($mode,json_encode(['download'=>'drm','youtube'=>'blocked'])); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');
     $send($canonical,151); $job=$run(); $steps=array_map(fn($args)=>end($args),$searches());
     soundcloudCheck($job['status']==='done'&&end($steps)==='https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A777000777'&&!in_array('https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A431099817',$steps,true),'with YouTube blocked, another SoundCloud upload of the song is sent, as for Spotify');
+    // The refusal just seen is remembered (SoundCloud would go first); start fresh so the order below is the usual one.
+    @unlink($config->storage.'/.youtube-blocked');
     $failure(['download'=>'drm','youtube'=>'blocked','scsearch'=>'empty'],'یوتیوب هم','when no other source has it either, the message says so');
     soundcloudCheck($store->get('last_job_sources')==='original=format, youtube=blocked, soundcloud=format','the administrator sees what each source said');
     file_put_contents($mode,'{}'); file_put_contents($log,''); file_put_contents($ytLog,''); $store->query('DELETE FROM users'); $store->query('DELETE FROM jobs');

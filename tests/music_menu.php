@@ -188,6 +188,13 @@ try {
     menuCheck($media[1]['caption']==="<b>🗜 New Album</b>\n\n<blockquote expandable><b>• Album Cut One\n• Album Cut Two\n• Album Cut Three</b></blockquote>",'the last ZIP lists the track names in bold in a collapsed quote');
     menuCheck($names===['01 - Fixture Artist - Album Cut One.m4a','02 - Fixture Artist - Album Cut Two.m4a']&&$method===ZipArchive::CM_STORE,'files keep the album order and their tagged names, stored without compression');
     $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id); $config->maxBytes=49000000;
+    // While tracks are being prepared the status moves on its own: elapsed time and the tracks in work.
+    file_put_contents($mode,json_encode(['slow'=>'Album Cut Two'])); file_put_contents($log,'');
+    $tap('mm:'.$id.':a:each',12); $job=$run('media');
+    $live=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'در حال کار')));
+    $slow=array_values(array_filter($live,fn($call)=>str_contains($call['params']['caption'],'Album Cut Two')));
+    menuCheck($job['status']==='done'&&$slow&&preg_match('/⏱ \d{2}:\d{2}/u',end($slow)['params']['caption'])===1&&str_contains((string)end($slow)['params']['reply_markup'],'mb:'.$job['id']),'while a slow track is prepared, the status shows the elapsed time and the track in work, with the stop button');
+    file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
 
     // A single needs no "download all".
     $fresh(); $send('https://open.spotify.com/artist/'.$artistId,14); $run('inspect');

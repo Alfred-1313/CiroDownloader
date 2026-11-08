@@ -204,7 +204,7 @@ final class Personalization
         ];
         foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
         $screens['menu']=array_merge(array_map(fn($key)=>['text','menu_'.$key],['queued','loading','head','info','limited','empty','failed','expired','owner','sent','again','untitled']),
-            array_map(fn($key)=>['text','batch_'.$key],['queued','progress','sending','caption','zip_caption','back_text','more','failed','stopping']),
+            array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','back_text','more','failed','stopping']),
             array_map(fn($key)=>['button','menu_tab_'.$key],['popular','albums','singles','eps','compilations','playlists','related','tracks','sets','reposts','likes']),
             array_map(fn($key)=>['button','menu_'.$key],['track','album','playlist','artist','all','zip','prev','next','back','close','page']),[['button','batch_stop'],['button','batch_resume'],['button','batch_back']]);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];

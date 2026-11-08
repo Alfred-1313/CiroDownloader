@@ -243,10 +243,10 @@ final class Worker
 
     /**
      * Prepares tracks in a pool: up to MUSIC_PARALLEL child processes run at once and the next track starts the moment
-     * any of them ends (a slow track no longer holds the others back). $after runs when a child ends and returns false
-     * to stop starting new tracks; the running ones always finish.
+     * any of them ends (a slow track no longer holds the others back). $after runs when a child ends, $idle while it
+     * waits (with the indexes still running); either returns false to stop starting new tracks; the running ones finish.
      */
-    private function preparePool(array $indexes,array $tracks,string $service,string $dir,callable $after): void
+    private function preparePool(array $indexes,array $tracks,string $service,string $dir,callable $after,?callable $idle=null): void
     {
         $slots=max(1,$this->config->musicParallel); $running=[]; $go=true;
         while($indexes||$running) {
@@ -272,10 +272,15 @@ final class Worker
                 if($pid>0) $running[$pid]=$index;
             }
             if(!$running) break;
-            $ended=pcntl_wait($status);
-            if($ended>0) unset($running[$ended]);
-            elseif($ended<0) break;
-            if($go&&$after()===false) $go=false;
+            $ended=pcntl_wait($status,WNOHANG);
+            if($ended===0) {
+                // Nothing ended yet: $idle may refresh the progress (and say stop) with the tracks still being prepared.
+                if($idle!==null&&$go&&$idle(array_values($running))===false) $go=false;
+                usleep(200000); continue;
+            }
+            if($ended<0) break;
+            unset($running[$ended]);
+            if($go&&$after(array_values($running))===false) $go=false;
         }
     }
 
@@ -297,18 +302,21 @@ final class Worker
         if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir)) throw new MediaFailure('storage','Cannot create the batch folder');
         $menus=new MusicMenu($bot,$this->catalog,$this->soundcloud);
         $stop=[[$bot->ui->button('batch_stop','mb:'.(int)$job['id'])]];
-        $started=hrtime(true); $stopped=false; $denied=false; $shown=0.0;
+        $started=hrtime(true); $stopped=false; $denied=false; $shown=0.0; $checked=0.0;
         $pending=fn()=>array_values(array_filter(array_keys($tracks),fn($i)=>!is_file($dir.'/'.$i.'.json')&&!is_file($dir.'/'.$i.'.fail')));
         // The names of the tracks that failed so far, so the person sees which ones are missing.
         $failedNames=function() use($dir,$tracks,$bot): array {
             $names=[]; foreach(glob($dir.'/*.fail')?:[] as $file) { $i=(int)basename($file,'.fail'); $names[$i]=(string)($tracks[$i]['n']??''); }
             ksort($names); return array_values(array_filter($names,fn($name)=>$name!==''));
         };
-        $progress=function(bool $force=false) use($bot,$job,$title,$total,$stop,$pending,$failedNames,$dir,&$shown): void {
+        $progress=function(bool $force=false,array $working=[],float $every=1.2) use($bot,$job,$title,$total,$tracks,$stop,$pending,$failedNames,$dir,&$shown,$started): void {
             // Telegram allows about one edit a second per chat; the last state is always shown.
-            if(!$force&&microtime(true)-$shown<1.2) return;
+            if(!$force&&microtime(true)-$shown<$every) return;
             $shown=microtime(true); $failed=$failedNames();
-            $bot->jobMessage($job,$bot->text('batch_progress',['title'=>$title,'done'=>(string)($total-count($pending())),'total'=>(string)$total,'failed'=>(string)(count(glob($dir.'/*.fail')?:[])),'names'=>$this->failedBlock($bot,$failed)],['names']),$stop);
+            $names=array_values(array_filter(array_map(fn($i)=>(string)($tracks[$i]['n']??''),$working),fn($name)=>$name!==''));
+            $now=$names?"\n".$bot->text('batch_working',['names'=>implode('، ',array_map(fn($name)=>mb_strlen($name)>40?mb_substr($name,0,39).'…':$name,array_slice($names,0,8)))]):'';
+            $bot->jobMessage($job,$bot->text('batch_progress',['title'=>$title,'done'=>(string)($total-count($pending())),'total'=>(string)$total,'failed'=>(string)(count(glob($dir.'/*.fail')?:[])),
+                'names'=>$this->failedBlock($bot,$failed),'working'=>$now,'elapsed'=>Ui::duration((int)round((hrtime(true)-$started)/1e9))],['names','working']),$stop);
         };
         $gate=function() use($store,$job,$bot,&$stopped,&$denied): bool {
             if($store->get('batch.stop.'.(int)$job['id'])==='1') { $stopped=true; return false; }
@@ -319,7 +327,12 @@ final class Worker
             if($gate()) {
                 Download::ensureSpace($config->storage.'/downloads');
                 $progress(true);
-                $this->preparePool($todo,$tracks,$service,$dir,function() use($gate,$progress): bool { $progress(); return $gate(); });
+                $this->preparePool($todo,$tracks,$service,$dir,function(array $working) use($gate,$progress): bool { $progress(false,$working); return $gate(); },
+                    // While waiting: every three seconds the elapsed time and the tracks in work, and a quick answer to "stop".
+                    function(array $working) use($gate,$progress,&$checked): bool {
+                        if(microtime(true)-$checked<1.0) return true;
+                        $checked=microtime(true); $progress(false,$working,3.0); return $gate();
+                    });
             }
         }
         if($denied) {
