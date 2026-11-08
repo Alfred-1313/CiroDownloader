@@ -22,6 +22,28 @@ final class CookieFormats
         if(str_contains($text,"\t")&&preg_match('/^[^\n]*\t(?:TRUE|FALSE)\t/m',$text)) return true;
         return preg_match('/^[^\s=;]+=[^;\n]*(?:;\s*[^\s=;]+=[^;\n]*)+$/D',$text)===1;
     }
+    /**
+     * The complete cookie objects found in text that may have lost its beginning or its end (one part of a long paste).
+     * @return list<array<string,mixed>>
+     */
+    public static function salvage(string $text): array
+    {
+        $found=[]; $length=strlen($text);
+        for($i=0;$i<$length&&count($found)<self::MAX_COOKIES;$i++) {
+            if($text[$i]!=='{') continue;
+            $depth=0; $string=false; $escape=false;
+            for($j=$i;$j<$length;$j++) {
+                $c=$text[$j];
+                if($string) { if($escape) $escape=false; elseif($c==='\\') $escape=true; elseif($c==='"') $string=false; continue; }
+                if($c==='"') $string=true; elseif($c==='{') $depth++; elseif($c==='}' && --$depth===0) {
+                    $object=json_decode(substr($text,$i,$j-$i+1),true);
+                    if(is_array($object)&&isset($object['name'],$object['domain'])&&is_string($object['name'])&&is_string($object['domain'])) { $found[]=$object; $i=$j; }
+                    break;
+                }
+            }
+        }
+        return $found;
+    }
     /** @throws \RuntimeException when the text is none of the supported formats */
     public static function toNetscape(string $content,string $domain=''): string
     {

@@ -83,14 +83,19 @@ try {
     $send('[{"name":"x"'.str_repeat('y',10).'",',42,8110); $send('{"broken":',42,8111); $send('رفتیم سراغ فایل',42,8112);
     formatCheck($pool->count()===$count+1,'broken parts never import anything');
     $store->query("DELETE FROM settings WHERE key LIKE 'cookie.parts.%'");
-    // The tail of a long export on its own (a first part that never came) is not cookies and is simply not imported.
-    $send('"value": "FAKE_TAIL_VALUE_FOR_TEST", "domain": ".youtube.com", "hostOnly": false, "path": "/"',42,8120);
-    formatCheck($pool->count()===$count+1,'a stray tail of an export is not imported');
+    // Only the tail of an export arrives (its first part was never sent): every whole cookie in it is kept, and the admin is told what is missing.
+    $tail="\"value\": \"FAKE_TAIL_VALUE_FOR_TEST\",\n        \"domain\": \".x.com\",\n        \"path\": \"/\"\n    },\n    {\n        \"name\": \"auth_token\",\n        \"value\": \"TAILTOKEN\",\n        \"domain\": \".x.com\",\n        \"hostOnly\": false,\n        \"path\": \"/\",\n        \"secure\": true,\n        \"session\": false,\n        \"expirationDate\": 2147483647\n    }\n]";
+    formatCheck(count(Zero\CookieFormats::salvage($tail))===1&&count(Zero\CookieFormats::salvage('[{"name":"a","domain":".x.com","value":"v"},{"name":"b","domain":".x.com","value":"}{\\"","x":{"y":1}},{"name":"c"'))===2,'whole cookie objects are found even when the start or end of the text is missing, braces inside values included');
+    $count=$pool->count(); $send($tail,42,8120);
+    $texts=array_values(array_filter(array_map(fn($call)=>(string)($call[1]['text']??''),$api->calls)));
+    formatCheck($pool->count()===$count+1&&str_contains(end($texts),'فقط انتهای متن'),'a pasted tail is imported with its whole cookies and a warning that the beginning is missing');
+    $send('"value": "orphan", "domain": ".x.com", "path": "/"',42,8121);
+    formatCheck($pool->count()===$count+1,'a stray piece without a closing bracket or a whole cookie imports nothing');
     $document('phone.json',json_encode([['domain'=>'.x.com','name'=>'auth_token','value'=>'FROMJSONFILE','path'=>'/','secure'=>true,'expirationDate'=>2147483647]]));
-    formatCheck($pool->count()===4,'a .json document is accepted');
+    formatCheck($pool->count()===5,'a .json document is accepted');
     $zip=sys_get_temp_dir().'/ciro-fmt-'.bin2hex(random_bytes(4)); $z=new ZipArchive(); $z->open($zip,ZipArchive::CREATE); $z->addFromString('a.json',json_encode([['domain'=>'.x.com','name'=>'auth_token','value'=>'ZIPJSON','path'=>'/','secure'=>true,'expirationDate'=>2147483647]])); $z->addFromString('b.txt','auth_token=ZIPHEADER; ct0=1'); $z->close();
     $bytes=(string)file_get_contents($zip); unlink($zip); $document('mix.zip',$bytes);
-    formatCheck($pool->count()===6,'a ZIP may mix JSON files and header strings');
+    formatCheck($pool->count()===7,'a ZIP may mix JSON files and header strings');
 
     // YouTube: a pasted export is tested like a single file.
     $probe=$temp.'/probe'; $trace=$temp.'/probe-trace';

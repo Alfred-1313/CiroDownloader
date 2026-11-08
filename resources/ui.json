@@ -453,7 +453,8 @@
     "batch_stopping":{"audience":"user","label":"تأیید توقف","group":"menu","value":"⏹ بعد از آهنگ فعلی متوقف می‌شود."},
     "cookie_reason_guest":{"audience":"admin","label":"هشدار کوکی مهمان","group":"cookies","value":"بدون ورود به حساب گرفته شده (کوکی مهمان)؛ برای عبور از بررسی «ربات نیستم» کافی نیست"},
     "cookie_guest_hint":{"audience":"admin","label":"راهنمای کوکی مهمان","group":"cookies","value":"<blockquote><b>⚠️ این کوکی بدون ورود به حساب گرفته شده است.</b></blockquote>\nکوکی‌هایی مثل VISITOR_INFO1_LIVE و YSC حساب ندارند و یوتیوب با آن‌ها IP سرور را باز نمی‌کند. در مرورگر وارد حساب گوگل شو، یک ویدیو باز کن و دوباره کوکی بگیر؛ باید کوکی‌هایی مثل SID یا __Secure-3PSID در آن باشد."},
-    "cookie_part_received":{"audience":"admin","label":"دریافت بخشی از متن کوکی","group":"cookies","variables":["n","size"],"value":"📨 بخش {n} از متن کوکی دریافت شد ({size} نویسه). بخش بعدی را بفرست؛ تا ۲ دقیقه منتظر می‌مانم. پیام‌های بخش‌ها پاک می‌شوند."}
+    "cookie_part_received":{"audience":"admin","label":"دریافت بخشی از متن کوکی","group":"cookies","variables":["n","size"],"value":"📨 بخش {n} از متن کوکی دریافت شد ({size} نویسه). بخش بعدی را بفرست؛ تا ۲ دقیقه منتظر می‌مانم. پیام‌های بخش‌ها پاک می‌شوند."},
+    "cookie_partial_hint":{"audience":"admin","label":"هشدار متن ناقص کوکی","group":"cookies","value":"<blockquote><b>⚠️ فقط انتهای متن کوکی رسید.</b></blockquote>\nشروع متن (با <code>[</code>) و کوکی‌های اول آن، که معمولاً SID و __Secure-3PSID حساب را دارند، نرسید. تکهٔ اول را هم بفرست؛ بهتر است کل متن را از ابتدا پشت‌سرهم بفرستی یا آن را به‌صورت فایل .json بدهی."}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},

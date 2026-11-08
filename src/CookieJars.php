@@ -92,6 +92,8 @@ final class CookieJars
             try { if($pool&&isset($message['text'])&&$pool->isGuest($pool->normalize((string)$message['text']))) $notice.="\n\n".$bot->text('cookie_guest_hint'); }
             catch(\Throwable) {}
         }
+        // The paste was only the end of an export: say what is probably missing.
+        if($bot->store->get('cookie.partial.'.$user)==='1') { $bot->store->query('DELETE FROM settings WHERE key=?',['cookie.partial.'.$user]); $notice.="\n\n".$bot->text('cookie_partial_hint'); }
         $this->notice($chat,$menuKey,$notice);
         if(isset($message['message_id'])) {
             try { $bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$message['message_id']]); }

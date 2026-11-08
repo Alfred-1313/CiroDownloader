@@ -207,7 +207,8 @@ final class Bot
         $key='cookie.parts.'.$user; $saved=json_decode($this->store->get($key,''),true);
         $buffer=is_array($saved)&&time()-(int)($saved['time']??0)<=120?(string)$saved['text']:'';
         $more=$buffer!=='';
-        if(!$more&&!CookieFormats::looksLikeCookies($text)&&!str_starts_with(ltrim($text),'[')&&!str_starts_with(ltrim($text),'{')) return false;
+        $jsonish=fn(string $value)=>str_starts_with(ltrim($value),'[')||str_starts_with(ltrim($value),'{')||(str_contains($value,'"domain"')&&str_contains($value,'"name"'));
+        if(!$more&&!CookieFormats::looksLikeCookies($text)&&!$jsonish($text)) return false;
         $whole=$buffer.$text;
         if(!$more) { $whole=$text; }
         elseif(!str_starts_with(ltrim($buffer),'[')&&!str_starts_with(ltrim($buffer),'{')) {
@@ -215,11 +216,18 @@ final class Bot
             $last=substr($buffer,(int)strrpos($buffer,"\n")+1);
             $whole=$buffer.(count(explode("\t",$last))===7?"\n":'').$text;
         }
-        $json=str_starts_with(ltrim($whole),'[')||str_starts_with(ltrim($whole),'{');
+        $json=$jsonish($whole);
         $complete=false;
         if(strlen($whole)<=CookiePool::MAX_BYTES) {
-            if($json) { try { CookieFormats::toNetscape($whole); $complete=true; } catch(\RuntimeException) {} }
-            else $complete=strlen($text)<3800;
+            if($json) {
+                try { CookieFormats::toNetscape($whole); $complete=true; }
+                catch(\RuntimeException) {
+                    // The list's closing bracket has arrived but its start did not (only the tail was sent): keep every whole cookie in it.
+                    if(str_ends_with(rtrim($whole),']')&&($cookies=CookieFormats::salvage($whole))) {
+                        $whole=json_encode($cookies,JSON_THROW_ON_ERROR); $complete=true; $this->store->set('cookie.partial.'.$user,'1');
+                    }
+                }
+            } else $complete=strlen($text)<3800;
         }
         if($complete||strlen($whole)>CookiePool::MAX_BYTES) { $this->store->query('DELETE FROM settings WHERE key=?',[$key]); return $complete||$more?$whole:false; }
         // A kept part holds credentials, so its message goes now; the last one is deleted by the import itself.
