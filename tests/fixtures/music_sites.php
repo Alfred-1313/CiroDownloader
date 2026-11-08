@@ -103,6 +103,10 @@ foreach($_FILES as $key=>$file) {
 $record($method,$_POST,$uploads);
 $next=(int)@file_get_contents($root.'/counter')+1; file_put_contents($root.'/counter',(string)$next);
 if($method==='getMe') { $json(['ok'=>true,'result'=>['id'=>1,'is_bot'=>true,'username'=>'fixture_bot','supports_inline_queries'=>!empty($mode['inline'])]]); return; }
+// A refused upload from the second track on (to test a delivery that stops halfway).
+if($method==='sendAudio'&&!empty($mode['refuse_after'])) { $n=(int)@file_get_contents($root.'/refuse.count')+1; file_put_contents($root.'/refuse.count',(string)$n); if($n>(int)$mode['refuse_after']) { $json(['ok'=>false,'error_code'=>400,'description'=>'Bad Request: file is too big']); return; } }
+// Telegram's flood control, once: "retry after 1 second".
+if($method==='sendAudio'&&!empty($mode['flood'])&&!is_file($root.'/flood.done')) { touch($root.'/flood.done'); $json(['ok'=>false,'error_code'=>429,'description'=>'Too Many Requests: retry after 1','parameters'=>['retry_after'=>1]]); return; }
 if($method==='sendAudio') { $json(['ok'=>true,'result'=>['message_id'=>900+$next,'audio'=>['file_id'=>'AUDIO'.$next]]]); return; }
 if($method==='sendMediaGroup') {
     // One message per item, with consecutive IDs.

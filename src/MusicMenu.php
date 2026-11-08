@@ -115,15 +115,32 @@ final class MusicMenu
         // A list of tracks inside an album, playlist or set (or a page that is one) can be fetched whole.
         // A single needs no "download all": its track is one tap away.
         $whole=($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1&&!$now['single'];
+        // Choosing tracks: a tap marks a track (blue), and "send the chosen" fetches only those.
+        $picking=$whole&&is_array($view['pick']??null); $picked=$picking?array_values(array_map('intval',$view['pick'])):[];
         if($whole) {
             // A stopped download of this very list can be continued where it stopped.
             if(($batch['state']??'')==='paused'&&($batch['address']??'')===$now['url']) $rows[]=[$ui->button('batch_resume','mm:'.$id.':c',['done'=>(string)$batch['ready'],'total'=>(string)$batch['total']])];
-            $rows[]=[$ui->button('menu_all','mm:'.$id.':a:each'),$ui->button('menu_zip','mm:'.$id.':a:zip')];
+            if($picking) {
+                $row=[];
+                if($picked) $row[]=$ui->button('menu_pick_send','mm:'.$id.':d',['count'=>(string)count($picked)]);
+                $row[]=$ui->button('menu_pick_cancel','mm:'.$id.':m:0');
+                $rows[]=$row;
+            } else {
+                $rows[]=[$ui->button('menu_all','mm:'.$id.':a:each'),$ui->button('menu_pick','mm:'.$id.':m:1')];
+                $rows[]=[$ui->button('menu_zip','mm:'.$id.':a:zip')];
+            }
         }
         if($pages>1) $rows[]=[$ui->button('menu_page','mm:'.$id.':n',['page'=>(string)($page+1),'pages'=>(string)$pages])];
         $keys=['t'=>'menu_track','a'=>'menu_album','p'=>'menu_playlist','s'=>'menu_playlist','r'=>'menu_artist'];
         foreach(array_slice($items,$page*self::PAGE,self::PAGE,true) as $index=>$item) {
-            $rows[]=[$ui->button($keys[$item['k']]??'menu_track','mm:'.$id.':o:'.$index,['label'=>$this->itemLabel($item,$index,$data['kind']==='playlist'||($view['stack']&&str_starts_with((string)end($view['stack'])['ref'],'p')))])];
+            $label=$this->itemLabel($item,$index,$data['kind']==='playlist'||($view['stack']&&str_starts_with((string)end($view['stack'])['ref'],'p')));
+            if($picking&&($item['k']??'')==='t') {
+                $chosen=in_array($index,$picked,true);
+                $button=$ui->button('menu_track','mm:'.$id.':k:'.$index,['label'=>$label]);
+                if($chosen) { $button['text']=$ui->plainWith('menu_picked',['label'=>$label]); $button['style']='primary'; }
+                $rows[]=[$button]; continue;
+            }
+            $rows[]=[$ui->button($keys[$item['k']]??'menu_track','mm:'.$id.':o:'.$index,['label'=>$label])];
         }
         if(!$items) $rows[]=[$ui->button('menu_page','mm:'.$id.':n',['page'=>'0','pages'=>'0'])];
         if($pages>1) {
@@ -142,6 +159,7 @@ final class MusicMenu
         $note=!$view['stack']&&($data['note']??'')==='limited'?"\n\n".$ui->text('menu_limited'):'';
         $text=$ui->text('menu_head',['icon'=>$icon,'title'=>$now['title'],'info'=>$info],['info']).$note;
         if(!$items) $text.="\n\n".$ui->text('menu_empty');
+        if($picking) $text.="\n\n".$ui->text('menu_pick_info',['count'=>(string)count($picked)]);
         return [$text,$rows];
     }
 
@@ -209,11 +227,34 @@ final class MusicMenu
                 return;
             }
             if($op==='r') { $this->giveBack($menu,$data,$chat); $this->answer($cb); return; }
-            if(in_array($op,['a','c'],true)&&($data['batch']['state']??'')==='running') { $this->answer($cb,'menu_again'); return; }
+            if(in_array($op,['a','c','d'],true)&&($data['batch']['state']??'')==='running') { $this->answer($cb,'menu_again'); return; }
+            if($op==='m') {
+                // Start or leave choosing tracks.
+                if($arg==='1') $view['pick']=[]; else unset($view['pick']);
+                $menu=$this->save($menu,$data,$view); $this->answer($cb); $this->show($menu,$chat); return;
+            }
+            if($op==='k'||($op==='o'&&is_array($view['pick']??null)&&(($this->listOf($data,$view)['items'][(int)$arg]['k']??'')==='t'))) {
+                $items=$this->listOf($data,$view)['items'];
+                if(!is_array($view['pick']??null)||!ctype_digit($arg)||($items[(int)$arg]['k']??'')!=='t') { $this->answer($cb); return; }
+                $picked=array_values(array_map('intval',$view['pick'])); $index=(int)$arg;
+                if(in_array($index,$picked,true)) $picked=array_values(array_diff($picked,[$index]));
+                elseif(count($picked)>=self::BATCH_MAX) { $this->answer($cb,'menu_pick_full',true); return; }
+                else $picked[]=$index;
+                sort($picked); $view['pick']=$picked;
+                $menu=$this->save($menu,$data,$view); $this->answer($cb); $this->show($menu,$chat); return;
+            }
+            if($op==='d') {
+                if(!array_filter((array)($view['pick']??[]),'is_int')) { $this->answer($cb,'menu_pick_empty',true); return; }
+                $key=$this->requestAll($menu,$data,$view,'pick',(int)$update['update_id'],$thread);
+                // The choice is used up; the batch itself was saved by requestAll.
+                if($key==='menu_sent') { unset($view['pick']); $this->bot->store->query('UPDATE music_menus SET view=? WHERE id=?',[json_encode($view,JSON_THROW_ON_ERROR),$menu['id']]); }
+                $this->answer($cb,$key,!in_array($key,['menu_sent','menu_again'],true)); return;
+            }
             if($op==='a'||$op==='c') {
                 $key=$this->requestAll($menu,$data,$view,$op==='c'?'resume':$arg,(int)$update['update_id'],$thread);
                 $this->answer($cb,$key,!in_array($key,['menu_sent','menu_again'],true)); return;
             }
+            if(in_array($op,['t','b','o'],true)) unset($view['pick']);
             if($op==='t') {
                 if(!isset($data['tabs'][$arg])) { $this->answer($cb); return; }
                 if($data['tabs'][$arg]['items']===null) $data['tabs'][$arg]['items']=$this->soundcloud()->listing((string)$data['tabs'][$arg]['src'],$this->scratch())['items'];
@@ -332,14 +373,16 @@ final class MusicMenu
             if(!is_array($options)||($data['batch']['state']??'')!=='paused') return 'menu_failed';
             $address=(string)$data['batch']['address'];
         } else {
-            if(!in_array($mode,['each','zip'],true)) return '';
+            if(!in_array($mode,['each','zip','pick'],true)) return '';
             $now=$this->listOf($data,$view); $tracks=[];
-            foreach(self::tracksOf($now['items']) as $item) if(($track=self::trackJob($item))!==null) $tracks[]=$track+['n'=>(string)$item['n']];
+            // "pick": only the tracks chosen in the list, in the list's order.
+            $source=$mode==='pick'?array_intersect_key($now['items'],array_flip(array_map('intval',(array)($view['pick']??[])))):$now['items'];
+            foreach(self::tracksOf($source) as $item) if(($track=self::trackJob($item))!==null) $tracks[]=$track+['n'=>(string)$item['n']];
             $tracks=array_slice($tracks,0,self::BATCH_MAX);
             $address=$now['url']!==''?$now['url']:(string)($data['url']??'');
             if(count($tracks)<1||$address==='') return 'menu_failed';
-            $options=['batch'=>['service'=>$data['service']==='soundcloud'?'soundcloud':'spotify','mode'=>$mode,'title'=>mb_substr($now['title'],0,100),'tracks'=>$tracks,
-                'menu'=>(int)$menu['id'],'key'=>$menu['id'].'-'.substr(hash('sha256',$address),0,8)]];
+            $options=['batch'=>['service'=>$data['service']==='soundcloud'?'soundcloud':'spotify','mode'=>$mode==='pick'?'each':$mode,'title'=>mb_substr($now['title'],0,100),'tracks'=>$tracks,
+                'menu'=>(int)$menu['id'],'key'=>$menu['id'].'-'.substr(hash('sha256',$address.($mode==='pick'?'#'.implode(',',array_column($tracks,'n')):'')),0,8)]];
         }
         $message=['message'=>(int)$menu['message_id'],'kind'=>!empty($data['photo'])?'photo':'text','poster'=>(string)($data['shown']??'')];
         if($message['message']<1) return 'menu_failed';

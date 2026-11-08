@@ -27,7 +27,7 @@ try {
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
     $server=proc_open([PHP_BINARY,'-S',$address,__DIR__.'/fixtures/music_sites.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-error.log','w']],$pipes,null,array_merge(getenv(),['FIXTURE_ROOT'=>$temp]));
     for($i=0;$i<50;$i++) { $connection=@stream_socket_client('tcp://'.$address,$errno,$error,0.1); if($connection) { fclose($connection); break; } usleep(50000); }
-    $base='http://'.$address; $config->api=$base;
+    $base='http://'.$address; $config->api=$base; $config->paceMessages=false;
     $stub=$temp.'/yt-dlp-fixture';
     file_put_contents($stub,"#!/usr/bin/env php\n<?php\nconst FIXTURE_ROOT=".var_export($temp,true).";\nrequire ".var_export(__DIR__.'/fixtures/music_ytdlp.php',true).";\n");
     chmod($stub,0700); $config->ytDlp=$stub;
@@ -186,6 +186,33 @@ try {
     menuCheck($docs[1]['params']['caption']==="<b>🗜 New Album</b>\n\n<blockquote expandable><b>• Album Cut One\n• Album Cut Two\n• Album Cut Three</b></blockquote>",'the last ZIP lists the track names in bold in a collapsed quote');
     menuCheck($names===['01 - Fixture Artist - Album Cut One.m4a','02 - Fixture Artist - Album Cut Two.m4a']&&$method===ZipArchive::CM_STORE,'files keep the album order and their tagged names, stored without compression');
     $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id); $config->maxBytes=49000000;
+    // Choosing tracks: a tap marks a track blue, "send the chosen" fetches only those, in the album's order.
+    $tap('mm:'.$id.':m:1',12); $pick=$lastMenu();
+    menuCheck(in_array('mm:'.$id.':k:0',$pick['data'],true)&&in_array('mm:'.$id.':m:0',$pick['data'],true)&&!in_array('mm:'.$id.':d',$pick['data'],true)&&!in_array('mm:'.$id.':a:each',$pick['data'],true)&&str_contains($pick['text'],'انتخاب‌شده: <b>0</b>'),'"choose tracks" turns the tracks into toggles, with only a red cancel until something is chosen');
+    $tap('mm:'.$id.':d',12); menuCheck(str_contains($answer()['text']??'','حداقل یک آهنگ')&&!empty($answer()['show_alert']),'sending with nothing chosen asks for a track first');
+    $tap('mm:'.$id.':k:2',12); $tap('mm:'.$id.':k:0',12); $tap('mm:'.$id.':k:1',12); $tap('mm:'.$id.':k:1',12); $pick=$lastMenu();
+    $byData=[]; foreach($pick['buttons'] as $b) $byData[$b['callback_data']]=$b;
+    menuCheck(($byData['mm:'.$id.':k:0']['style']??'')==='primary'&&str_starts_with($byData['mm:'.$id.':k:0']['text'],'✅')&&($byData['mm:'.$id.':k:2']['style']??'')==='primary'&&!isset($byData['mm:'.$id.':k:1']['style'])&&!str_starts_with($byData['mm:'.$id.':k:1']['text'],'✅'),'chosen tracks turn blue with a tick, and a second tap un-chooses');
+    menuCheck(($byData['mm:'.$id.':d']['style']??'')==='success'&&str_contains($byData['mm:'.$id.':d']['text'],'(2)')&&($byData['mm:'.$id.':m:0']['style']??'')==='danger'&&str_contains($pick['text'],'انتخاب‌شده: <b>2</b>'),'a green "send the chosen (2)" appears next to the red cancel');
+    $tap('mm:'.$id.':k:1',99,$anchor($id)); menuCheck(str_contains($answer()['text']??'','فرستندهٔ لینک')&&json_decode($store->query('SELECT view FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['pick']===[0,2],'someone else cannot choose');
+    file_put_contents($log,''); $tap('mm:'.$id.':d',12); $job=$run('media'); $audios=$called('sendAudio');
+    menuCheck($job['status']==='done'&&array_map(fn($call)=>$call['params']['title'],$audios)===['Album Cut One','Album Cut Three']&&str_contains((string)end($audios)['params']['reply_markup'],'mm:'.$id.':r'),'only the chosen tracks are sent, in the album\'s order, with the way back under the last');
+    $tap('mm:'.$id.':r',12,$anchor($id)); $back=$lastMenu();
+    menuCheck(in_array('mm:'.$id.':a:each',$back['data'],true)&&in_array('mm:'.$id.':m:1',$back['data'],true)&&!isset(json_decode($store->query('SELECT view FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['pick']),'back brings the album menu without the old choice');
+    $tap('mm:'.$id.':m:1',12); $tap('mm:'.$id.':k:1',12); $tap('mm:'.$id.':m:0',12);
+    menuCheck(in_array('mm:'.$id.':a:each',$lastMenu()['data'],true)&&!isset(json_decode($store->query('SELECT view FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['pick']),'cancel leaves choosing and forgets it');
+    $menuMessage=$anchor($id);
+    // Telegram's flood control on a long album: the bot waits as asked and goes on instead of stopping halfway.
+    @unlink($temp.'/flood.done'); file_put_contents($mode,json_encode(['flood'=>true])); file_put_contents($log,'');
+    $tap('mm:'.$id.':a:each',12); $job=$run('media');
+    menuCheck($job['status']==='done'&&is_file($temp.'/flood.done')&&count($called('sendAudio'))===4&&count(array_filter($called('sendAudio'),fn($call)=>isset($call['params']['reply_markup'])&&str_contains($call['params']['reply_markup'],'mm:'.$id.':r')))===1,'a "too many requests" answer is waited out and every track still arrives');
+    file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
+    // A delivery Telegram stops halfway keeps what arrived and puts the way back under the last track that did.
+    @unlink($temp.'/refuse.count'); file_put_contents($mode,json_encode(['refuse_after'=>1])); file_put_contents($log,'');
+    $tap('mm:'.$id.':a:each',12); $job=$run('media'); $marks=$called('editMessageReplyMarkup');
+    $firstId=(int)json_decode((string)$store->query('SELECT data FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['batch']['delivered'][0];
+    menuCheck($job['status']==='done'&&$marks&&(int)end($marks)['params']['message_id']===$firstId&&str_contains((string)end($marks)['params']['reply_markup'],'mm:'.$id.':r')&&$anchor($id)===$firstId&&json_decode($store->get('recent_errors'),true)[0]['r']==='upload','when Telegram refuses a later track, the tracks that arrived stay with the way back under the last one');
+    file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
     // While tracks are being prepared the status moves on its own: elapsed time and the tracks in work.
     file_put_contents($mode,json_encode(['slow'=>'Album Cut Two'])); file_put_contents($log,'');
     $tap('mm:'.$id.':a:each',12); $job=$run('media');

@@ -388,9 +388,12 @@ final class Worker
         $stage='upload'; $uploadStarted=hrtime(true);
         $sentShown=0.0;
         $sending=function(int $sent,bool $force=false) use($bot,$job,$good,$failedNames,&$sentShown): void {
-            if(!$force&&microtime(true)-$sentShown<1.5) return;
+            // Every edit counts against Telegram's per-chat limit too, so the count moves every few seconds only,
+            // and a refused edit never stops the delivery itself.
+            if(!$force&&microtime(true)-$sentShown<5.0) return;
             $sentShown=microtime(true);
-            $bot->jobMessage($job,$bot->text('batch_sending',['sent'=>(string)$sent,'total'=>(string)count($good),'names'=>$this->failedBlock($bot,$failedNames())],['names']));
+            try { $bot->jobMessage($job,$bot->text('batch_sending',['sent'=>(string)$sent,'total'=>(string)count($good),'names'=>$this->failedBlock($bot,$failedNames())],['names'])); }
+            catch(Throwable $e) { error_log('Batch sending status not updated: '.get_class($e)); }
         };
         $sending(0,true);
         $items=[];
@@ -485,14 +488,29 @@ final class Worker
      */
     private function sendTracks(array $job,Bot $bot,array $items,string $title,array $back,callable $sending): array
     {
-        $shares=new Shares($bot); $ids=[];
+        $shares=new Shares($bot); $ids=[]; $last=null;
+        // Telegram allows about one message a second in a private chat and twenty a minute in a group; a long album is
+        // paced to stay under that (the client also waits when Telegram asks it to).
+        $gap=!$this->config->paceMessages?0.0:((int)$job['chat_id']<0?3.1:1.05); $previous=0.0;
         foreach($items as $n=>$item) {
             $caption=$bot->ui->fitCaption($bot->text('batch_caption',['artist'=>mb_substr((string)$item['performer'],0,150),'title'=>mb_substr((string)$item['title'],0,100),
                 'duration'=>Ui::duration((int)($item['length']??$item['duration']??0)),'album'=>$title]));
             $token=$shares->reserve();
             $rows=array_merge($token!==null?[$shares->row($token)]:[],$n===count($items)-1?$back:[]);
-            $result=$this->sendOne($job,'audio',$item,$caption,$rows);
-            $shares->fill($token,$result,$caption);
+            if(($pause=$gap-(microtime(true)-$previous))>0) usleep((int)($pause*1e6));
+            $previous=microtime(true);
+            try { $result=$this->sendOne($job,'audio',$item,$caption,$rows); }
+            catch(Throwable $e) {
+                if(!$ids) throw $e;
+                // Part of the album is already there: keep it, put the way back under the last track that arrived and
+                // tell the administrators what stopped the rest.
+                error_log('Batch delivery stopped after '.count($ids).' tracks: '.get_class($e).' '.diagnosticMessage($e->getMessage()));
+                try { $this->store->pushError('batch','upload',''); } catch(Throwable) {}
+                try { $this->api->call('editMessageReplyMarkup',['chat_id'=>(int)$job['chat_id'],'message_id'=>end($ids),'reply_markup'=>['inline_keyboard'=>array_merge($last!==null?[$shares->row($last)]:[],$back)]]); }
+                catch(Throwable) { error_log('Batch delivery: the way back could not be added to the last track'); }
+                return $ids;
+            }
+            $shares->fill($token,$result,$caption); $last=$token;
             $ids[]=(int)($result['message_id']??0);
             $sending(count($ids));
         }

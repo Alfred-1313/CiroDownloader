@@ -12,6 +12,8 @@ final class Config
     public bool $cookieFallback=false;
     /** Music keeps MP3 and AAC (M4A) sources as they are: faster and smaller. Off converts everything to MP3. */
     public bool $musicCopy=true;
+    /** Space whole-album deliveries to Telegram's per-chat limits (tests turn it off to run quickly). */
+    public bool $paceMessages=true;
     /** How many tracks of a whole album are prepared at the same time (MUSIC_PARALLEL, 1 to 8; unset: sized to the container). */
     public int $musicParallel=3;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
@@ -251,16 +253,28 @@ final class Telegram implements FileApi
             if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
         }
         unset($value);
-        $ch = self::handle();
-        curl_setopt_array($ch, [CURLOPT_URL => $this->config->api . '/bot' . $this->config->token . '/' . $method, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
-            // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
-            CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 1048576, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
-            CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:(in_array($method,['sendVideo','sendAudio','sendPhoto','sendMediaGroup','sendDocument'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile)) ? 3600 : 45)]);
-        $body = curl_exec($ch);
-        $errno = curl_errno($ch);
-        if ($body === false) { self::$handles = []; throw new \RuntimeException('Telegram transport error ' . $errno); }
-        $result = json_decode($body, true);
+        $upload=in_array($method,['sendVideo','sendAudio','sendPhoto','sendMediaGroup','sendDocument'],true)||($method==='editMessageMedia'&&array_filter($params,fn($value)=>$value instanceof \CURLFile||$value instanceof \CURLStringFile));
+        for ($attempt = 0;; $attempt++) {
+            $ch = self::handle();
+            curl_setopt_array($ch, [CURLOPT_URL => $this->config->api . '/bot' . $this->config->token . '/' . $method, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
+                // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
+                CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 1048576, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
+                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
+                CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:($upload ? 3600 : 45)]);
+            $body = curl_exec($ch);
+            $errno = curl_errno($ch);
+            if ($body === false) { self::$handles = []; throw new \RuntimeException('Telegram transport error ' . $errno); }
+            $result = json_decode($body, true);
+            // Telegram's flood control ("Too Many Requests: retry after N"): wait as asked and send the same request again,
+            // so a long run of messages (a whole album) slows down instead of stopping halfway.
+            $wait = (int)($result['parameters']['retry_after'] ?? 0);
+            if (!($result['ok'] ?? false) && (int)($result['error_code'] ?? 0) === 429 && $method !== 'setMessageReaction'
+                && $wait > 0 && $wait <= ($upload || str_starts_with($method, 'send') ? 90 : 20) && $attempt < 4) {
+                error_log('Telegram flood control on '.$method.': waiting '.$wait.' s');
+                sleep($wait + 1); continue;
+            }
+            break;
+        }
         if (!($result['ok'] ?? false)) {
             if(str_starts_with($method,'editMessage')&&str_contains((string)($result['description']??''),'message is not modified')) return true;
             if(str_starts_with($method,'editMessage')&&str_contains((string)($result['description']??''),'message to edit not found')) {
