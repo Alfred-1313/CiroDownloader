@@ -143,7 +143,7 @@ final class Radio
 
     /**
      * Add a song. $source says how to fetch it ({"service":"spotify|soundcloud","u":ADDRESS} or {"service":..,"m":DETAILS}).
-     * @return array{id:int,position:int}|string the new place in the queue, or "full" / "long" / "invalid"
+     * @return array{id:int,position:int}|string the new place in the queue, or "full" / "long" / "invalid" / "queued" (already waiting or playing)
      */
     public function enqueue(int $chat,int $user,array $source,string $title,string $artists,int $duration): array|string
     {
@@ -153,6 +153,9 @@ final class Radio
         try {
             $open=(int)$this->store->query("SELECT COUNT(*) FROM radio_queue WHERE chat_id=? AND status IN ('pending','preparing','ready','playing')",[$chat])->fetchColumn();
             if($open>=self::MAX_QUEUE) { $this->store->db->exec('ROLLBACK'); return 'full'; }
+            // One song once: while it waits or plays it cannot be queued again (after it was played it can).
+            $encoded=json_encode($source,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
+            if($this->store->query("SELECT 1 FROM radio_queue WHERE chat_id=? AND source=? AND status IN ('pending','preparing','ready','playing')",[$chat,$encoded])->fetchColumn()!==false) { $this->store->db->exec('ROLLBACK'); return 'queued'; }
             $this->store->query('INSERT INTO radio_queue(chat_id,title,artists,duration,source,added_by,created) VALUES(?,?,?,?,?,?,?)',
                 [$chat,mb_substr($title,0,150),mb_substr($artists,0,150),max(0,$duration),json_encode($source,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$user,time()]);
             $id=(int)$this->store->db->lastInsertId();

@@ -99,16 +99,26 @@ try {
     $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,66,-1100)); rdCheck(str_contains(rdAnswer($api),'فقط مدیرهای')&&$radio->queued(-1100)===1,'a member of the group cannot');
     $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,55,-2222)); rdCheck(str_contains(rdAnswer($api),'راه‌اندازی نشده'),'a group without a radio says so');
     $api->calls=[]; $bot->handle(rdClick('rd:p:AAAAAAAAAAAAAAAA',55,-1100)); rdCheck(str_contains(rdAnswer($api),'دیگر کار نمی‌کند'),'an unknown or old button is refused');
-    $radio->setLive(-1100,false); $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,55,-1100)); rdCheck(str_contains(rdAnswer($api),'خودکار پخش می‌شود'),'when the stream is off the answer says it starts by itself');
+    $radio->clear(-1100); $radio->setLive(-1100,false); $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,55,-1100)); rdCheck(str_contains(rdAnswer($api),'خودکار پخش می‌شود'),'when the stream is off the answer says it starts by itself');
     $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,55,55)); rdCheck(str_contains(rdAnswer($api),'«New Channel»')&&$radio->queued(-1005)===1,'in a private chat the song goes to the person\'s active radio');
     $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,66,66)); rdCheck(str_contains(rdAnswer($api),'راه‌اندازی نشده'),'in a private chat somebody without a radio is told so');
     $panelBot=new Zero\RadioPanel($bot);
     rdCheck($panelBot->available(-1100,66)&&!$panelBot->available(-2222,66)&&$panelBot->available(55,55)&&!$panelBot->available(66,66),'the play button shows in a group with a radio (to everybody) and in a private chat only for a person who runs one');
     rdCheck($panelBot->allowed(-1100,55)&&!$panelBot->allowed(-1100,66),'"play all" is for the group\'s administrators only');
 
+    // 6b. One song once: while it waits it cannot be queued again; after it played it can.
+    $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,55,-1100)); $count=$radio->queued(-1100);
+    rdCheck(str_contains(rdAnswer($api),'همین الان در صف')&&$count===$radio->queued(-1100),'a song already waiting is not queued twice');
+    $store->query("UPDATE radio_queue SET status='done' WHERE chat_id=-1100"); $bot->handle(rdClick('rd:p:'.$token,55,-1100));
+    rdCheck($radio->queued(-1100)===1,'after it played it can be queued again');
+    // A start the bot missed: an administrator marks the stream live by hand, and off again.
+    $radio->setLive(-1100,false); $bot->handle(rdClick('rd:l:-1100',66,-1100)); rdCheck((int)$radio->station(-1100)['live']===0,'a member cannot mark the stream live');
+    $bot->handle(rdClick('rd:l:-1100',55,-1100)); rdCheck((int)$radio->station(-1100)['live']===1,'an administrator marks it live');
+    $bot->handle(rdClick('rd:l:-1100',55,-1100)); rdCheck((int)$radio->station(-1100)['live']===0,'and off again'); $radio->setLive(-1100,true);
+
     // 7. Controls in the group.
     $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('sendMessage');
-    rdCheck(str_contains($status['text'],'رادیوی «The Group»')&&str_contains($status['text'],'🔴')&&rdActions($status)===['rd:k:-1100','rd:s:-1100','rd:x:-1100','rd:v:-1100','rd:z:-1100'],'/radio in a group shows the controls to an administrator');
+    rdCheck(str_contains($status['text'],'رادیوی «The Group»')&&str_contains($status['text'],'🔴')&&rdActions($status)===['rd:l:-1100','rd:k:-1100','rd:s:-1100','rd:x:-1100','rd:v:-1100','rd:z:-1100'],'/radio in a group shows the controls to an administrator');
     $api->calls=[]; $bot->handle(rdText('/radio',66,-1100)); rdCheck(str_contains($api->last('sendMessage')['text'],'فقط مدیرهای'),'a member only gets a short refusal');
     $api->calls=[]; $bot->handle(rdText('/radio',55,-3333)); rdCheck(str_contains($api->last('sendMessage')['text'],'رادیو ندارد'),'a group without a radio says so');
     $bot->handle(rdClick('rd:k:-1100',55,-1100)); rdCheck($radio->station(-1100)['command']==='skip','skip is passed to the player');

@@ -29,7 +29,7 @@ try {
         return $path;
     };
     $ready=function(int $chat,string $title,string $file) use($radio,$store): int {
-        $added=$radio->enqueue($chat,42,['service'=>'spotify','u'=>'https://open.spotify.com/track/AAAAAAAAAAAAAAAAAAAAAA'],$title,'Artist',3);
+        $added=$radio->enqueue($chat,42,['service'=>'spotify','m'=>['title'=>$title,'artists'=>['Artist'],'duration'=>3]],$title,'Artist',3);
         $store->query("UPDATE radio_queue SET status='ready',file=? WHERE id=?",[$file,$added['id']]); return $added['id'];
     };
     $probe=function(string $path): array {
@@ -82,8 +82,8 @@ try {
 
     // 6. The service: starts a player for a live station with songs and stops it with the stream; recovers after a crash.
     @unlink($temp.'/out.flv'); $store->query('DELETE FROM radio_queue'); $radio->setLive(-1001,true); $store->query("UPDATE radio_stations SET command='' WHERE chat_id=-1001");
-    $crashed=$radio->enqueue(-1001,42,['service'=>'spotify','u'=>'https://open.spotify.com/track/AAAAAAAAAAAAAAAAAAAAAA'],'Half','A',3)['id']; $store->query("UPDATE radio_queue SET status='preparing' WHERE id=?",[$crashed]);
-    $old=$radio->enqueue(-1001,42,['service'=>'spotify','u'=>'https://open.spotify.com/track/AAAAAAAAAAAAAAAAAAAAAA'],'Old','A',3)['id']; $store->query("UPDATE radio_queue SET status='playing' WHERE id=?",[$old]);
+    $crashed=$radio->enqueue(-1001,42,['service'=>'spotify','m'=>['title'=>'Half','artists'=>['A'],'duration'=>3]],'Half','A',3)['id']; $store->query("UPDATE radio_queue SET status='preparing' WHERE id=?",[$crashed]);
+    $old=$radio->enqueue(-1001,42,['service'=>'spotify','m'=>['title'=>'Old','artists'=>['A'],'duration'=>3]],'Old','A',3)['id']; $store->query("UPDATE radio_queue SET status='playing' WHERE id=?",[$old]);
     $song=$ready(-1001,'Service Song',$tone('h.m4a',3,700));
     [$service,$serviceLog]=$spawn('radio.php');
     for($i=0;$i<150&&$store->query('SELECT status FROM radio_queue WHERE id=?',[$song])->fetchColumn()!=='done';$i++) usleep(100000);
@@ -107,7 +107,7 @@ try {
     $radio->save(-1001,'Radio','channel',42,$KEY); $radio->setLive(-1001,true);
 
     // 7. Preparing a song that cannot be fetched: one more try, then it is dropped.
-    $bad=$radio->enqueue(-1001,42,['service'=>'spotify','u'=>'https://open.spotify.com/track/AAAAAAAAAAAAAAAAAAAAAA'],'Bad','A',3)['id'];
+    $bad=$radio->enqueue(-1001,42,['service'=>'spotify','m'=>['title'=>'Bad','artists'=>['A'],'duration'=>3]],'Bad','A',3)['id'];
     $store->query("UPDATE radio_queue SET status='preparing',source=? WHERE id=?",[json_encode(['service'=>'spotify']),$bad]);
     [$prepare]=$spawn('radio-prepare.php',[(string)$bad]); $finish($prepare,30); $first=$store->query('SELECT status,tries FROM radio_queue WHERE id=?',[$bad])->fetch();
     $store->query("UPDATE radio_queue SET status='preparing' WHERE id=?",[$bad]); [$prepare]=$spawn('radio-prepare.php',[(string)$bad]); $finish($prepare,30); $second=$store->query('SELECT status,tries FROM radio_queue WHERE id=?',[$bad])->fetch();

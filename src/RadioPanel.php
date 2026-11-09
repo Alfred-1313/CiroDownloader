@@ -105,6 +105,8 @@ final class RadioPanel
                 case 's': $this->radio->command($target,'stop'); $this->answer($cb,'radio_done'); break;
                 case 'x': $this->radio->clear($target); $this->answer($cb,'radio_done'); break;
                 case 'a': $this->radio->choose($user,$target); $this->answer($cb,'radio_done'); break;
+                // When the bot missed the start (or end) of the stream, an administrator says so by hand.
+                case 'l': $this->radio->setLive($target,(int)$station['live']!==1); $this->answer($cb,'radio_done'); break;
                 case 'z': $this->answer($cb); try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return;
                 case 'd': $this->answer($cb); $this->confirmRemove($chat,$message,$station); return;
                 case 'D': $this->radio->remove($target); $this->answer($cb,'radio_removed'); $this->panel($chat,$user,$message); return;
@@ -127,7 +129,7 @@ final class RadioPanel
         $song=$this->radio->picked($token);
         if($song===null) { $this->answer($cb,'radio_expired',[],true); return; }
         $result=$this->radio->enqueue((int)$station['chat_id'],$user,$song['source'],$song['title'],$song['artists'],$song['duration']);
-        if(is_string($result)) { $this->answer($cb,$result==='long'?'radio_long':($result==='full'?'radio_full':'radio_expired'),[],true); return; }
+        if(is_string($result)) { $this->answer($cb,match($result) {'long'=>'radio_long','full'=>'radio_full','queued'=>'radio_already',default=>'radio_expired'},[],true); return; }
         $this->answer($cb,(int)$station['live']===1?'radio_added':'radio_added_idle',['chat'=>(string)$station['title'],'position'=>(string)$result['position']],false);
     }
 
@@ -159,7 +161,7 @@ final class RadioPanel
         foreach($queue as $row) { if($row['status']==='playing') continue; $n++; $list[]=$ui->text('radio_queue_row',['n'=>(string)$n,'title'=>trim(($row['artists']!==''?$row['artists'].' – ':'').$row['title'])]); }
         $text=$ui->text('radio_status',['chat'=>(string)$station['title'],'state'=>$ui->plain((int)$station['live']===1?'radio_status_live':'radio_status_off'),
             'now'=>(string)$station['now']!==''?(string)$station['now']:$ui->plain('radio_now_none'),'count'=>(string)$this->radio->queued($id),'list'=>$list?"\n".implode("\n",$list):''],['list']);
-        $rows=[[$ui->button('radio_skip','rd:k:'.$id),$ui->button('radio_stop','rd:s:'.$id)],[$ui->button('radio_clear','rd:x:'.$id)],[$ui->button('radio_refresh','rd:v:'.$id),$ui->button('radio_close','rd:z:'.$id)]];
+        $rows=[[$ui->button((int)$station['live']===1?'radio_mark_off':'radio_mark_live','rd:l:'.$id)],[$ui->button('radio_skip','rd:k:'.$id),$ui->button('radio_stop','rd:s:'.$id)],[$ui->button('radio_clear','rd:x:'.$id)],[$ui->button('radio_refresh','rd:v:'.$id),$ui->button('radio_close','rd:z:'.$id)]];
         if($chat>0) { array_splice($rows,2,0,[[$ui->button('radio_use','rd:a:'.$id)],[$ui->button('radio_remove','rd:d:'.$id)]]); $rows[]=[$ui->button('radio_back','rd:r:'.$id)]; }
         $this->bot->send($chat,$text,$rows,$message);
     }
