@@ -2,7 +2,7 @@
 declare(strict_types=1);
 /**
  * The radio service: for every station whose live stream is on and that has songs waiting, one player process
- * (bin/radio-player.php), and one process at a time that prepares the next songs (bin/radio-prepare.php).
+ * (bin/radio-player.php), and up to two processes at a time that prepare the next songs (bin/radio-prepare.php).
  * RADIO_STATIONS (default 3, at most 6) is how many streams may play at once.
  */
 require dirname(__DIR__).'/src/Core.php';
@@ -13,7 +13,7 @@ $lock=Zero\lockProcess($config->storage.'/radio.lock');
 $radio=new Zero\Radio($config,$store);
 $limit=max(1,min(6,(int)(getenv('RADIO_STATIONS')?:3)));
 $lookahead=3;
-$php=PHP_BINARY; $players=[]; $prepare=null; $stopping=false; $lastTidy=0; $lastBeat=0;
+$php=PHP_BINARY; $players=[]; $preparing=[]; $stopping=false; $lastTidy=0; $lastBeat=0;
 pcntl_async_signals(true);
 foreach([SIGTERM,SIGINT] as $signal) pcntl_signal($signal,static function() use (&$stopping): void { $stopping=true; });
 $env=['PATH'=>getenv('PATH')?:'/usr/bin:/bin','HOME'=>getenv('HOME')?:'/tmp'];
@@ -42,27 +42,27 @@ while(!$stopping) {
             if(is_resource($player)) $players[$chat]=$player;
         }
         // Preparing: one song at a time, the next few of each station that is live or has been fed lately.
-        if($prepare!==null&&!(proc_get_status($prepare['process'])['running']??false)) {
-            proc_close($prepare['process']);
+        // Preparing: up to two songs at a time (finding and downloading a song is the slow part), the next few of each station.
+        foreach($preparing as $key=>$job) {
+            if(proc_get_status($job['process'])['running']??false) continue;
+            proc_close($job['process']);
             // Still "preparing" means the process died: back to the queue for one more try.
-            $store->query("UPDATE radio_queue SET status=CASE WHEN tries>=1 THEN 'failed' ELSE 'pending' END,tries=tries+1 WHERE id=? AND status='preparing'",[$prepare['id']]);
-            $prepare=null;
+            $store->query("UPDATE radio_queue SET status=CASE WHEN tries>=1 THEN 'failed' ELSE 'pending' END,tries=tries+1 WHERE id=? AND status='preparing'",[$job['id']]);
+            unset($preparing[$key]);
         }
-        if($prepare===null) {
-            foreach($radio->stations() as $station) {
-                $chat=(int)$station['chat_id'];
-                $ahead=(int)$store->query("SELECT COUNT(*) FROM radio_queue WHERE chat_id=? AND status IN ('ready','preparing')",[$chat])->fetchColumn();
-                if($ahead>=$lookahead||$station['command']==='stop') continue;
-                $next=$store->query("SELECT id FROM radio_queue WHERE chat_id=? AND status='pending' ORDER BY id LIMIT 1",[$chat])->fetchColumn();
-                if($next===false) continue;
-                $store->query("UPDATE radio_queue SET status='preparing' WHERE id=?",[$next]);
-                $process=proc_open([$php,__DIR__.'/radio-prepare.php',(string)$next],[0=>$null,1=>['file','/dev/null','w'],2=>$log],$pipes,dirname(__DIR__),$env);
-                if(is_resource($process)) $prepare=['id'=>(int)$next,'process'=>$process]; else $store->query("UPDATE radio_queue SET status='pending' WHERE id=?",[$next]);
-                break;
-            }
+        foreach($radio->stations() as $station) {
+            if(count($preparing)>=2) break;
+            $chat=(int)$station['chat_id'];
+            $ahead=(int)$store->query("SELECT COUNT(*) FROM radio_queue WHERE chat_id=? AND status IN ('ready','preparing')",[$chat])->fetchColumn();
+            if(!$on||$ahead>=$lookahead||$station['command']==='stop') continue;
+            $next=$store->query("SELECT id FROM radio_queue WHERE chat_id=? AND status='pending' ORDER BY id LIMIT 1",[$chat])->fetchColumn();
+            if($next===false) continue;
+            $store->query("UPDATE radio_queue SET status='preparing' WHERE id=?",[$next]);
+            $process=proc_open([$php,__DIR__.'/radio-prepare.php',(string)$next],[0=>$null,1=>['file','/dev/null','w'],2=>$log],$pipes,dirname(__DIR__),$env);
+            if(is_resource($process)) $preparing[]=['id'=>(int)$next,'process'=>$process]; else $store->query("UPDATE radio_queue SET status='pending' WHERE id=?",[$next]);
         }
     } catch(Throwable $e) { error_log('Radio supervisor: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage())); sleep(2); }
     usleep(500000);
 }
 foreach($players as $player) { proc_terminate($player); }
-if($prepare!==null) proc_terminate($prepare['process']);
+foreach($preparing as $job) proc_terminate($job['process']);
