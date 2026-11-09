@@ -58,6 +58,12 @@ try {
     $api->rejectCover=false;
     $view->show(-1001,55,$message,$radio->station(-1001),321);
     panelCheck($api->last('editMessageMedia')['cover']->getFilename()===$cover,'a later refresh retries the replacement cover after a transient refusal');
+    $other=$view->show(-1001,55,0,$radio->station(-1001),322); $snapshot['elapsed']=80; $save();
+    $store->query('UPDATE radio_panels SET updated=0 WHERE chat_id=-1001'); $view->refresh(); $before=count($api->calls); $view->refresh();
+    panelCheck(count($api->calls)===$before,'multiple topic panels still share the four-second per-chat edit limit');
+    $store->query('UPDATE radio_panels SET updated=? WHERE chat_id=-1001 AND message_id=?',[time()-5,$message]); $view->refresh();
+    panelCheck((int)$api->last('editMessageCaption')['message_id']===$other,'the next refresh reaches the other topic instead of starving it behind the first panel');
+    $view->forget(-1001,$other);
     $click('m'); $rows=$api->last('editMessageCaption')['reply_markup']['inline_keyboard']; $actions=array_column(array_merge(...$rows),'callback_data');
     panelCheck(in_array('rd:x:-1001',$actions,true)&&in_array('rd:z:-1001',$actions,true)&&in_array('rd:v:-1001',$actions,true),'the menu exposes clear, close and refresh alongside the player');
     $paused=$radio->paused(-1001); $mode=$radio->mode(-1001); $click('t',66); $click('o',66); $click('b',66);

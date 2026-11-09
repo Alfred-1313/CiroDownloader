@@ -85,7 +85,7 @@ final class RadioPanel
         if(preg_match('/^rd:([A-Za-z]):(-?\d{1,14}|[A-Za-z0-9_-]{16})$/D',(string)($cb['data']??''),$match)!==1) { $this->answer($cb); return; }
         [, $op, $arg]=$match; $botAdmin=$this->bot->admin($user);
         try {
-            if($op==='p') { $this->play($cb,$chat,$user,$arg); return; }
+            if($op==='p') { $this->play($cb,$chat,$user,$arg,$thread); return; }
             if(!preg_match('/^-?\d+$/D',$arg)) { $this->answer($cb); return; }
             $target=(int)$arg;
             // Closing a message: in a private chat it is the person's own; in a group only the radio's administrators may.
@@ -125,7 +125,7 @@ final class RadioPanel
     }
 
     /** A ▶️ under a song: queue it for this chat's radio (or the person's own radio in a private chat). */
-    private function play(array $cb,int $chat,int $user,string $token): void
+    private function play(array $cb,int $chat,int $user,string $token,int $thread): void
     {
         if(!Radio::enabled($this->bot->store)) { $this->answer($cb,'radio_disabled',[],true); return; }
         $station=$this->stationFor($chat,$user);
@@ -134,8 +134,12 @@ final class RadioPanel
         $song=$this->radio->picked($token);
         if($song===null) { $this->answer($cb,'radio_expired',[],true); return; }
         $result=$this->radio->enqueue((int)$station['chat_id'],$user,$song['source'],$song['title'],$song['artists'],$song['duration']);
-        if(is_string($result)) { $this->answer($cb,match($result) {'long'=>'radio_long','full'=>'radio_full','queued'=>'radio_already',default=>'radio_expired'},[],true); return; }
-        $this->answer($cb,(int)$station['live']===1?'radio_added':'radio_added_idle',['chat'=>(string)$station['title'],'position'=>(string)$result['position']],false);
+        if(is_string($result)&&$result!=='queued') { $this->answer($cb,match($result) {'long'=>'radio_long','full'=>'radio_full',default=>'radio_expired'},[],true); return; }
+        if($result==='queued') $this->answer($cb,'radio_already');
+        else $this->answer($cb,(int)$station['live']===1?'radio_added':'radio_added_idle',['chat'=>(string)$station['title'],'position'=>(string)$result['position']],false);
+        $item=is_array($result)?(int)$result['id']:0;
+        if($item===0) foreach($this->radio->queue((int)$station['chat_id'],100) as $entry) if(json_decode($entry['source'],true)===$song['source']) { $item=(int)$entry['id']; break; }
+        (new RadioPlayerPanel($this->bot))->openFromAudio($chat,$user,$station,$cb['message']??[],$thread,$item);
     }
 
     // ---- Screens -------------------------------------------------------------------------------------------------------

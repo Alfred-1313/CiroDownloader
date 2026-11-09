@@ -104,6 +104,7 @@ jobs:
           php tests/storage_cleanup.php
           php tests/radio.php
           php tests/radio_panel.php
+          php tests/radio_navigation.php
           php tests/radio_music.php
 
       - name: Check PHP syntax

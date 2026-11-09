@@ -117,8 +117,9 @@ try {
     $bot->handle(rdClick('rd:l:-1100',55,-1100)); rdCheck((int)$radio->station(-1100)['live']===0,'and off again'); $radio->setLive(-1100,true);
 
     // 7. Controls in the group.
-    $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('editMessageText')??$api->last('sendMessage');
-    rdCheck(str_contains($status['text'],'پلی‌لیست بعدی')&&str_contains($status['text'],'●')&&rdActions($status)===['rd:o:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100'],'/radio in a group shows the controls to an administrator');
+    $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('editMessageCaption')??$api->last('editMessageMedia')??$api->last('sendPhoto');
+    $caption=$status['caption']??$status['media']['caption']??'';
+    rdCheck(str_contains($caption,'پلی‌لیست بعدی')&&str_contains($caption,'●')&&rdActions($status)===['rd:o:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100'],'/radio in a group shows the photo player controls to an administrator');
     $api->calls=[]; $bot->handle(rdText('/radio',66,-1100)); rdCheck(str_contains($api->last('sendMessage')['text'],'فقط مدیرهای'),'a member only gets a short refusal');
     $api->calls=[]; $bot->handle(rdText('/radio',55,-3333)); rdCheck(str_contains($api->last('sendMessage')['text'],'رادیو ندارد'),'a group without a radio says so');
     $bot->handle(rdClick('rd:k:-1100',55,-1100)); rdCheck($radio->station(-1100)['command']==='skip','skip is passed to the player');

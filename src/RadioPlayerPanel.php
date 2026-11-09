@@ -26,7 +26,30 @@ final class RadioPlayerPanel
         $view=$this->bot->store->query('SELECT view FROM radio_panels WHERE chat_id=? AND message_id=?',[$chat,$message])->fetchColumn();
         return $view==='menu'?'player':'menu';
     }
-    public function show(int $chat,int $user,int $message,array $station,int $thread=0,?string $view=null,bool $force=true): void
+    /** Open the player before removing the delivered audio. Its thumbnail is kept by Telegram, never as a disk cache. */
+    public function openFromAudio(int $chat,int $user,array $station,array $original,int $thread,int $item): void
+    {
+        $preview=null; $api=$this->bot->api;
+        $thumbnail=$original['audio']['thumbnail']??$original['audio']['thumb']??null;
+        $display=(int)($this->radio->progress((int)$station['chat_id'])['id']??0);
+        if($display===0) $display=(int)($this->radio->queue((int)$station['chat_id'],1)[0]['id']??0);
+        if($item>0&&$display===$item&&$api instanceof FileApi&&is_array($thumbnail)&&is_string($thumbnail['file_id']??null)&&(int)($thumbnail['file_size']??0)<=1048576) {
+            try {
+                $file=$api->call('getFile',['file_id'=>$thumbnail['file_id']]);
+                if(is_string($file['file_path']??null)&&(int)($file['file_size']??0)<=1048576) {
+                    $bytes=$api->downloadFile($file['file_path'],1048576); $size=@getimagesizefromstring($bytes);
+                    if($size&&in_array($size[2],[IMAGETYPE_JPEG,IMAGETYPE_PNG],true)) $preview=['id'=>$item,'key'=>'thumbnail:'.$thumbnail['file_id'],'file'=>new \CURLStringFile($bytes,$size[2]===IMAGETYPE_JPEG?'cover.jpg':'cover.png',$size['mime'])];
+                }
+            } catch(\Throwable) { /* The prepared cover replaces the preview as soon as it is available. */ }
+        }
+        $message=$this->show($chat,$user,0,$station,$thread,'player',true,$preview);
+        $photo=$this->bot->store->query('SELECT kind FROM radio_panels WHERE chat_id=? AND message_id=?',[$chat,$message])->fetchColumn()==='photo';
+        if($photo&&isset($original['audio'])&&(int)($original['message_id']??0)>0&&(int)$original['message_id']!==$message) {
+            try { $api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$original['message_id']]); }
+            catch(\Throwable) { /* Keep the confirmed player if Telegram cannot remove the older audio. */ }
+        }
+    }
+    public function show(int $chat,int $user,int $message,array $station,int $thread=0,?string $view=null,bool $force=true,?array $preview=null): int
     {
         $store=$this->bot->store; $ui=$this->bot->ui; $id=(int)$station['chat_id'];
         $station=$this->radio->station($id)??$station;
@@ -34,20 +57,24 @@ final class RadioPlayerPanel
         $saved=$message>0?$store->query('SELECT * FROM radio_panels WHERE chat_id=? AND message_id=?',[$chat,$message])->fetch():false;
         $view??=in_array($saved['view']??'',['player','menu'],true)?$saved['view']:'player';
         $thread=$thread>0?$thread:(int)($saved['thread_id']??0);
-        $data=$this->radio->progress($id); $duration=max(0,(int)($data['duration']??0));
+        $data=$this->radio->progress($id); $queue=$this->radio->queue($id,100);
+        if(!empty($data['id'])&&microtime(true)-(float)($data['at']??0)>15) $data=[];
+        $preparing=empty($data['id'])&&!empty($queue);
+        if($preparing) $data=$queue[0]+['elapsed'=>0,'at'=>microtime(true)];
+        $duration=max(0,(int)($data['duration']??0));
         $elapsed=max(0,min($duration,(float)($data['elapsed']??0))); $paused=$this->radio->paused($id);
-        if(!$paused&&!empty($data['id'])) $elapsed=min($duration,$elapsed+max(0,min(1.5,microtime(true)-(float)($data['at']??microtime(true)))));
+        if(!$preparing&&!$paused&&!empty($data['id'])) $elapsed=min($duration,$elapsed+max(0,min(1.5,microtime(true)-(float)($data['at']??microtime(true)))));
         $track=!empty($data['id'])?$ui->text('radio_player_track',['artist'=>mb_substr((string)$data['artists'],0,80),'title'=>mb_substr((string)$data['title'],0,100)]):$ui->text('radio_player_idle');
         $left=Ui::duration((int)$elapsed); $right=$duration>0?Ui::duration($duration):$ui->plain('radio_player_unknown');
         $done=$duration>0?max(0,min(20,(int)floor(20*$elapsed/$duration))):0;
         $bar=str_repeat('━',$done).'●'.str_repeat('─',20-$done);
-        $lines=[]; $queue=array_values(array_filter($this->radio->queue($id,100),fn($entry)=>(int)$entry['id']!==(int)($data['id']??0)));
+        $lines=[]; $queue=array_values(array_filter($queue,fn($entry)=>(int)$entry['id']!==(int)($data['id']??0)));
         foreach(array_slice($queue,0,8) as $entry) $lines[]=$ui->text('radio_player_queue_row',['artist'=>mb_substr($entry['artists'],0,25),'title'=>mb_substr($entry['title'],0,35)]);
         if(count($queue)>8) $lines[]=$ui->text('radio_player_more',['count'=>count($queue)-8]);
         $queueText=$lines?$ui->text(count($queue)>3?'radio_player_queue_collapsed':'radio_player_queue',['tracks'=>implode("\n",$lines)],['tracks']):$ui->text('radio_player_empty');
-        $state=$paused?$ui->text('radio_player_paused'):((int)$station['live']===0?$ui->text('radio_status_off'):'');
+        $state=$paused?$ui->text('radio_player_paused'):((int)$station['live']===0?$ui->text('radio_status_off'):($preparing?$ui->text('radio_player_preparing'):''));
         $text=Ui::fitCaption($ui->text('radio_player_caption',['track'=>$track,'bar'=>$bar,'times'=>$left.str_repeat(' ',max(1,21-strlen($left)-strlen($right))).$right,'queue'=>$queueText,'state'=>$state],['track','queue','state']));
-        $mode=$this->radio->mode($id); $playing=!$paused&&($station['command']??'')!=='stop'&&!empty($data['id']);
+        $mode=$this->radio->mode($id); $playing=!$preparing&&!$paused&&($station['command']??'')!=='stop'&&!empty($data['id']);
         $row=[$this->button('radio_repeat_'.$mode,'rd:o:'.$id),$this->button('radio_previous','rd:b:'.$id),$this->button($playing?'radio_pause':'radio_resume','rd:t:'.$id),$this->button('radio_next','rd:k:'.$id),$this->button('radio_menu','rd:m:'.$id)];
         $rows=[$row];
         if($view==='menu') {
@@ -56,24 +83,28 @@ final class RadioPlayerPanel
             $rows[]=[$this->button('radio_close','rd:z:'.$id),$this->button('radio_refresh','rd:v:'.$id)];
             if($chat>0) { $rows[]=[$this->button('radio_use','rd:a:'.$id),$this->button('radio_remove','rd:d:'.$id)]; $rows[]=[$this->button('radio_back','rd:r:'.$id)]; }
         }
-        $cover=(string)($data['cover']??''); $root=realpath($this->radio->root()); $path=$cover!==''?realpath($cover):false;
-        if($path===false||$root===false||!str_starts_with($path,$root.'/files/')||is_link($cover)||!is_file($path)||filesize($path)>1048576) $cover=$this->radio->root().'/panel-background.jpg';
-        $hasCover=is_file($cover)&&filesize($cover)>0&&filesize($cover)<1048576;
-        $photoKey=$hasCover?$cover.':'.(string)filemtime($cover):'';
+        $cover=(string)($data['cover']??''); $root=realpath($this->radio->root()); $path=$cover!==''?realpath($cover):false; $artworkId=(int)($saved['artwork_id']??0); $artwork=(string)($saved['artwork']??'');
+        $display=(int)($data['id']??0);
+        if($path!==false&&$root!==false&&str_starts_with($path,$root.'/files/')&&!is_link($cover)&&is_file($path)&&filesize($path)>0&&filesize($path)<=1048576) {
+            $picture=new \CURLFile($path,'image/jpeg','cover.jpg'); $photoKey=$path.':'.(string)filemtime($path);
+        } elseif($preview!==null&&(int)$preview['id']===$display) { $picture=$preview['file']; $photoKey=$preview['key']; }
+        elseif($artwork!==''&&$artworkId===$display&&($saved['kind']??'')==='photo') { $picture=$artwork; $photoKey=$saved['photo_key']; }
+        else { $cover=dirname(__DIR__).'/resources/radio-background.jpg'; $picture=new \CURLFile($cover,'image/jpeg','cover.jpg'); $photoKey='background'; }
         $hash=hash('sha256',json_encode([$text,$rows,$photoKey],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
-        if(!$force&&$saved&&$hash===$saved['hash']) { $store->query('UPDATE radio_panels SET updated=? WHERE chat_id=? AND message_id=?',[time(),$chat,$message]); return; }
+        if(!$force&&$saved&&$hash===$saved['hash']) { $store->query('UPDATE radio_panels SET updated=? WHERE chat_id=? AND message_id=?',[time(),$chat,$message]); return $message; }
         $kind=$saved['kind']??'text'; $params=['chat_id'=>$chat,'reply_markup'=>['inline_keyboard'=>$rows]];
         if($chat<0&&$thread>0&&$message===0) $params['message_thread_id']=$thread;
         try {
-            if($hasCover&&($message===0||$kind!=='photo'||$photoKey!==($saved['photo_key']??''))) {
-                $file=new \CURLFile($cover,'image/jpeg','cover.jpg');
-                if($message>0) $result=$this->bot->api->call('editMessageMedia',$params+['message_id'=>$message,'cover'=>$file,'media'=>['type'=>'photo','media'=>'attach://cover','caption'=>$text,'parse_mode'=>'HTML']]);
-                else { $result=$this->bot->api->call('sendPhoto',$params+['photo'=>$file,'caption'=>$text,'parse_mode'=>'HTML']); $message=(int)($result['message_id']??0); }
+            if($message===0||$kind!=='photo'||$photoKey!==($saved['photo_key']??'')) {
+                $media=is_string($picture)?$picture:'attach://cover';
+                if($message>0) $result=$this->bot->api->call('editMessageMedia',$params+['message_id'=>$message]+(is_string($picture)?[]:['cover'=>$picture])+['media'=>['type'=>'photo','media'=>$media,'caption'=>$text,'parse_mode'=>'HTML']]);
+                else { $result=$this->bot->api->call('sendPhoto',$params+['photo'=>$picture,'caption'=>$text,'parse_mode'=>'HTML']); $message=(int)($result['message_id']??0); }
                 $kind='photo';
+                $photos=is_array($result)?($result['photo']??[]):[]; $artwork=$photos?(string)(end($photos)['file_id']??''):''; $artworkId=$display;
             } elseif($kind==='photo') $this->bot->api->call('editMessageCaption',$params+['message_id'=>$message,'caption'=>$text,'parse_mode'=>'HTML']);
             else $message=$this->bot->send($chat,$text,$rows,$message,$thread);
         } catch(\RuntimeException $e) {
-            if($e->getCode()!==400||!$hasCover) throw $e;
+            if($e->getCode()!==400) throw $e;
             if($kind==='photo') {
                 // A rejected replacement picture must not disable an otherwise working player.
                 if($photoKey===($saved['photo_key']??'')) throw $e;
@@ -84,14 +115,31 @@ final class RadioPlayerPanel
         }
         if($message<1) throw new \RuntimeException('Missing radio panel message ID');
         $store->query("INSERT INTO radio_panels(chat_id,message_id,station_id,user_id,thread_id,kind,photo_key,view,hash,updated,expires) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(chat_id,message_id) DO UPDATE SET station_id=excluded.station_id,user_id=excluded.user_id,thread_id=excluded.thread_id,kind=excluded.kind,photo_key=excluded.photo_key,view=excluded.view,hash=excluded.hash,updated=excluded.updated,expires=excluded.expires",[$chat,$message,$id,$user,$thread,$kind,$photoKey,$view,$hash,time(),time()+86400]);
+        $store->query('UPDATE radio_panels SET artwork_id=?,artwork=? WHERE chat_id=? AND message_id=?',[$artworkId,$artwork,$chat,$message]);
+        return $message;
+    }
+    public static function due(Store $store): bool
+    {
+        return (bool)$store->query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='radio_panels'")->fetchColumn()
+            &&(bool)$store->query("SELECT 1 FROM radio_panels WHERE view IN ('player','menu') AND expires>? AND updated<=? LIMIT 1",[time(),time()-4])->fetchColumn();
     }
     public function refresh(): void
+    {
+        $lock=fopen($this->radio->root().'/panel.lock','c');
+        if($lock===false) return;
+        try { if(flock($lock,LOCK_EX|LOCK_NB)) $this->refreshPanels(); }
+        finally { flock($lock,LOCK_UN); fclose($lock); }
+    }
+    private function refreshPanels(): void
     {
         $store=$this->bot->store; $store->query('DELETE FROM radio_panels WHERE expires<?',[time()]);
         $touched=[];
         foreach($store->query("SELECT * FROM radio_panels WHERE view IN ('player','menu') AND updated<=? ORDER BY updated LIMIT 8",[time()-4])->fetchAll() as $panel) {
             $chat=(int)$panel['chat_id']; if(isset($touched[$chat])) continue; $touched[$chat]=true;
-            $store->query('UPDATE radio_panels SET updated=? WHERE chat_id=?',[time(),$chat]);
+            $last=(int)$store->query("SELECT MAX(updated) FROM radio_panels WHERE chat_id=? AND view IN ('player','menu') AND expires>?",[$chat,time()])->fetchColumn();
+            if($last>time()-4) continue;
+            // Throttle the chat, but update only the chosen panel so other forum topics get their turn next time.
+            $store->query('UPDATE radio_panels SET updated=? WHERE chat_id=? AND message_id=?',[time(),$chat,$panel['message_id']]);
             $message=(int)$panel['message_id']; $user=(int)$panel['user_id']; $station=$this->radio->station((int)$panel['station_id']);
             if(!$station||!$this->radio->mayControl($this->bot->api,(int)$station['chat_id'],$user,$this->bot->admin($user))) { $this->forget($chat,$message); continue; }
             try { $this->show($chat,$user,$message,$station,(int)$panel['thread_id'],$panel['view'],false); }

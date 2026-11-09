@@ -32,6 +32,21 @@ try {
                     unset($children[$pid]);
                 }
             }
+            // Station captions refresh even when the separate radio service is stopped or being upgraded.
+            if(isset($radioPanelPid)&&pcntl_waitpid($radioPanelPid,$panelStatus,WNOHANG)!==0) unset($radioPanelPid);
+            if(!isset($radioPanelPid)&&time()!==($lastRadioPanelCheck??0)) {
+                $lastRadioPanelCheck=time();
+                if(Zero\RadioPlayerPanel::due($store)) {
+                    $pid=pcntl_fork();
+                    if($pid===0) {
+                        pcntl_signal(SIGTERM,SIG_DFL); pcntl_signal(SIGINT,SIG_DFL);
+                        try {
+                            $panelStore=new Zero\Store($config->storage);
+                            (new Zero\RadioPlayerPanel(new Zero\Bot($config,$panelStore,new Zero\Telegram($config))))->refresh(); exit(0);
+                        } catch(Throwable $e) { error_log('Radio panel refresh failed: '.get_class($e)); exit(1); }
+                    } elseif($pid>0) $radioPanelPid=$pid;
+                }
+            }
             // Videos that were to disappear after a few seconds (the 18+ filters): a short-lived process deletes what is due,
             // so a slow Telegram call never delays a download.
             if(isset($deletePid)&&pcntl_waitpid($deletePid,$deleteStatus,WNOHANG)!==0) unset($deletePid);
@@ -103,6 +118,11 @@ try {
         } catch(Throwable $e) { error_log('Worker supervisor error: '.get_class($e)); if(!$stopping) usleep(500000); }
     }
 } finally {
+    if(isset($radioPanelPid)) {
+        posix_kill($radioPanelPid,SIGTERM); $until=microtime(true)+1;
+        do { $reaped=pcntl_waitpid($radioPanelPid,$panelStatus,WNOHANG); if($reaped===0) usleep(50000); } while($reaped===0&&microtime(true)<$until);
+        if($reaped===0) { posix_kill($radioPanelPid,SIGKILL); pcntl_waitpid($radioPanelPid,$panelStatus); }
+    }
     // A stop interrupts downloader process groups through Download::run's
     // finally block. Uncertain uploads stay running for recovery, never retry.
     foreach($children as $pid=>$child) {

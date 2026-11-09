@@ -489,6 +489,7 @@
     "radio_player_idle":{"audience":"user","label":"رادیو بدون آهنگ در حال پخش","group":"radio","value":"<blockquote>آهنگی در حال پخش نیست.</blockquote>"},
     "radio_player_unknown":{"audience":"user","label":"مدت نامشخص رادیو","group":"radio","value":"--:--","inline":true},
     "radio_player_paused":{"audience":"user","label":"نمایش مکث رادیو","group":"radio","value":"⏸ پخش موقتاً متوقف است.","inline":true},
+    "radio_player_preparing":{"audience":"user","label":"آماده‌سازی آهنگ در پخش‌کنندهٔ رادیو","group":"radio","value":"⏳ در حال آماده‌سازی پخش آهنگ…","inline":true},
     "radio_player_queue_row":{"audience":"user","label":"نام آهنگ بعدی رادیو","group":"radio","value":"{artist} — {title}","variables":["artist","title"],"inline":true},
     "radio_player_queue":{"audience":"user","label":"نقل‌قول صف کوتاه رادیو","group":"radio","value":"<blockquote>{tracks}</blockquote>","variables":["tracks"]},
     "radio_player_queue_collapsed":{"audience":"user","label":"نقل‌قول جمع‌شوندهٔ صف رادیو","group":"radio","value":"<blockquote expandable>{tracks}</blockquote>","variables":["tracks"]},

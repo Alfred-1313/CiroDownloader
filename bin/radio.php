@@ -27,12 +27,6 @@ while(!$stopping) {
     try {
         if(time()-$lastBeat>=10) { $store->set('radio_heartbeat',(string)time()); $lastBeat=time(); }
         if(time()-$lastTidy>=300) { $radio->tidy(); $lastTidy=time(); }
-        // One separate HTTP helper refreshes all open panels; it cannot stall audio or preparation.
-        if(isset($panelProcess)&&!(proc_get_status($panelProcess)['running']??false)) { proc_close($panelProcess); unset($panelProcess); }
-        if(!isset($panelProcess)&&$store->query("SELECT 1 FROM radio_panels WHERE view IN ('player','menu') AND expires>? AND updated<=? LIMIT 1",[time(),time()-4])->fetchColumn()) {
-            $panelProcess=proc_open([$php,__DIR__.'/radio-panel.php'],[0=>$null,1=>['file','/dev/null','w'],2=>$log],$pipes,dirname(__DIR__),$env);
-            if(!is_resource($panelProcess)) unset($panelProcess);
-        }
         // Players: one per live station with songs waiting, never for a stopped one.
         $on=Zero\Radio::enabled($store);
         foreach($players as $chat=>$player) {
@@ -72,7 +66,7 @@ while(!$stopping) {
 }
 // Keep the supervisor lock until helpers have closed their decoders and download groups.
 // Otherwise a restart races the old children still holding the inherited lock.
-$closing=array_merge(array_values($players),array_column($preparing,'process'),isset($panelProcess)?[$panelProcess]:[]);
+$closing=array_merge(array_values($players),array_column($preparing,'process'));
 foreach($closing as $process) if(is_resource($process)) proc_terminate($process);
 $deadline=microtime(true)+8;
 while($closing&&microtime(true)<$deadline) {

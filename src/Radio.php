@@ -28,6 +28,17 @@ final class Radio
         if(!in_array('cover',array_column($store->query('PRAGMA table_info(radio_queue)')->fetchAll(),'name'),true)) $store->db->exec('ALTER TABLE radio_queue ADD COLUMN cover TEXT NOT NULL DEFAULT \'\'');
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_picks (token TEXT PRIMARY KEY,source TEXT NOT NULL,title TEXT NOT NULL DEFAULT \'\',artists TEXT NOT NULL DEFAULT \'\',duration INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)');
         $store->db->exec("CREATE TABLE IF NOT EXISTS radio_panels (chat_id INTEGER NOT NULL,message_id INTEGER NOT NULL,station_id INTEGER NOT NULL,user_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,kind TEXT NOT NULL DEFAULT 'text',photo_key TEXT NOT NULL DEFAULT '',view TEXT NOT NULL DEFAULT 'player',hash TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL DEFAULT 0,expires INTEGER NOT NULL,PRIMARY KEY(chat_id,message_id))");
+        $panelColumns=array_column($store->query('PRAGMA table_info(radio_panels)')->fetchAll(),'name');
+        if(!in_array('artwork_id',$panelColumns,true)||!in_array('artwork',$panelColumns,true)) {
+            // The bot and radio may start together after an update. Recheck under the writer lock before migrating.
+            $store->db->exec('BEGIN IMMEDIATE');
+            try {
+                $panelColumns=array_column($store->query('PRAGMA table_info(radio_panels)')->fetchAll(),'name');
+                if(!in_array('artwork_id',$panelColumns,true)) $store->db->exec('ALTER TABLE radio_panels ADD COLUMN artwork_id INTEGER NOT NULL DEFAULT 0');
+                if(!in_array('artwork',$panelColumns,true)) $store->db->exec("ALTER TABLE radio_panels ADD COLUMN artwork TEXT NOT NULL DEFAULT ''");
+                $store->db->exec('COMMIT');
+            } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
+        }
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_seen (chat_id INTEGER PRIMARY KEY,title TEXT NOT NULL DEFAULT \'\',type TEXT NOT NULL DEFAULT \'\',seen INTEGER NOT NULL)');
     }
 
