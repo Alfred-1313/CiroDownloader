@@ -23,6 +23,7 @@ final class Radio
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_queue (id INTEGER PRIMARY KEY AUTOINCREMENT,chat_id INTEGER NOT NULL,title TEXT NOT NULL DEFAULT \'\',artists TEXT NOT NULL DEFAULT \'\',
             duration INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,status TEXT NOT NULL DEFAULT \'pending\',file TEXT NOT NULL DEFAULT \'\',added_by INTEGER NOT NULL DEFAULT 0,tries INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)');
         $store->db->exec('CREATE INDEX IF NOT EXISTS radio_queue_chat ON radio_queue(chat_id,status,id)');
+        if(!in_array('cover',array_column($store->query('PRAGMA table_info(radio_queue)')->fetchAll(),'name'),true)) $store->db->exec('ALTER TABLE radio_queue ADD COLUMN cover TEXT NOT NULL DEFAULT \'\'');
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_picks (token TEXT PRIMARY KEY,source TEXT NOT NULL,title TEXT NOT NULL DEFAULT \'\',artists TEXT NOT NULL DEFAULT \'\',duration INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)');
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_seen (chat_id INTEGER PRIMARY KEY,title TEXT NOT NULL DEFAULT \'\',type TEXT NOT NULL DEFAULT \'\',seen INTEGER NOT NULL)');
     }
@@ -183,7 +184,7 @@ final class Radio
     public function clear(int $chat,bool $all=false): void
     {
         $rows=$this->store->query("SELECT id,file FROM radio_queue WHERE chat_id=? AND status IN ('pending','preparing','ready'".($all?",'playing'":'').')',[$chat])->fetchAll();
-        foreach($rows as $row) { if($row['file']!=='') @unlink($row['file']); $this->store->query('DELETE FROM radio_queue WHERE id=?',[$row['id']]); }
+        foreach($rows as $row) { if($row['file']!=='') @unlink($row['file']); @unlink($this->root().'/files/'.$row['id'].'.jpg'); $this->store->query('DELETE FROM radio_queue WHERE id=?',[$row['id']]); }
     }
     /** Old finished rows and files go away; audio left behind by a crash too. */
     public function tidy(): void

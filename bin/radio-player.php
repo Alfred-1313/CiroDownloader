@@ -29,16 +29,41 @@ foreach([SIGTERM,SIGINT] as $signal) pcntl_signal($signal,static function() use 
 /** The text of a log line with the stream address removed: the key must never reach a log. */
 $redact=static fn(string $text): string=>str_replace([$target,$output],'[address]',$text);
 $out=null; $outPipes=[]; $restarts=[];
-$openOutput=function() use (&$out,&$outPipes,$output,$target,&$restarts): bool {
+// The picture: the cover of the song playing, fitted into 640×360 on a dark background (or the background alone).
+$fps=4.0; $videoPending='';
+$frameFor=function(string $cover): string {
+    $file=tempnam(sys_get_temp_dir(),'radio-frame-'); $jpg=$file.'.jpg';
+    $input=$cover!==''&&is_file($cover)?['-i',$cover]:['-f','lavfi','-i','color=c=0x202020:s=640x360'];
+    exec(implode(' ',array_map('escapeshellarg',array_merge(['ffmpeg','-hide_banner','-loglevel','error','-y'],$input,['-vf','scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:color=0x202020','-frames:v','1','-q:v','4',$jpg]))).' 2>/dev/null',$ignored,$code);
+    $bytes=$code===0?(string)@file_get_contents($jpg):'';
+    @unlink($file); @unlink($jpg);
+    return $bytes;
+};
+$background=$frameFor(''); $frame=$background;
+/** Pictures go out by the clock, about $fps a second, never blocking the sound; a frame is sent whole or waits. */
+$lastFrame=0.0;
+$feedVideo=function(float $unused=0.0) use (&$outPipes,&$frame,&$videoPending,&$lastFrame,$fps): void {
+    if(!isset($outPipes[3])||!is_resource($outPipes[3])||$frame==='') return;
+    if($videoPending===''&&microtime(true)-$lastFrame>=1/$fps) { $videoPending=$frame; $lastFrame=microtime(true); }
+    if($videoPending==='') return;
+    $count=@fwrite($outPipes[3],$videoPending);
+    if($count) $videoPending=(string)substr($videoPending,$count);
+};
+$openOutput=function() use (&$out,&$outPipes,$output,$target,&$restarts,&$frame,&$videoPending,&$lastFrame,&$feedVideo): bool {
     $now=time(); $restarts=array_values(array_filter($restarts,fn($time)=>$now-$time<120));
     if(count($restarts)>=3) return false;
     $restarts[]=$now;
-    $command=['ffmpeg','-hide_banner','-loglevel','error','-y','-re','-f','s16le','-ar','44100','-ac','2','-thread_queue_size','512','-i','pipe:0','-re','-f','lavfi','-i','color=c=0x202020:s=640x360:r=15',
-        '-map','1:v','-map','0:a','-c:v','libx264','-preset','ultrafast','-tune','stillimage','-pix_fmt','yuv420p','-g','30','-keyint_min','30','-b:v','300k','-maxrate','300k','-bufsize','600k',
+    // Sound comes in on stdin; the picture (the cover of the song playing) as JPEG frames on a second pipe, stamped by
+    // the clock as they arrive and turned into a steady 10 frames a second.
+    $command=['ffmpeg','-hide_banner','-loglevel','error','-y','-re','-f','s16le','-ar','44100','-ac','2','-thread_queue_size','512','-probesize','32','-analyzeduration','0','-i','pipe:0',
+        '-f','image2pipe','-c:v','mjpeg','-probesize','32','-analyzeduration','0','-use_wallclock_as_timestamps','1','-thread_queue_size','64','-i','pipe:3',
+        '-map','1:v','-map','0:a','-filter:v','fps=10,format=yuv420p','-c:v','libx264','-preset','ultrafast','-tune','stillimage','-g','20','-keyint_min','20','-b:v','300k','-maxrate','300k','-bufsize','600k',
         '-c:a','aac','-b:a','128k','-ar','44100','-f','flv',$output];
-    $out=proc_open($command,[0=>['pipe','r'],1=>['file','/dev/null','w'],2=>['pipe','w']],$outPipes,null,['PATH'=>getenv('PATH')?:'/usr/bin:/bin']);
+    $out=proc_open($command,[0=>['pipe','r'],1=>['file','/dev/null','w'],2=>['pipe','w'],3=>['pipe','r']],$outPipes,null,['PATH'=>getenv('PATH')?:'/usr/bin:/bin']);
     if(!is_resource($out)) return false;
-    stream_set_blocking($outPipes[2],false);
+    stream_set_blocking($outPipes[0],false); stream_set_blocking($outPipes[2],false); stream_set_blocking($outPipes[3],false);
+    // A first picture at once: ffmpeg looks at both inputs before it starts.
+    $videoPending=$frame; $lastFrame=microtime(true); $feedVideo();
     return true;
 };
 $drainErrors=function() use (&$outPipes,$redact): void {
@@ -47,19 +72,21 @@ $drainErrors=function() use (&$outPipes,$redact): void {
     if($text!=='') error_log('Radio output: '.mb_substr($redact(trim($text)),0,300));
 };
 /** Write bytes into the output, waiting for it to take them (it plays in real time). False when the output is gone. */
-$write=function(string $data) use (&$out,&$outPipes,$openOutput,$drainErrors,$redact): bool {
+$write=function(string $data) use (&$out,&$outPipes,$openOutput,$drainErrors,$redact,$feedVideo,&$stopping): bool {
     $length=strlen($data); $written=0;
     while($written<$length) {
         if(!is_resource($out)||!(proc_get_status($out)['running']??false)) {
             // It ended: everything it said before ending is read (with the address removed) before it is replaced.
             if(isset($outPipes[2])&&is_resource($outPipes[2])) { stream_set_blocking($outPipes[2],true); $said=(string)stream_get_contents($outPipes[2],8192); if($said!=='') error_log('Radio output: '.mb_substr($redact(trim($said)),0,300)); }
-            if(is_resource($out)) { @fclose($outPipes[0]); proc_close($out); }
+            if(is_resource($out)) { @fclose($outPipes[0]); @fclose($outPipes[3]); proc_close($out); }
             if(!$openOutput()) return false;
         }
         $count=@fwrite($outPipes[0],substr($data,$written));
-        if($count===false||$count===0) { usleep(20000); if(!(proc_get_status($out)['running']??false)) continue; }
+        // A full pipe: ffmpeg takes sound at its own pace; meanwhile any waiting picture still gets through.
+        if($count===false||$count===0) { if($stopping) return true; $feedVideo(); usleep(10000); if(!(proc_get_status($out)['running']??false)) continue; }
         else $written+=$count;
     }
+    $feedVideo();
     $drainErrors();
     return true;
 };
@@ -77,7 +104,7 @@ $release=function(?array $decoder,string $status) use ($store): void {
     @fclose($decoder['pipe']); @proc_terminate($decoder['process']); @proc_close($decoder['process']);
     if($status==='done') {
         $store->query("UPDATE radio_queue SET status='done',file='' WHERE id=?",[$decoder['item']['id']]);
-        @unlink((string)$decoder['item']['file']);
+        @unlink((string)$decoder['item']['file']); if((string)($decoder['item']['cover']??'')!=='') @unlink((string)$decoder['item']['cover']);
     }
 };
 $current=null; $upcoming=null; $buffer='';
@@ -112,6 +139,7 @@ while(!$stopping) {
         $store->query("UPDATE radio_queue SET status='playing' WHERE id=?",[$current['item']['id']]);
         $label=trim(($current['item']['artists']!==''?$current['item']['artists'].' – ':'').$current['item']['title']);
         $store->query('UPDATE radio_stations SET now=? WHERE chat_id=?',[$label,$chat]);
+        $frame=$frameFor((string)($current['item']['cover']??''))?:$background;
     }
     if($upcoming===null) {
         $item=$store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='ready' ORDER BY id LIMIT 1",[$chat])->fetch();
@@ -127,7 +155,12 @@ if(!$failed&&$buffer!=='') $write(str_pad($buffer,$chunk,"\0"));
 if($failed&&$current!==null) { $store->query("UPDATE radio_queue SET status='ready' WHERE id=? AND status='playing'",[$current['item']['id']]); $adder=(int)$current['item']['added_by']; $release($current,'drop'); $current=null; }
 $release($current,'done'); $release($upcoming,'drop');
 $store->query("UPDATE radio_stations SET now='' WHERE chat_id=?",[$chat]);
-if(is_resource($out)) { @fclose($outPipes[0]); usleep(300000); @proc_terminate($out); @proc_close($out); }
+if(is_resource($out)) {
+    // The end of the input lets ffmpeg send what it still holds; it is stopped only if it does not finish by itself.
+    @fclose($outPipes[0]); @fclose($outPipes[3]);
+    for($wait=0;$wait<100&&(proc_get_status($out)['running']??false);$wait++) usleep(100000);
+    @proc_terminate($out); @proc_close($out);
+}
 if($failed) {
     error_log('Radio: the stream output failed; the session ended');
     // Whoever queued the song is told once, privately, that the stream could not be reached.

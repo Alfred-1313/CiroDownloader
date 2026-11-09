@@ -42,10 +42,16 @@ try {
     // 1. Two songs play back to back into one stream, with silence only when nothing is left.
     $radio->save(-1001,'Radio','channel',42,$KEY); $radio->setLive(-1001,true);
     $first=$ready(-1001,'One',$tone('a.m4a',3,440)); $second=$ready(-1001,'Two',$tone('b.mp3',3,880));
+    // Each song brings its cover: red for the first, a tall blue one for the second.
+    foreach([[$first,'red','300x300'],[$second,'blue','200x400']] as [$id,$colour,$size]) { $cover=$temp.'/radio/files/'.$id.'.jpg'; exec('ffmpeg -loglevel error -y -f lavfi -i color=c='.$colour.':s='.$size.' -frames:v 1 '.escapeshellarg($cover)); $store->query('UPDATE radio_queue SET cover=? WHERE id=?',[$cover,$id]); }
     [$player]=$spawn('radio-player.php',['-1001']); $code=$finish($player);
     $info=$probe($temp.'/out.flv');
     plCheck($code===0&&$info['duration']>7.0&&$info['duration']<9.6&&in_array('video',$info['streams'],true)&&in_array('audio',$info['streams'],true),'two songs and the idle wait make one stream of the sum of their lengths, with picture and sound');
     plCheck(count($info['silences'])===1&&$info['silences'][0]>5.5,'there is no gap between the songs: silence starts only after the last one');
+    $pixel=function(float $at,int $x,int $y) use($temp): array { $raw=(string)shell_exec('ffmpeg -loglevel error -ss '.$at.' -i '.escapeshellarg($temp.'/out.flv').' -frames:v 1 -vf '.escapeshellarg("crop=2:2:$x:$y,scale=1:1").' -f rawvideo -pix_fmt rgb24 - 2>/dev/null'); return strlen($raw)===3?array_values(unpack('C3',$raw)):[0,0,0]; };
+    [$r1,,$b1]=$pixel(1.5,320,180); [$r2,,$b2]=$pixel(4.5,320,180); [$r3,$g3,$b3]=$pixel(4.5,40,180);
+    plCheck($r1>180&&$b1<80&&$b2>180&&$r2<80,'the picture of the stream is the cover of the song playing, and it changes with the song');
+    plCheck(abs($r3-32)<20&&abs($g3-32)<20&&abs($b3-32)<20,'a cover that does not fill the picture sits on the dark background');
     $states=array_column($store->query('SELECT id,status,file FROM radio_queue WHERE id IN ('.$first.','.$second.') ORDER BY id')->fetchAll(),'status');
     plCheck($states===['done','done']&&!is_file($temp.'/radio/files/a.m4a')&&!is_file($temp.'/radio/files/b.mp3')&&$store->query('SELECT now FROM radio_stations WHERE chat_id=-1001')->fetchColumn()==='','played songs are marked done, their files removed and the title cleared');
 

@@ -25,6 +25,9 @@ try {
     $files=$radio->root().'/files'; if(!is_dir($files)&&!mkdir($files,0700,true)&&!is_dir($files)) throw new RuntimeException('Cannot create the radio folder');
     $destination=$files.'/'.$id.'.'.(pathinfo((string)$media['path'],PATHINFO_EXTENSION)?:'audio');
     if(!rename((string)$media['path'],$destination)) throw new RuntimeException('Cannot keep the prepared song');
+    // The cover, for the picture of the stream while the song plays.
+    $cover=''; if(is_string($media['thumbnail']??null)&&is_file($media['thumbnail'])&&@copy($media['thumbnail'],$files.'/'.$id.'.jpg')) $cover=$files.'/'.$id.'.jpg';
+    $store->query("UPDATE radio_queue SET cover=? WHERE id=?",[$cover,$id]);
     $store->query("UPDATE radio_queue SET status='ready',file=?,duration=?,title=?,artists=? WHERE id=?",[$destination,$length,mb_substr((string)($media['title']??$item['title']),0,150),
         mb_substr((string)($media['performer']??$item['artists']),0,150),$id]);
 } catch(Throwable $e) {
