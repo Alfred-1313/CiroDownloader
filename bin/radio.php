@@ -55,7 +55,7 @@ while(!$stopping) {
             $chat=(int)$station['chat_id'];
             $ahead=(int)$store->query("SELECT COUNT(*) FROM radio_queue WHERE chat_id=? AND status IN ('ready','preparing')",[$chat])->fetchColumn();
             if(!$on||$ahead>=$lookahead||$station['command']==='stop') continue;
-            $next=$store->query("SELECT id FROM radio_queue WHERE chat_id=? AND status='pending' ORDER BY id LIMIT 1",[$chat])->fetchColumn();
+            $next=$store->query("SELECT id FROM radio_queue WHERE chat_id=? AND status='pending' ORDER BY play_order,id LIMIT 1",[$chat])->fetchColumn();
             if($next===false) continue;
             $store->query("UPDATE radio_queue SET status='preparing' WHERE id=?",[$next]);
             $process=proc_open([$php,__DIR__.'/radio-prepare.php',(string)$next],[0=>$null,1=>['file','/dev/null','w'],2=>$log],$pipes,dirname(__DIR__),$env);

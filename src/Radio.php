@@ -23,9 +23,20 @@ final class Radio
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_stations (chat_id INTEGER PRIMARY KEY,title TEXT NOT NULL DEFAULT \'\',type TEXT NOT NULL DEFAULT \'\',owner INTEGER NOT NULL DEFAULT 0,
             live INTEGER NOT NULL DEFAULT 0,live_since INTEGER NOT NULL DEFAULT 0,command TEXT NOT NULL DEFAULT \'\',now TEXT NOT NULL DEFAULT \'\',created INTEGER NOT NULL)');
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_queue (id INTEGER PRIMARY KEY AUTOINCREMENT,chat_id INTEGER NOT NULL,title TEXT NOT NULL DEFAULT \'\',artists TEXT NOT NULL DEFAULT \'\',
-            duration INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,status TEXT NOT NULL DEFAULT \'pending\',file TEXT NOT NULL DEFAULT \'\',added_by INTEGER NOT NULL DEFAULT 0,tries INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)');
+            duration INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,status TEXT NOT NULL DEFAULT \'pending\',file TEXT NOT NULL DEFAULT \'\',added_by INTEGER NOT NULL DEFAULT 0,tries INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,play_order INTEGER NOT NULL DEFAULT 0)');
         $store->db->exec('CREATE INDEX IF NOT EXISTS radio_queue_chat ON radio_queue(chat_id,status,id)');
         if(!in_array('cover',array_column($store->query('PRAGMA table_info(radio_queue)')->fetchAll(),'name'),true)) $store->db->exec('ALTER TABLE radio_queue ADD COLUMN cover TEXT NOT NULL DEFAULT \'\'');
+        if(!in_array('play_order',array_column($store->query('PRAGMA table_info(radio_queue)')->fetchAll(),'name'),true)) {
+            $store->db->exec('BEGIN IMMEDIATE');
+            try {
+                if(!in_array('play_order',array_column($store->query('PRAGMA table_info(radio_queue)')->fetchAll(),'name'),true)) {
+                    $store->db->exec('ALTER TABLE radio_queue ADD COLUMN play_order INTEGER NOT NULL DEFAULT 0');
+                    $store->db->exec('UPDATE radio_queue SET play_order=id');
+                }
+                $store->db->exec('COMMIT');
+            } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
+        }
+        $store->db->exec('CREATE INDEX IF NOT EXISTS radio_queue_order ON radio_queue(chat_id,status,play_order,id)');
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_picks (token TEXT PRIMARY KEY,source TEXT NOT NULL,title TEXT NOT NULL DEFAULT \'\',artists TEXT NOT NULL DEFAULT \'\',duration INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)');
         $store->db->exec("CREATE TABLE IF NOT EXISTS radio_panels (chat_id INTEGER NOT NULL,message_id INTEGER NOT NULL,station_id INTEGER NOT NULL,user_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,kind TEXT NOT NULL DEFAULT 'text',photo_key TEXT NOT NULL DEFAULT '',view TEXT NOT NULL DEFAULT 'player',hash TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL DEFAULT 0,expires INTEGER NOT NULL,PRIMARY KEY(chat_id,message_id))");
         $panelColumns=array_column($store->query('PRAGMA table_info(radio_panels)')->fetchAll(),'name');
@@ -176,6 +187,7 @@ final class Radio
             $this->store->query('INSERT INTO radio_queue(chat_id,title,artists,duration,source,added_by,created) VALUES(?,?,?,?,?,?,?)',
                 [$chat,mb_substr($title,0,150),mb_substr($artists,0,150),max(0,$duration),json_encode($source,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$user,time()]);
             $id=(int)$this->store->db->lastInsertId();
+            $this->store->query('UPDATE radio_queue SET play_order=? WHERE id=?',[$this->mode($chat)==='shuffle'?random_int(1,PHP_INT_MAX):$id,$id]);
             // Adding a song also resumes a station that was stopped.
             $this->store->query("UPDATE radio_stations SET command='' WHERE chat_id=? AND command='stop'",[$chat]);
             $this->store->db->exec('COMMIT');
@@ -185,33 +197,48 @@ final class Radio
     /** @return list<array> the queue of a chat in play order: the playing song first */
     public function queue(int $chat,int $limit=20): array
     {
-        return $this->store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status IN ('playing','ready','preparing','pending') ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,id LIMIT ?",[$chat,$limit])->fetchAll();
+        return $this->store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status IN ('playing','ready','preparing','pending') ORDER BY CASE status WHEN 'playing' THEN 0 ELSE 1 END,play_order,id LIMIT ?",[$chat,$limit])->fetchAll();
     }
     public function queued(int $chat): int
     {
         return (int)$this->store->query("SELECT COUNT(*) FROM radio_queue WHERE chat_id=? AND status IN ('pending','preparing','ready','playing')",[$chat])->fetchColumn();
     }
-    /** A command for this chat's player: skip, previous, or stop (end the session; the waiting queue stays). */
+    /** A command for this chat's player: skip, previous, restart, or stop (the waiting queue stays). */
     public function command(int $chat,string $command): void
     {
-        if(in_array($command,['skip','stop','previous'],true)) $this->store->query('UPDATE radio_stations SET command=? WHERE chat_id=?',[$command,$chat]);
+        if(in_array($command,['skip','stop','previous','restart'],true)) $this->store->query('UPDATE radio_stations SET command=? WHERE chat_id=?',[$command,$chat]);
+        if($command==='restart') $this->store->set('radio.paused.'.$chat,'0');
     }
     public function paused(int $chat): bool { return $this->store->get('radio.paused.'.$chat,'0')==='1'; }
     public function togglePause(int $chat): void
     {
-        $stopped=($this->station($chat)['command']??'')==='stop';
-        $pause=!$stopped&&!$this->paused($chat)&&!empty($this->progress($chat)['id']);
+        $station=$this->station($chat); $stopped=($station['command']??'')==='stop';
+        $active=$this->queued($chat)>0||!empty($this->progress($chat)['id']);
+        $pause=!$stopped&&!$this->paused($chat)&&$active;
         $this->store->set('radio.paused.'.$chat,$pause?'1':'0');
         if($stopped) $this->store->query("UPDATE radio_stations SET command='' WHERE chat_id=?",[$chat]);
     }
     public function mode(int $chat): string
     {
-        $mode=$this->store->get('radio.mode.'.$chat,'off'); return in_array($mode,['off','all','one'],true)?$mode:'off';
+        $mode=$this->store->get('radio.mode.'.$chat,'off'); return in_array($mode,['off','all','one','shuffle'],true)?$mode:'off';
+    }
+    public function setMode(int $chat,string $mode): string
+    {
+        if(!in_array($mode,['off','all','one','shuffle'],true)) return $this->mode($chat);
+        $this->store->db->exec('BEGIN IMMEDIATE');
+        try {
+            $old=$this->mode($chat);
+            if($mode==='shuffle'&&$old!=='shuffle') {
+                foreach($this->store->query("SELECT id FROM radio_queue WHERE chat_id=? AND status IN ('pending','preparing','ready')",[$chat])->fetchAll(\PDO::FETCH_COLUMN) as $id) $this->store->query('UPDATE radio_queue SET play_order=? WHERE id=?',[random_int(1,PHP_INT_MAX),$id]);
+            } elseif($mode!=='shuffle') $this->store->query('UPDATE radio_queue SET play_order=id WHERE chat_id=?',[$chat]);
+            $this->store->set('radio.mode.'.$chat,$mode); $this->store->db->exec('COMMIT');
+        } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
+        return $mode;
     }
     public function cycleMode(int $chat): string
     {
-        $next=match($this->mode($chat)) {'off'=>'all','all'=>'one',default=>'off'};
-        $this->store->set('radio.mode.'.$chat,$next); return $next;
+        $next=match($this->mode($chat)) {'off'=>'all','all'=>'one','one'=>'shuffle',default=>'off'};
+        return $this->setMode($chat,$next);
     }
     public function progress(int $chat): array
     {

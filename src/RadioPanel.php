@@ -104,6 +104,11 @@ final class RadioPanel
             switch($op) {
                 case 't': $this->radio->togglePause($target); $this->answer($cb,'radio_done'); break;
                 case 'o': $mode=$this->radio->cycleMode($target); $this->answer($cb,'radio_repeat_notice_'.$mode); break;
+                case 'h': case 'e': case 'i': case 'n':
+                    $mode=match($op) {'h'=>'shuffle','e'=>'all','i'=>'one',default=>'off'};
+                    $mode=$this->radio->setMode($target,$op!=='n'&&$this->radio->mode($target)===$mode?'off':$mode);
+                    $this->answer($cb,'radio_repeat_notice_'.$mode); break;
+                case 'j': $this->radio->command($target,'restart'); $this->answer($cb,'radio_player_restarted'); break;
                 case 'b': $this->radio->previous($target,$user); $this->answer($cb,'radio_done'); break;
                 case 'm': $this->answer($cb); (new RadioPlayerPanel($this->bot))->show($chat,$user,$message,$station,$thread,(new RadioPlayerPanel($this->bot))->menu($chat,$message)); return;
                 case 'k': $this->radio->command($target,'skip'); $this->answer($cb,'radio_done'); break;

@@ -33,6 +33,7 @@ try {
         while(microtime(true)<$until&&($status=proc_get_status($process))['running']) usleep(50000);
         transportCheck(!$status['running']&&$status['exitcode']===0,'the controlled session stops cleanly'); proc_close($process);
         transportCheck(!glob($root.'/radio/files/*'),'completed and cached previous-track audio is released on stop');
+        transportCheck(!array_filter($radio->queue(-1001,100),fn($item)=>$item['status']==='playing'),'stopping leaves no stranded playing item in the queue');
     };
     [$root,$store,$radio,$ids]=$make('pause',[10]); $process=$start($root);
     transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[0],'the presentation snapshot identifies the audible track');
@@ -41,6 +42,34 @@ try {
     $radio->togglePause(-1001); $elapsed=$second['elapsed'];
     transportWait(fn()=>($radio->progress(-1001)['elapsed']??0)>$elapsed+0.7,'resume continues from the same track position');
     $stop($process,$radio,$root);
+
+    [$root,$store,$radio,$ids]=$make('pause-before-start',[5]); $radio->togglePause(-1001); $process=$start($root); usleep(2300000);
+    transportCheck($radio->paused(-1001)&&empty($radio->progress(-1001)['id'])&&$store->query('SELECT status FROM radio_queue WHERE id=?',[$ids[0]])->fetchColumn()==='ready','pause while preparing prevents a ready song from starting or advancing');
+    $radio->togglePause(-1001); transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[0],'resume starts the held song'); $stop($process,$radio,$root);
+
+    [$root,$store,$radio,$ids]=$make('restart',[12]); $process=$start($root);
+    transportWait(fn()=>($radio->progress(-1001)['elapsed']??0)>=2.5,'the restart fixture reaches an audible position inside the song');
+    $radio->togglePause(-1001); $radio->command(-1001,'restart');
+    transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[0]&&($radio->progress(-1001)['elapsed']??99)<1.3,'Restart resets the audible song position');
+    transportCheck(!$radio->paused(-1001)&&(int)$store->query('SELECT COUNT(*) FROM radio_queue')->fetchColumn()===1,'Restart resumes playback with the same prepared audio and queue item'); $stop($process,$radio,$root);
+
+    [$root,$store,$radio,$ids]=$make('shuffle',[3,3,3,3]); $radio->setMode(-1001,'shuffle');
+    $order=array_column($radio->queue(-1001,100),'id'); $priorities=array_column($radio->queue(-1001,100),'play_order');
+    transportCheck($order===array_column($radio->queue(-1001,100),'id')&&count(array_unique($priorities))===4&&min($priorities)>0,'shuffle assigns stable random priorities without losing any song');
+    // A fixed permutation isolates real decoder order from randomness, so the test can never pass by chance.
+    $expected=[$ids[2],$ids[0],$ids[3],$ids[1]];
+    foreach($expected as $n=>$id) $store->query('UPDATE radio_queue SET play_order=? WHERE id=?',[$n+1,$id]);
+    $process=$start($root); $seen=[]; $until=microtime(true)+18;
+    while(microtime(true)<$until&&count($seen)<4) { $id=(int)($radio->progress(-1001)['id']??0); if($id>0&&!in_array($id,$seen,true)) $seen[]=$id; usleep(50000); }
+    transportCheck($seen===$expected,'the real player follows the shuffled playlist shown by the panel'); $stop($process,$radio,$root);
+
+    [$root,$store,$radio,$ids]=$make('shuffle-during-play',[12,3,3]); $process=$start($root);
+    transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[0],'the mode-change fixture starts with the original queue');
+    // Publish a deterministic shuffle and Skip together while the old next decoder is already prefetched.
+    $store->db->exec('BEGIN IMMEDIATE'); $store->set('radio.mode.-1001','shuffle');
+    $store->query('UPDATE radio_queue SET play_order=? WHERE id=?',[2,$ids[1]]); $store->query('UPDATE radio_queue SET play_order=? WHERE id=?',[1,$ids[2]]); $radio->command(-1001,'skip'); $store->db->exec('COMMIT');
+    transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[2],'changing to Shuffle replaces the old prefetched next decoder');
+    transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[1],'the remaining shuffled song plays next'); $stop($process,$radio,$root);
 
     [$root,$store,$radio,$ids]=$make('previous',[3,8]); $process=$start($root);
     transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[1],'the next track follows the first');

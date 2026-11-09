@@ -119,7 +119,7 @@ try {
     // 7. Controls in the group.
     $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('editMessageCaption')??$api->last('editMessageMedia')??$api->last('sendPhoto');
     $caption=$status['caption']??$status['media']['caption']??'';
-    rdCheck(str_contains($caption,'پلی‌لیست بعدی')&&str_contains($caption,'●')&&rdActions($status)===['rd:o:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100'],'/radio in a group shows the photo player controls to an administrator');
+    rdCheck(str_contains($caption,'پلی‌لیست بعدی')&&str_contains($caption,'●')&&rdActions($status)===['rd:j:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100','rd:h:-1100','rd:e:-1100','rd:i:-1100','rd:n:-1100'],'/radio in a group shows the photo player controls to an administrator');
     $api->calls=[]; $bot->handle(rdText('/radio',66,-1100)); rdCheck(str_contains($api->last('sendMessage')['text'],'فقط مدیرهای'),'a member only gets a short refusal');
     $api->calls=[]; $bot->handle(rdText('/radio',55,-3333)); rdCheck(str_contains($api->last('sendMessage')['text'],'رادیو ندارد'),'a group without a radio says so');
     $bot->handle(rdClick('rd:k:-1100',55,-1100)); rdCheck($radio->station(-1100)['command']==='skip','skip is passed to the player');
@@ -163,4 +163,11 @@ try {
     foreach(['radio_panel','radio_player_caption','radio_key_prompt','radio_added','radio_full'] as $key) rdCheck($bot->ui->customizable('text',$key)&&($bot->ui->definition('text',$key)['audience']??'')==='user',"editable text: $key");
     foreach(['radio_play','radio_play_all','radio_next','radio_stop','radio_clear'] as $key) rdCheck($bot->ui->customizable('button',$key)&&($bot->ui->definition('button',$key)['audience']??'')==='user',"editable button: $key");
     rdCheck(($bot->ui->definition('button','radio_play_all')['style']??'')==='success'&&($bot->ui->definition('button','radio_stop')['style']??'')==='danger','green starts, red stops');
+    // Upgrade the pre-shuffle queue without discarding prepared files or changing original order.
+    $legacyRoot=$temp.'/legacy'; mkdir($legacyRoot,0700); $legacyStore=new Zero\Store($legacyRoot);
+    $legacyStore->db->exec("CREATE TABLE radio_queue (id INTEGER PRIMARY KEY AUTOINCREMENT,chat_id INTEGER NOT NULL,title TEXT NOT NULL DEFAULT '',artists TEXT NOT NULL DEFAULT '',duration INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',file TEXT NOT NULL DEFAULT '',added_by INTEGER NOT NULL DEFAULT 0,tries INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,cover TEXT NOT NULL DEFAULT '')");
+    foreach([7,11] as $id) $legacyStore->query('INSERT INTO radio_queue(id,chat_id,title,source,status,file,created) VALUES(?,?,?,?,?,?,?)',[$id,-2001,'Legacy '.$id,'{"service":"spotify","m":{"title":"Legacy"}}','ready','/prepared/'.$id.'.m4a',time()]);
+    $legacy=new Zero\Radio(new Zero\Config('123:fixture',[42],$legacyRoot),$legacyStore); $oldQueue=$legacy->queue(-2001);
+    rdCheck(array_column($oldQueue,'id')===[7,11]&&array_column($oldQueue,'play_order')===[7,11],'upgrading a pre-shuffle database preserves the original queue order');
+    rdCheck(array_column($oldQueue,'file')===['/prepared/7.m4a','/prepared/11.m4a']&&array_column($oldQueue,'status')===['ready','ready'],'queue migration preserves prepared media references and status');
 } finally { exec('rm -rf '.escapeshellarg($temp)); }

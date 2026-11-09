@@ -139,7 +139,7 @@ $release=function(?array $decoder,string $status) use ($store): void {
         @unlink((string)$decoder['item']['file']); if((string)($decoder['item']['cover']??'')!=='') @unlink((string)$decoder['item']['cover']);
     }
 };
-$current=null; $upcoming=null; $buffer=''; $previous=null; $requested=null;
+$current=null; $upcoming=null; $buffer=''; $previous=null; $requested=null; $lastMode=$radio->mode($chat);
 $forget=function(?array $item) use ($store): void {
     if($item===null) return;
     @unlink((string)$item['file']); if(($item['cover']??'')!=='') @unlink($item['cover']);
@@ -152,14 +152,28 @@ $remember=function(array $decoder) use (&$previous,$forget,$release): void {
 while(!$stopping) {
     $row=$store->query('SELECT live,command FROM radio_stations WHERE chat_id=?',[$chat])->fetch();
     if(!$row||(int)$row['live']!==1||$row['command']==='stop') break;
-    if($row['command']==='previous') {
+    $mode=$radio->mode($chat);
+    if($mode!==$lastMode) { $release($upcoming,'drop'); $upcoming=null; $lastMode=$mode; }
+    if(in_array($row['command'],['previous','restart'],true)) {
         $store->query("UPDATE radio_stations SET command='' WHERE chat_id=?",[$chat]);
-        if($current!==null) {
-            $playback->finish((int)$current['item']['id'],$audioSent);
-            $requested=$previous??$current['item'];
-            $release($upcoming,'drop'); $upcoming=null;
-            if($previous!==null) { $store->query("UPDATE radio_queue SET status='ready' WHERE id=?",[$current['item']['id']]); $upcoming=$decode($current['item']); }
-            $release($current,'drop'); $current=null; $previous=null; $buffer='';
+        $audible=(int)($radio->progress($chat)['id']??0);
+        $now=$current['item']??$requested;
+        $replay=$row['command']==='previous'?($previous??$now):
+            (($previous!==null&&(int)$previous['id']===$audible)?$previous:($now??$previous));
+        if($replay!==null) {
+            if($current!==null) {
+                $playback->finish((int)$current['item']['id'],$audioSent);
+                if((int)$replay['id']!==(int)$current['item']['id']) {
+                    $release($upcoming,'drop'); $upcoming=null;
+                    $store->query("UPDATE radio_queue SET status='ready' WHERE id=?",[$current['item']['id']]); $upcoming=$decode($current['item']);
+                }
+                $release($current,'drop'); $current=null;
+            } elseif($requested!==null&&(int)$requested['id']!==(int)$replay['id']) {
+                // A command can arrive between repeat-one's EOF and reopening its decoder. Keep that interrupted song.
+                $release($upcoming,'drop'); $store->query("UPDATE radio_queue SET status='ready' WHERE id=?",[$requested['id']]); $upcoming=$decode($requested);
+            }
+            if($previous!==null&&(int)$previous['id']===(int)$replay['id']) $previous=null;
+            $requested=$replay; $buffer='';
         }
     }
     if($row['command']==='skip') {
@@ -169,8 +183,8 @@ while(!$stopping) {
         $current=null; $buffer='';
     }
     $pausedState=$radio->paused($chat);
-    if($current!==null&&$pausedState) {
-        $playback->silence($audioSent,$seconds);
+    if($pausedState) {
+        if($current!==null) $playback->silence($audioSent,$seconds);
         if(!$write($silence)) { $failed=true; break; }
         continue;
     }
@@ -183,7 +197,7 @@ while(!$stopping) {
             $upcoming=null;
         }
         if($current===null) {
-            $item=$store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='ready' ORDER BY id LIMIT 1",[$chat])->fetch();
+            $item=$store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='ready' ORDER BY play_order,id LIMIT 1",[$chat])->fetch();
             if($item&&is_file((string)$item['file'])) $current=$decode($item);
             elseif($item) $store->query("UPDATE radio_queue SET status='failed' WHERE id=?",[$item['id']]);
         }
@@ -203,7 +217,7 @@ while(!$stopping) {
         $playback->start($current['item'],$audioSent+strlen($buffer)/(44100*4));
     }
     if($upcoming===null) {
-        $item=$store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='ready' ORDER BY id LIMIT 1",[$chat])->fetch();
+        $item=$store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='ready' ORDER BY play_order,id LIMIT 1",[$chat])->fetch();
         if($item&&is_file((string)$item['file'])) $upcoming=$decode($item);
     }
     $pumpNext();
@@ -231,7 +245,10 @@ if(!$failed&&!$stopping) { $until=microtime(true)+$lead+1.0; while(microtime(tru
 if($failed&&$current!==null) { $store->query("UPDATE radio_queue SET status='ready' WHERE id=? AND status='playing'",[$current['item']['id']]); $adder=(int)$current['item']['added_by']; $release($current,'drop'); $current=null; }
 $release($current,'done'); $release($upcoming,'drop');
 $artwork->close();
-if($requested!==null) $forget($requested);
+if($requested!==null) {
+    $store->query("UPDATE radio_queue SET status='done' WHERE id=? AND status='playing'",[$requested['id']]);
+    $forget($requested);
+}
 $forget($previous); $playback->clear();
 $store->query("UPDATE radio_stations SET now='' WHERE chat_id=?",[$chat]);
 if(is_resource($out)) {

@@ -74,9 +74,15 @@ final class RadioPlayerPanel
         $queueText=$lines?$ui->text(count($queue)>3?'radio_player_queue_collapsed':'radio_player_queue',['tracks'=>implode("\n",$lines)],['tracks']):$ui->text('radio_player_empty');
         $state=$paused?$ui->text('radio_player_paused'):((int)$station['live']===0?$ui->text('radio_status_off'):($preparing?$ui->text('radio_player_preparing'):''));
         $text=Ui::fitCaption($ui->text('radio_player_caption',['track'=>$track,'bar'=>$bar,'times'=>$left.str_repeat(' ',max(1,21-strlen($left)-strlen($right))).$right,'queue'=>$queueText,'state'=>$state],['track','queue','state']));
-        $mode=$this->radio->mode($id); $playing=!$preparing&&!$paused&&($station['command']??'')!=='stop'&&!empty($data['id']);
-        $row=[$this->button('radio_repeat_'.$mode,'rd:o:'.$id),$this->button('radio_previous','rd:b:'.$id),$this->button($playing?'radio_pause':'radio_resume','rd:t:'.$id),$this->button('radio_next','rd:k:'.$id),$this->button('radio_menu','rd:m:'.$id)];
-        $rows=[$row];
+        $mode=$this->radio->mode($id);
+        $row=[$this->button('radio_player_restart','rd:j:'.$id),$this->button('radio_previous','rd:b:'.$id),$this->button($paused?'radio_resume':'radio_pause','rd:t:'.$id),$this->button('radio_next','rd:k:'.$id),$this->button('radio_menu','rd:m:'.$id)];
+        $modes=[];
+        foreach(['shuffle'=>'h','all'=>'e','one'=>'i','off'=>'n'] as $choice=>$op) {
+            $button=$this->button('radio_repeat_'.$choice,'rd:'.$op.':'.$id);
+            if($choice===$mode) $button['text']=$ui->plainWith('radio_player_mode_selected',['label'=>$button['text']]);
+            $modes[]=$button;
+        }
+        $rows=[$row,$modes];
         if($view==='menu') {
             $rows[]=[$this->button((int)$station['live']===1?'radio_mark_off':'radio_mark_live','rd:l:'.$id)];
             $rows[]=[$this->button('radio_stop','rd:s:'.$id),$this->button('radio_clear','rd:x:'.$id)];
