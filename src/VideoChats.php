@@ -29,16 +29,22 @@ final class VideoChats
         $chat=is_array($post['chat']??null)?$post['chat']:[];
         $title=trim((string)($chat['title']??''));
         $starter=(int)($post['from']['id']??0); $chatId=(int)($chat['id']??0);
+        // A group administrator who stays anonymous (or "appears as" the group) starts the stream on behalf of the group
+        // itself: Telegram then names the group as sender and a service account as "from". Only administrators can do that.
+        $asGroup=!$channel&&$chatId!==0&&(int)($post['sender_chat']['id']??0)===$chatId;
+        if(!$channel) error_log('Group video chat '.$event[1].': '.($asGroup?'as the group':($starter>0&&$bot->admin($starter)?'bot administrator':'member or chat administrator')));
         // The radio of this chat: its stream is live or not, and a chat where an administrator started one can be set up.
         try {
             $radio=new Radio($bot->config,$bot->store);
             if($event[1]==='ended') $radio->setLive($chatId,false);
             else {
                 $radio->setLive($chatId,true);
-                if($chatId!==0&&($channel||($starter>0&&Radio::chatAdmin($bot->api,$bot->store,$chatId,$starter)))) $radio->seen($chatId,$title,$channel?'channel':'group');
+                if($chatId!==0&&($channel||$asGroup||($starter>0&&Radio::chatAdmin($bot->api,$bot->store,$chatId,$starter)))) $radio->seen($chatId,$title,$channel?'channel':'group');
             }
         } catch(\Throwable) { /* The news to the administrators does not depend on the radio. */ }
-        if(!$channel&&!($starter>0&&$bot->admin($starter))) return true;
+        // In a group the administrators hear about it when one of them started it, or when the group's own administrators did
+        // so anonymously in a group that already has a radio.
+        if(!$channel&&!($starter>0&&$bot->admin($starter))&&!($asGroup&&isset($radio)&&$radio->station($chatId)!==null)) return true;
         $text=$event[1]==='started'?$bot->text('video_chat_started',['chat'=>$title!==''?$title:'—']):$bot->text('video_chat_ended',['chat'=>$title!==''?$title:'—',
             'duration'=>Ui::duration(max(0,(int)($post[$event[0]]['duration']??0)))]);
         foreach($bot->store->administratorIds($bot->config->admins) as $admin) {

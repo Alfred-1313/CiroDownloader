@@ -31,6 +31,13 @@ try {
     $api->calls=[]; $bot->handle($groupMessage(42,['video_chat_started'=>[]])); vcCheck(count($api->sent())===2&&str_contains($api->sent()[0][1]['text'],'Party'),'an administrator starting a video chat in a group is reported');
     $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_started'=>[]])); vcCheck(!$api->sent(),'a stranger starting one in a group is not');
     $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_ended'=>['duration'=>5]])); vcCheck(!$api->sent(),'nor is its end');
+    // An administrator who stays anonymous starts it "as the group": the group may be set up as a radio, and once it is one the administrators hear about it.
+    $anonymous=fn(array $extra)=>['update_id'=>9,'message'=>['message_id'=>9,'from'=>['id'=>1087968824,'is_bot'=>true,'first_name'=>'Group'],'sender_chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'date'=>time()]+$extra];
+    $api->calls=[]; $bot->handle($anonymous(['video_chat_started'=>[]])); $radio=new Zero\Radio($config,$store);
+    vcCheck(in_array(-1002,array_map('intval',array_column($radio->candidates(),'chat_id')),true)&&!$api->sent(),'a stream started anonymously makes the group a radio candidate (no news while it is no radio yet)');
+    $radio->save(-1002,'Party','group',42,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $api->calls=[];
+    $bot->handle($anonymous(['video_chat_started'=>[]])); vcCheck(count($api->sent())===2&&(int)$radio->station(-1002)['live']===1,'once it is a radio, an anonymous start is reported and makes the radio live');
+    $bot->handle($anonymous(['video_chat_ended'=>['duration'=>3]])); vcCheck((int)$radio->station(-1002)['live']===0,'and an anonymous end stops it');
     // Everything else is handled as before.
     vcCheck(Zero\VideoChats::handle($bot,$groupMessage(9,['text'=>'hello']))===false&&Zero\VideoChats::handle($bot,['update_id'=>3,'callback_query'=>['id'=>'x']])===false,'ordinary group messages and other updates are left to the normal handlers');
     $api->calls=[]; $bot->handle(['update_id'=>4,'message'=>['message_id'=>8,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/id']]);
