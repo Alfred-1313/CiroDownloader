@@ -48,7 +48,7 @@ try {
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $headings=[];
     foreach($rows as $row) foreach($row as $button) {
         if($button['callback_data']==='custom:noop') { $headings[]=$button['text']; sectionCheck(!isset($button['style']),'caption category header is a white title'); }
-        elseif(str_starts_with($button['callback_data'],'custom:item:')) sectionCheck(!isset($button['style']),'individual caption controls are neutral');
+        elseif(str_starts_with($button['callback_data'],'custom:item:')) sectionCheck(($button['style']??'')==='primary','individual caption controls are blue like every selectable button');
     }
     foreach(['cover','video','audio'] as $section) sectionCheck(in_array($bot->ui->label('catalog_caption_'.$section),$headings,true),'download caption category is explicit: '.$section);
     $bot->handle(sectionClick('custom:item:text:video_duration'));

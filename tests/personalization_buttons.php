@@ -99,7 +99,7 @@ try {
     $bot->handle(btnClick('custom:item:button:extract_audio'));
     $store->set('button.emoji.extract_audio','🔥'); $store->set('button.pos.extract_audio','end'); $store->set('button.hidden.extract_audio','1');
     $bot->handle(btnClick('custom:section:cover'));
-    btnCheck(str_starts_with(btnFind($api,'custom:item:button:extract_audio')['text'],'🔘')&&(btnFind($api,'custom:item:button:extract_audio')['style']??'')==='success','a button changed only by emoji or visibility is marked as customised');
+    btnCheck(str_starts_with(btnFind($api,'custom:item:button:extract_audio')['text'],'🔘')&&(btnFind($api,'custom:item:button:extract_audio')['style']??'')==='primary','a button changed only by emoji or visibility is marked as customised with 🔘 (and is blue like every selectable button)');
     $bot->handle(btnClick('custom:reset:button:extract_audio'));
     $left=$store->query("SELECT key FROM settings WHERE key LIKE 'button.%.extract_audio' OR key='button.extract_audio'")->fetchAll(PDO::FETCH_COLUMN);
     btnCheck($left===[]&&$ui->button('extract_audio','x')['text']==='🎶 Audio','reset removes name, emoji, side, mode, colour, icon and visibility');

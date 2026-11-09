@@ -6,8 +6,24 @@ final class Personalization
 {
     private const PAGE_SIZE=12;
     public function __construct(private Bot $bot) {}
+    /**
+     * One colour rule for every Personalization screen: titles (they only explain themselves) are always white, every
+     * other button you can tap is blue. A state shows in the button's text (✅ / ❌), not in its colour. Only the colour
+     * picker keeps its own colours, because those buttons demonstrate them.
+     */
+    private function recolor(array $rows): array
+    {
+        foreach($rows as $r=>$row) foreach($row as $c=>$button) {
+            $data=(string)($button['callback_data']??'');
+            if($data==='') continue;
+            if($data==='custom:noop'||str_starts_with($data,'custom:hint:')) unset($rows[$r][$c]['style']);
+            elseif(!str_starts_with($data,'custom:setcolor:')) $rows[$r][$c]['style']='primary';
+        }
+        return $rows;
+    }
     private function send(int $chat,string $text,array $rows,int $message): int
     {
+        $rows=$this->recolor($rows);
         try { return $this->bot->send($chat,$text,$rows,$message); }
         catch(\RuntimeException $e) {
             if($e->getCode()!==404||$message<1) throw $e;
@@ -42,7 +58,7 @@ final class Personalization
         $rows[]=[$ui->button('reset_all','custom:resetall'),$ui->button('close','custom:close')];
         $this->send($chat,$ui->text('custom_panel').($notice!==''?"\n\n".$notice:''),$rows,$message);
     }
-    /** Switches that flip at once; green when on and red when off. */
+    /** Switches that flip at once; their state is the ✅ / ❌ in the label. */
     private function features(int $chat,int $message=0,string $notice=''): void
     {
         $ui=$this->bot->ui; $store=$this->bot->store;
@@ -54,11 +70,7 @@ final class Personalization
             [$this->switchButton('admins_only','custom:access',$store->get('admins_only','0')==='1')],
             [$ui->button('access_message','custom:item:text:admin_only_notice')],
             [$this->heading($ui->label('feat_adult'),'feat_adult')],
-            [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
-            [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
-            [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
-            [$this->switchButton('adult_delete_group','custom:adultdelg',$store->get('adult.delete_group','1')==='1')],
-            [$ui->button('adult_delete_seconds','custom:adultsec',['n'=>(string)Bot::adultDelays($store)])],
+            [$ui->button('adult_page','custom:adultpage')],
             [$this->heading($ui->label('feat_reaction'),'feat_reaction')],
             [$ui->button('reaction_settings','custom:reaction')],
             [$this->heading($ui->label('feat_limits'),'feat_limits')],
@@ -66,6 +78,23 @@ final class Personalization
             [$ui->button('back_custom','custom:home'),$ui->button('close','custom:close')],
         ];
         $this->send($chat,$ui->text('custom_features').($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    /** The 18+ site's own page: the master switch, who may use it, the two deletion filters and the delay. */
+    private function adultPage(int $chat,int $message=0): void
+    {
+        $ui=$this->bot->ui; $store=$this->bot->store;
+        $store->set('custom.section.'.$chat,'features');
+        $rows=[
+            [$this->heading($ui->label('adult_who'),'adult_who')],
+            [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
+            [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
+            [$this->heading($ui->label('adult_filters'),'adult_filters')],
+            [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
+            [$this->switchButton('adult_delete_group','custom:adultdelg',$store->get('adult.delete_group','1')==='1')],
+            [$ui->button('adult_delete_seconds','custom:adultsec',['n'=>(string)Bot::adultDelays($store)])],
+            [$ui->button('back_features','custom:features'),$ui->button('close','custom:close')],
+        ];
+        $this->send($chat,$ui->text('custom_adult'),$rows,$message);
     }
     private function resetAll(int $chat,int $message): void
     {
@@ -714,22 +743,24 @@ final class Personalization
         elseif($op==='access') {
             $this->bot->store->set('admins_only',$this->bot->store->get('admins_only','0')==='1'?'0':'1');
             $this->features($chat,$message);
+        } elseif($op==='adultpage') {
+            $this->adultPage($chat,$message);
         } elseif($op==='adult') {
             $this->bot->store->set('adult.pornhub',$this->bot->store->get('adult.pornhub','0')==='1'?'0':'1');
-            $this->features($chat,$message);
+            $this->adultPage($chat,$message);
         } elseif($op==='adultdelp') {
             $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');
-            $this->features($chat,$message);
+            $this->adultPage($chat,$message);
         } elseif($op==='adultdelg') {
             $this->bot->store->set('adult.delete_group',$this->bot->store->get('adult.delete_group','1')==='1'?'0':'1');
-            $this->features($chat,$message);
+            $this->adultPage($chat,$message);
         } elseif($op==='adultsec') {
             $all=Bot::ADULT_DELAYS; $now=Bot::adultDelays($this->bot->store);
             $this->bot->store->set('adult.delete_seconds',(string)$all[(array_search($now,$all,true)+1)%count($all)]);
-            $this->features($chat,$message);
+            $this->adultPage($chat,$message);
         } elseif($op==='adultadmins') {
             $this->bot->store->set('adult.admins_only',$this->bot->store->get('adult.admins_only','1')==='1'?'0':'1');
-            $this->features($chat,$message);
+            $this->adultPage($chat,$message);
         } elseif($op==='groups_mode') {
             $this->bot->store->set('groups_enabled',$this->bot->store->groupsEnabled()?'0':'1');
             (new GroupSupport($this->bot))->syncHelpButtons();

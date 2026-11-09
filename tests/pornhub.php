@@ -71,7 +71,7 @@ try {
 
     // 3. Who may use it.
     $send($link,42);
-    phCheck($jobs()===0&&$lastText()===$bot->text('invalid'),'off by default: even an administrator gets the usual "send a supported link"');
+    phCheck($jobs()===0&&str_contains($lastText(),'Pornhub خاموش است'),'off by default: nothing is taken, and an administrator is told it is off and where to turn it on');
     $store->set('adult.pornhub','1');
     $send($link,7);
     phCheck($jobs()===0&&$lastText()===$bot->text('invalid'),'turned on, it is for administrators only by default; others see nothing about the site');
@@ -85,8 +85,15 @@ try {
     phCheck($groupJob&&$groupJob['url']===$link&&(int)$groupJob['chat_id']===-100555&&(int)$groupJob['user_id']===42,'in a group an administrator\'s link is queued for the quality choice too');
     $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0');
     $send($link,7,-100555); phCheck($jobs()===0,'in a group an ordinary user is refused while "administrators only" is on');
-    $store->set('groups_enabled','0'); $send($link,42,-100555); phCheck($jobs()===0,'and nothing works in a group while group use is switched off');
-    $store->set('groups_enabled','1'); $store->set('adult.pornhub','0'); $send($link,42,-100555); phCheck($jobs()===0,'nor with the Pornhub switch off'); $store->set('adult.pornhub','1');
+    // A refused link is explained to the administrator who sent it (never to anyone else, never in the group).
+    $api->calls=[]; $store->set('groups_enabled','0'); $send($link,42,-100555); $dm=$api->called('sendMessage');
+    phCheck($jobs()===0&&count($dm)===1&&(int)$dm[0][1]['chat_id']===42&&str_contains($dm[0][1]['text'],'استفاده در گروه‌ها')&&!array_filter($api->calls,fn($c)=>(int)($c[1]['chat_id']??0)===-100555),'with group use off, the administrator is told privately and the group sees nothing');
+    $api->calls=[]; $send($link,7,-100555); phCheck(!$api->called('sendMessage'),'while an ordinary member gets no answer at all');
+    $store->set('groups_enabled','1'); $store->set('adult.pornhub','0'); $api->calls=[]; $send($link,42,-100555); $dm=$api->called('sendMessage');
+    phCheck($jobs()===0&&count($dm)===1&&(int)$dm[0][1]['chat_id']===42&&str_contains($dm[0][1]['text'],'Pornhub خاموش است'),'with the Pornhub switch off, the administrator is told privately where to turn it on');
+    $api->calls=[]; $store->query('UPDATE users SET last_request=0'); $send($link,42);
+    phCheck(str_contains($lastText(),'Pornhub خاموش است')&&$jobs()===0,'in a private chat the administrator gets the same hint instead of "invalid link"');
+    $api->calls=[]; $send($link,7); phCheck($lastText()===$bot->text('invalid'),'an ordinary user still gets only "invalid link"'); $store->set('adult.pornhub','1');
     $store->set('adult.admins_only','0'); $send($link,7);
     phCheck($jobs()===1,'with "administrators only" off, anyone may use it in a private chat');
     $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0'); $send($link,7,-100555);
@@ -98,17 +105,21 @@ try {
     $store->set('adult.pornhub','0');
     $click('custom:features',42);
     $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
+    phCheck(in_array('custom:adultpage',array_column($buttons,'callback_data'),true)&&!in_array('custom:adult',array_column($buttons,'callback_data'),true),'the features page has one entry for the 18+ site instead of a row of switches');
+    $click('custom:adultpage',42);
+    $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
     $switch=array_values(array_filter($buttons,fn($b)=>($b['callback_data']??'')==='custom:adult'))[0]??null;
-    phCheck($switch!==null&&($switch['style']??'')==='danger'&&in_array('custom:adultadmins',array_column($buttons,'callback_data'),true),'the features page has the Pornhub switch (red while off) and "administrators only"');
+    $titles=array_filter($buttons,fn($b)=>str_starts_with($b['callback_data']??'','custom:hint:'));
+    phCheck($switch!==null&&str_contains($switch['text'],'❌')&&($switch['style']??'')==='primary'&&in_array('custom:adultadmins',array_column($buttons,'callback_data'),true)&&count($titles)===2&&!array_filter($titles,fn($b)=>isset($b['style'])),'its own page: two white titles, the Pornhub switch (❌ while off) and "administrators only", all other buttons blue');
     $click('custom:adult',42); phCheck($store->get('adult.pornhub')==='1','one tap turns it on');
     $click('custom:adultadmins',42); phCheck($store->get('adult.admins_only')==='0','and "administrators only" off');
     $click('custom:adult',7); $click('custom:adultadmins',7);
     phCheck($store->get('adult.pornhub')==='1'&&$store->get('adult.admins_only')==='0','an ordinary user cannot flip either');
     $store->set('adult.admins_only','1');
     // The two deletion filters are green by default, flip with one tap, and the delay cycles.
-    $click('custom:features',42); $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
+    $click('custom:adultpage',42); $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
     $by=fn($data)=>array_values(array_filter($buttons,fn($b)=>($b['callback_data']??'')===$data))[0]??null;
-    phCheck(($by('custom:adultdelp')['style']??'')==='success'&&($by('custom:adultdelg')['style']??'')==='success'&&str_contains($by('custom:adultsec')['text'],'10 ثانیه'),'the private and group filters are on by default (green) and the delay shows ten seconds');
+    phCheck(str_contains($by('custom:adultdelp')['text'],'✅')&&str_contains($by('custom:adultdelg')['text'],'✅')&&str_contains($by('custom:adultsec')['text'],'10 ثانیه'),'the private and group filters are on by default (✅) and the delay shows ten seconds');
     $click('custom:adultdelp',42); $click('custom:adultdelg',42);
     phCheck($store->get('adult.delete_private')==='0'&&$store->get('adult.delete_group')==='0','one tap turns each filter off');
     $click('custom:adultdelp',7); $click('custom:adultdelg',7); $click('custom:adultsec',7);

@@ -45,6 +45,17 @@ final class Bot
         elseif($chat<1||$chat!==$user) return false;
         return $this->store->get('adult.admins_only','1')!=='1'||$this->admin($user);
     }
+    /**
+     * Why a Pornhub link was refused, told ONLY to an administrator of the bot (who can change it): the text key, or null
+     * for everyone else, so the site is never advertised. In a group the hint goes to the administrator's private chat.
+     */
+    public function adultHint(int $user,int $chat): ?string
+    {
+        if(!$this->admin($user)) return null;
+        if($this->store->get('adult.pornhub','0')!=='1') return 'adult_hint_off';
+        if($chat<0&&!$this->store->groupsEnabled()) return 'adult_hint_groups';
+        return null;
+    }
     /** Seconds until the video of this chat is deleted, or 0 when the filter for this kind of chat is off. */
     public function adultDeleteAfter(int $chat): int
     {
@@ -368,6 +379,10 @@ final class Bot
         $thread=$group?max(0,(int)($message['message_thread_id']??0)):0;
         if($group&&!$this->store->groupsEnabled()) {
             if($cb) $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('groups_disabled'),'show_alert'=>true]);
+            elseif(pornhubUrl(trim((string)($message['text']??'')))!==null&&($hint=$this->adultHint($user,$chat))!==null) {
+                // Group use is off, so nothing is said in the group; an administrator is told privately why the link was not taken.
+                try { $this->send($user,$this->text($hint)); } catch(\Throwable) { /* The administrator never started the bot. */ }
+            }
             return;
         }
         $this->store->observeUser($cb['from']??$message['from']);
@@ -524,7 +539,10 @@ final class Bot
         if($state==='tt_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('tt_cookie_waiting')); return; }
         if($state==='x_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('x_cookie_waiting')); return; }
         $url=mediaUrl($text);
-        if(!$url&&($adult=pornhubUrl($text))!==null&&$this->adultAllowed($user,$chat)) $url=$adult;
+        if(!$url&&($adult=pornhubUrl($text))!==null) {
+            if($this->adultAllowed($user,$chat)) $url=$adult;
+            elseif(($hint=$this->adultHint($user,$chat))!==null) { $this->send($chat,$this->text($hint)); return; }
+        }
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));
     }

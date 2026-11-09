@@ -92,7 +92,14 @@ final class GroupSupport
             return;
         }
         $url=mediaUrl($command==='download'?$argument:$text);
-        if(!$url&&($adult=pornhubUrl($command==='download'?$argument:$text))!==null&&$this->bot->adultAllowed($user,$chat)) $url=$adult;
+        if(!$url&&($adult=pornhubUrl($command==='download'?$argument:$text))!==null) {
+            if($this->bot->adultAllowed($user,$chat)) $url=$adult;
+            elseif(($hint=$this->bot->adultHint($user,$chat))!==null) {
+                // Nothing is said in the group; the administrator who sent the link is told privately why it was not taken.
+                try { $this->bot->send($user,$this->bot->text($hint)); } catch(\Throwable) { /* The administrator never started the bot. */ }
+                return;
+            }
+        }
         if(!$url) {
             if($command==='download') $this->bot->send($chat,$this->bot->text('invalid'),[],0,$thread);
             return;

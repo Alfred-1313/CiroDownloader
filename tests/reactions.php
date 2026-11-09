@@ -40,7 +40,7 @@ try {
     $click('custom:features'); $records=$calls(); $rows=json_decode(end($records)['params']['reply_markup'],true)['inline_keyboard']; $heading=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
         if(($button['callback_data']??'')==='custom:hint:feat_reaction') $heading=!isset($button['style']);
-        if(($button['callback_data']??'')==='custom:reaction') $control=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:reaction') $control=($button['style']??'')==='primary';
     }
     reactionCheck($heading&&$control,'Personalization exposes a white reaction title followed by a settings button');
     $click('custom:reaction:off'); $before=count($reacts()); $submit(10,101,$youtube);

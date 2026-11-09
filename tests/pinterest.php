@@ -61,8 +61,8 @@ try {
     $toggle(7);
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the Pinterest source button defaults off and ordinary users cannot enable it');
     $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $state='';
-    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:pinsource') $state=$button['style']??'';
-    pinCheck($state==='success'&&(new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled('pinterest'),'the source switch turns green and its enabled setting persists');
+    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:pinsource') $state=($button['style']??'').(str_contains($button['text'],'✅')?'+on':'');
+    pinCheck($state==='primary+on'&&(new Zero\Ui(new Zero\Store($temp)))->gallerySourceEnabled('pinterest'),'the source switch turns on (✅ in its text, blue like every selectable button) and its enabled setting persists');
     $toggle();
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the administrator can disable the Pinterest source button again');
     pinCheck(!isset($bot->catalog('button')['pinterest_page_counter']),'the removed counter is absent from Personalization');

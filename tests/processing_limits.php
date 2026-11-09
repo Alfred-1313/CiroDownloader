@@ -62,7 +62,7 @@ try {
     limitCheck($titles>=5&&in_array('custom:features',limitActions($api),true),'the main screen groups sections under white titles and links to the features page');
     $bot->handle(limitClick('custom:features'));
     $switches=[]; foreach(limitRows($api) as $row) foreach($row as $button) if(in_array($button['callback_data'],['custom:groups_mode','custom:access'],true)) $switches[$button['callback_data']]=$button['style']??'';
-    limitCheck($switches==['custom:groups_mode'=>'success','custom:access'=>'danger'],'feature switches show their state with green and red');
+    limitCheck($switches==['custom:groups_mode'=>'primary','custom:access'=>'primary'],'feature switches are blue; their state is the ✅ / ❌ in the text');
     $bot->handle(limitClick('custom:item:text:admin_only_notice'));
     limitCheck(in_array('custom:features',limitActions($api),true),'private-mode notice opened from the features page returns there despite a stale screen');
     $bot->handle(limitClick('custom:edit:text:admin_only_notice')); $bot->handle(limitInput('<b>پیام اختصاصی تازه</b>'));

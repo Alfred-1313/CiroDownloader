@@ -59,8 +59,8 @@ try {
     $toggle(7);
     igCheck(!$bot->ui->instagramSourceEnabled(),'the Instagram source button defaults off and ordinary users cannot enable it');
     $toggle(); $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $state='';
-    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:igsource') $state=$button['style']??'';
-    igCheck($state==='success'&&(new Zero\Ui(new Zero\Store($temp)))->instagramSourceEnabled(),'the source switch turns green and its enabled setting persists');
+    foreach($rows as $row) foreach($row as $button) if(($button['callback_data']??'')==='custom:igsource') $state=($button['style']??'').(str_contains($button['text'],'✅')?'+on':'');
+    igCheck($state==='primary+on'&&(new Zero\Ui(new Zero\Store($temp)))->instagramSourceEnabled(),'the source switch turns on (✅ in its text, blue like every selectable button) and its enabled setting persists');
     $toggle();
     igCheck(!$bot->ui->instagramSourceEnabled(),'the administrator can disable the Instagram source button again');
     igCheck(!isset($bot->catalog('button')['instagram_page_counter']),'the removed counter is absent from Personalization');

@@ -29,9 +29,9 @@ try {
     uiCheck(count($titles)===6&&!array_filter($titles,fn($b)=>isset($b['style'])),'the main screen has six white title buttons');
     foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','spotify','soundcloud','menu','batch','help','group','access','progress','errors'] as $section) uiCheck(uiFind($api,'custom:section:'.$section)!==null,'one entry opens each screen: '.$section);
     uiCheck(uiFind($api,'custom:features')!==null&&uiFind($api,'custom:resetall')!==null&&uiFind($api,'custom:close')!==null,'the main screen offers features, reset-all and close');
-    uiCheck(str_contains(uiText($api),'🟢')&&str_contains(uiText($api),'⬜️')&&str_contains(uiText($api),'✏️')&&str_contains(uiText($api),'🔘'),'a legend explains white titles, green changes and the markers');
+    uiCheck(str_contains(uiText($api),'🔵')&&str_contains(uiText($api),'⬜️')&&str_contains(uiText($api),'✏️')&&str_contains(uiText($api),'🔘')&&!str_contains(uiText($api),'🟢'),'a legend explains white titles, blue buttons and the markers');
     uiCheck(!uiFind($api,'custom:groups:text')&&!uiFind($api,'custom:groups:button')&&!uiFind($api,'custom:sections'),'the old parallel text, caption and button trees are gone from the main screen');
-    uiCheck(!array_filter(uiButtons($api),fn($b)=>($b['style']??'')==='success'),'nothing is green before anything is customized');
+    uiCheck(!array_filter(uiButtons($api),fn($b)=>in_array($b['style']??'',['success','danger'],true))&&count(array_filter(uiButtons($api),fn($b)=>($b['style']??'')==='primary'&&!str_starts_with($b['callback_data']??'','custom:hint:')))===count(array_filter(uiButtons($api),fn($b)=>!str_starts_with($b['callback_data']??'','custom:hint:'))),'one colour rule: titles are white and every other button is blue; no green or red'); 
 
     // Titles explain themselves and never cancel pending input.
     foreach(['home_youtube','home_social','home_music','home_general','home_status','home_features','sec_texts','sec_buttons','sec_settings','feat_group','feat_access','feat_reaction','feat_limits'] as $id) {
@@ -54,9 +54,9 @@ try {
     uiCheck(str_contains(uiText($api),strip_tags(Zero\Ui::definitions()['texts']['welcome']['value'])===''?'':mb_substr(trim(strip_tags(Zero\Ui::definitions()['texts']['welcome']['value'])),0,12))&&$store->get('text.welcome')==='<b>سلام تازه</b>','the default view shows the original text without changing the saved one');
     $bot->handle(uiClick('custom:section:help'));
     $mark=uiFind($api,'custom:item:text:welcome');
-    uiCheck(($mark['style']??'')==='success'&&str_starts_with($mark['text'],'✏️'),'a changed text is green with the text marker in its list');
+    uiCheck(($mark['style']??'')==='primary'&&str_starts_with($mark['text'],'✏️'),'a changed text is marked with ✏️ in its list and is blue like every selectable button');
     $bot->handle(uiClick('custom:home'));
-    uiCheck((uiFind($api,'custom:section:help')['style']??'')==='success'&&(uiFind($api,'custom:section:cover')['style']??'')!=='success','a screen with changes is green on the main screen');
+    uiCheck((uiFind($api,'custom:section:help')['style']??'')==='primary'&&(uiFind($api,'custom:section:cover')['style']??'')==='primary','every screen entry is blue, changed or not');
 
     // A saved text that loses a placeholder is kept, with a warning.
     $bot->handle(uiClick('custom:edit:text:video_title')); $bot->handle(uiInput('عنوان بدون متغیر'));
@@ -72,11 +72,11 @@ try {
 
     // Features page: one-tap switches with green and red.
     $bot->handle(uiClick('custom:features'));
-    uiCheck(($store->groupsEnabled()&&(uiFind($api,'custom:groups_mode')['style']??'')==='success')&&(uiFind($api,'custom:access')['style']??'')==='danger','the features page reflects the stored switches');
+    uiCheck($store->groupsEnabled()&&str_contains(uiFind($api,'custom:groups_mode')['text'],'✅')&&str_contains(uiFind($api,'custom:access')['text'],'❌')&&(uiFind($api,'custom:groups_mode')['style']??'')==='primary'&&(uiFind($api,'custom:access')['style']??'')==='primary','the features page reflects the stored switches in their text (✅ / ❌), all blue');
     $bot->handle(uiClick('custom:groups_mode'));
-    uiCheck(!$store->groupsEnabled()&&(uiFind($api,'custom:groups_mode')['style']??'')==='danger','a switch flips at once and redraws the same page');
+    uiCheck(!$store->groupsEnabled()&&str_contains(uiFind($api,'custom:groups_mode')['text'],'❌'),'a switch flips at once and redraws the same page');
     $bot->handle(uiClick('custom:access'));
-    uiCheck($store->get('admins_only')==='1'&&(uiFind($api,'custom:access')['style']??'')==='success'&&str_contains(uiText($api),'قابلیت'),'the access switch flips at once and redraws the same page');
+    uiCheck($store->get('admins_only')==='1'&&str_contains(uiFind($api,'custom:access')['text'],'✅')&&str_contains(uiText($api),'قابلیت'),'the access switch flips at once and redraws the same page');
     $bot->handle(uiClick('custom:access',7)); $bot->handle(uiClick('custom:groups_mode',7));
     uiCheck($store->get('admins_only')==='1'&&!$store->groupsEnabled(),'ordinary users cannot flip switches');
     $bot->handle(uiClick('custom:groups_mode')); $bot->handle(uiClick('custom:access'));
