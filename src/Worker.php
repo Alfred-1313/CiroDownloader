@@ -47,8 +47,8 @@ final class Worker
         if($music===null&&is_array($track)&&in_array($job['phase'],musicServices(),true)) $music=$job['phase'];
         if($music!==null&&$job['phase']!==$music) $music=null;
         $collection=$job['phase']==='inspect'?collectionUrl($job['url']):null;
-        $adult=pornhubUrl($job['url'])!==null;
-        $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':($adult?'pornhub':'youtube'))));
+        $adultSite=adultService($job['url']); $adult=$adultSite!==null;
+        $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':($adult?$adultSite:'youtube'))));
         $started=hrtime(true); $timings=[];
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
@@ -57,7 +57,7 @@ final class Worker
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
             // Turned off, or no longer allowed for this person, since the link was accepted: nothing is fetched.
-            if($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'])) {
+            if($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 $bot->jobMessage($job,$bot->text('invalid')); return;
             }
@@ -121,9 +121,9 @@ final class Worker
                 $inspectionStarted=hrtime(true);
                 $info=$downloader->inspect($job['url'],$folder);
                 $timings['inspect_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
-                if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
+                if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
                     $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                    $bot->jobMessage($job,$bot->denial((int)$job['chat_id']));
+                    $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id']));
                 } else {
                     if(!$adult) $store->set('youtube_probe_url',$job['url']);
                     $bot->qualityMenu($job,$info);
@@ -138,9 +138,9 @@ final class Worker
             $media=$audio?$downloader->fetchAudio($job['url'],$folder,$options['audio']??[]):
                 $downloader->fetch($job['url'],$folder,$quality,$quality!==null?($options[$quality]??[]):[]);
             $timings['prepare_ms']=(int)round((hrtime(true)-$preparationStarted)/1e6);
-            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
+            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
+                $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id'])); return;
             }
             $stage='upload';
             if($config->api==='http://ciro-telegram-api:8081') {
@@ -150,7 +150,7 @@ final class Worker
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             if($adult) {
                 // Its own caption (title, people, categories, tags, views) and no link back to the site.
-                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$bot->adultDeleteAfter((int)$job['chat_id']));
+                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$bot->adultDeleteAfter((int)$job['chat_id']),$adultSite);
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
             } else {
                 $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
@@ -182,13 +182,13 @@ final class Worker
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
-            $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':($adult?'pornhub':'youtube'))));
+            $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':($adult?$adultSite:'youtube'))));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             try { $store->pushError($label,$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'),$store->get('last_job_sources')); } catch(Throwable) {}
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($gallery) $key=$service.'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
-            elseif($adult) $key=$bot->ui->definition('text','pornhub_'.$key)?'pornhub_'.$key:'failed';
+            elseif($adult) $key=$bot->ui->definition('text',$adultSite.'_'.$key)?$adultSite.'_'.$key:'failed';
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
             $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($music!==null?$music.'_failed':'failed'))));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
@@ -323,10 +323,10 @@ final class Worker
     }
 
     /**
-     * The caption of a Pornhub video: its title in bold, who is in it (the page's pornstars, else the channel), the length
+     * The caption of an adult-site video: its title in bold, who is in it (the page's pornstars, else the channel), the length
      * and quality, and its categories and tags in a collapsed quote, cut to Telegram's limit.
      */
-    private function adultCaption(Bot $bot,array $media,array $meta,bool $audio,int $deleteAfter=0): string
+    private function adultCaption(Bot $bot,array $media,array $meta,bool $audio,int $deleteAfter=0,string $site='pornhub'): string
     {
         $ui=$bot->ui; $plain=fn(string $html)=>html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
         $people=array_filter((array)($meta['people']??[]),'is_string'); $channel=(string)($meta['channel']??'');
@@ -334,10 +334,10 @@ final class Worker
         $label=array_merge(array_filter((array)($meta['categories']??[]),'is_string'),array_filter((array)($meta['tags']??[]),'is_string'));
         $label=array_values(array_unique(array_map(fn($name)=>mb_strtolower($name),$label)));
         $views=(int)($meta['views']??0);
-        $render=fn(string $tags)=>$ui->text('pornhub_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
-            'people'=>$who!==''?"\n".$ui->text('pornhub_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith('pornhub_views',['n'=>number_format($views)]):'',
-            'tags'=>$tags!==''?"\n".$ui->text('pornhub_tags',['tags'=>$tags],['tags']):'',
-            'notice'=>$deleteAfter>0?$ui->text('pornhub_notice',['seconds'=>(string)$deleteAfter])."\n\n":''],['people','views','tags','notice']);
+        $render=fn(string $tags)=>$ui->text($site.'_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
+            'people'=>$who!==''?"\n".$ui->text($site.'_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith($site.'_views',['n'=>number_format($views)]):'',
+            'tags'=>$tags!==''?"\n".$ui->text($site.'_tags',['tags'=>$tags],['tags']):'',
+            'notice'=>$deleteAfter>0?$ui->text($site.'_notice',['seconds'=>(string)$deleteAfter])."\n\n":''],['people','views','tags','notice']);
         $room=1000-TextFormat::length($plain($render('')));
         $kept=[]; $used=0;
         foreach($label as $name) {

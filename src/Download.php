@@ -223,11 +223,11 @@ final class Download
         ]<=>[($a['vcodec']??'none')==='none'?1:0,(float)($a['abr']??$a['tbr']??0)]);
         return array_map(fn($format)=>['id'=>(string)$format['format_id']],array_slice($formats,0,8));
     }
-    /** A video page this class downloads with a quality choice: YouTube (with its cookies) or Pornhub (no cookies). */
+    /** A video page this class downloads with a quality choice: YouTube (with its cookies) or an enabled adult site (no YouTube cookies). */
     private static function videoPage(string $url): array
     {
         if($canonical=youtubeUrl($url)) return [$canonical,'youtube'];
-        if($canonical=pornhubUrl($url)) return [$canonical,'pornhub'];
+        if(($canonical=adultUrl($url))!==null) return [$canonical,adultService($canonical)];
         throw new \RuntimeException('Invalid video URL');
     }
     /** Runs yt-dlp for a video page: YouTube through its cookie jars, anything else plainly (with the social proxy when set). */
@@ -265,12 +265,12 @@ final class Download
         [$canonical,$site]=self::videoPage($url);
         // The page's picture is written by the same request (its own network path and headers), then uploaded to Telegram
         // as a file: Telegram's servers cannot always fetch a picture from the site's CDN themselves.
-        $extra=$site==='pornhub'?['--no-simulate','--write-thumbnail','-o',$folder.'/poster.%(ext)s']:[];
+        $extra=$site!=='youtube'?['--no-simulate','--write-thumbnail','-o',$folder.'/poster.%(ext)s']:[];
         $json=$this->videoRun($site,$canonical,array_merge(['--dump-single-json','--skip-download'],$extra),$folder,min(120,$this->config->timeout),$forceCookies);
         try { $info=json_decode($json,true,512,JSON_THROW_ON_ERROR); }
         catch(\JsonException) { throw new MediaFailure('format','Downloader metadata is invalid'); }
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
-        if($site==='pornhub') {
+        if($site!=='youtube') {
             // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
             $options=self::sizedOptions($info,$this->config->maxBytes);
             $options['meta']=self::siteMeta($info);

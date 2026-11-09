@@ -1,5 +1,5 @@
 {
-  "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو"},
+  "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg"},
   "texts": {
     "cookie_services":{"audience":"admin","label":"انتخاب سرویس کوکی","group":"cookies","value":"<blockquote><b>🍪 ایمپورت کوکی</b></blockquote>\n➖➖➖➖➖➖➖➖➖➖\nسرویس موردنظر را از کیبورد پایین انتخاب کن. هر سرویس کوکی‌های جداگانهٔ خودش را دارد و می‌تواند چند کوکی داشته باشد.\n➖➖➖➖➖➖➖➖➖➖\n<blockquote>حالت استفاده، هشدار، نگه‌دارنده و زمان بررسی خودکار در صفحهٔ جدای «{settings}» در پنل مدیریت هستند.</blockquote>","variables":["settings"]},
     "cookie_settings_panel":{"audience":"admin","label":"تنظیمات کوکی","group":"cookies","value":"<blockquote><b>🛠 تنظیمات کوکی</b></blockquote>\n➖➖➖➖➖➖➖➖➖➖\nهر دکمهٔ زیر همان مورد را با یک لمس عوض می‌کند: <b>سبز روشن</b> و <b>قرمز خاموش</b> است. زمان بررسی را از ردیف پایین انتخاب کن؛ گزینهٔ سبز همان فعلی است.\n➖➖➖➖➖➖➖➖➖➖\n<blockquote>🔁 <b>فقط در صورت نیاز:</b> روشن یعنی اول بدون کوکی تلاش می‌شود و فقط اگر سرویس ورود خواست، کوکی‌ها امتحان می‌شوند؛ خاموش یعنی اگر کوکی هست از همان اول استفاده شود.\n🔔 <b>هشدار به مدیران:</b> انقضا یا خرابی کوکی و بلاک‌شدن IP سرور را به مدیران می‌گوید.\n♻️ <b>نگه‌دارندهٔ یوتیوب:</b> در هر دور بررسی، برای کوکی یوتیوبی که استفاده نشده یک درخواست سبک می‌فرستد تا کوکی تازه‌شده ذخیره شود.\n⏱ <b>زمان بررسی:</b> هر چند وقت همهٔ کوکی‌ها بررسی شوند.</blockquote>"},
@@ -338,7 +338,7 @@
     "switch_on":{"audience":"admin","label":"کلید روشن","group":"custom","value":"✅ روشن"},
     "switch_off":{"audience":"admin","label":"کلید خاموش","group":"custom","value":"❌ خاموش"},
     "custom_features":{"audience":"admin","label":"صفحهٔ قابلیت‌ها","group":"custom","value":"<blockquote><b>⚙️ قابلیت‌ها و محدودیت‌ها</b></blockquote>\nهر کلید یک قابلیت را بلافاصله عوض می‌کند؛ نیازی به تأیید نیست.\n✅ روشن · ❌ خاموش (در خود دکمه نوشته شده)\n\nگزینه‌های ⚙️ تنظیمات بیشتری دارند."},
-    "custom_adult":{"audience":"admin","label":"صفحهٔ سایت بزرگسال","group":"custom","value":"<blockquote><b>🔞 سایت بزرگسال</b></blockquote>\nهر کلید یک مورد را بلافاصله عوض می‌کند؛ وضعیت با ✅ روشن و ❌ خاموش نوشته شده است.\n\n• <b>Pornhub:</b> پیش‌فرض خاموش.\n• <b>فقط مدیرها:</b> وقتی روشن است کاربر عادی همان «لینک نامعتبر» را می‌بیند.\n• <b>حذف خودکار:</b> ویدیو چند ثانیه بعد از ارسال توسط ربات پاک می‌شود؛ جدا برای پی‌وی و گروه (پیش‌فرض هر دو روشن)."},
+    "custom_adult":{"audience":"admin","label":"صفحهٔ سایت بزرگسال","group":"custom","value":"<blockquote><b>🔞 سایت بزرگسال</b></blockquote>\nهر کلید یک مورد را بلافاصله عوض می‌کند؛ وضعیت با ✅ روشن و ❌ خاموش نوشته شده است.\n\n• <b>Pornhub:</b> پیش‌فرض خاموش.\n• <b>Beeg:</b> پیش‌فرض خاموش و مستقل از Pornhub؛ یک لینک ویدیو را بفرست و کیفیت را انتخاب کن.\n• <b>فقط مدیرها:</b> وقتی روشن است کاربر عادی همان «لینک نامعتبر» را می‌بیند.\n• <b>حذف خودکار:</b> ویدیو چند ثانیه بعد از ارسال توسط ربات پاک می‌شود؛ جدا برای پی‌وی و گروه (پیش‌فرض هر دو روشن)."},
     "adult_hint_off":{"audience":"admin","label":"راهنمای مدیر: Pornhub خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Pornhub خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← ⚙️ قابلیت‌ها و محدودیت‌ها ← 🔞 تنظیمات سایت بزرگسال»."},
     "adult_hint_groups":{"audience":"admin","label":"راهنمای مدیر: استفاده در گروه خاموش است","group":"custom","value":"🔞 این لینک در گروه گرفته نشد چون «استفاده در گروه‌ها» خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← ⚙️ قابلیت‌ها و محدودیت‌ها ← 👥 گروه‌ها»."},
     "custom_reset_all":{"audience":"admin","label":"تأیید بازگردانی همه","group":"custom","value":"<blockquote><b>🔁 همهٔ شخصی‌سازی‌ها ریست شود؟</b></blockquote>\nهمهٔ متن‌ها، کپشن‌ها و دکمه‌های کاربران (نام، رنگ و ایموجی) به پیش‌فرض برمی‌گردند. کلیدهای قابلیت، گروه، دسترسی و کوکی‌ها تغییر نمی‌کنند.\n\nاین کار قابل بازگشت نیست."},
@@ -356,7 +356,7 @@
     "hint_feat_group":{"audience":"admin","label":"توضیح کلید گروه","group":"custom","value":"با خاموش‌کردن، ربات در گروه‌ها پاسخ نمی‌دهد و دعوت گروه از راهنما برداشته می‌شود."},
     "hint_feat_adult":{"audience":"admin","label":"توضیح تیتر سایت بزرگسال","group":"custom","value":"پیش‌فرض خاموش. در پی‌وی و گروه کار می‌کند؛ با «فقط مدیرها» روشن، کاربر عادی همان پیام «لینک نامعتبر» را می‌بیند. دو فیلتر حذف خودکار (پی‌وی و گروه، پیش‌فرض هر دو روشن) ویدیو را چند ثانیه بعد از ارسال پاک می‌کنند."},
     "hint_feat_radio":{"audience":"admin","label":"توضیح تیتر رادیو","group":"custom","value":"رادیو آهنگ‌ها را در پخش زندهٔ گروه یا کانال پخش می‌کند. پیش‌فرض روشن است و ادمین‌های همان گروه یا کانال از آن استفاده می‌کنند؛ با «فقط ادمین‌های ربات» فقط مدیرهای ربات می‌توانند."},
-    "hint_adult_who":{"audience":"admin","label":"توضیح تیتر چه کسی","group":"custom","value":"کلید اصلی Pornhub و اینکه فقط مدیرها بتوانند استفاده کنند."},
+    "hint_adult_who":{"audience":"admin","label":"توضیح تیتر چه کسی","group":"custom","value":"کلید مستقل هر سایت و اینکه فقط مدیرها بتوانند استفاده کنند."},
     "hint_adult_filters":{"audience":"admin","label":"توضیح تیتر فیلترها","group":"custom","value":"ویدیو چند ثانیه بعد از ارسال پاک می‌شود. فیلتر پی‌وی و گروه جدا هستند و پیش‌فرض هر دو روشن‌اند."},
     "hint_feat_access":{"audience":"admin","label":"توضیح کلید دسترسی","group":"custom","value":"در حالت فقط ادمین‌ها، کاربران عادی پیام دسترسی بسته را می‌بینند. پیام را می‌توانی ویرایش کنی."},
     "hint_feat_reaction":{"audience":"admin","label":"توضیح ری‌اکشن","group":"custom","value":"ربات پس از پذیرش لینک، روی پیام کاربر ری‌اکشن می‌گذارد. پیش‌فرض 👾 است و خاموش‌شدنی است."},
@@ -595,7 +595,19 @@
     "admin_cmd_help":{"audience":"admin","label":"توضیح دستور /help","group":"admin","inline":true,"value":"راهنمای کاربر"},
     "admin_cmd_cancel":{"audience":"admin","label":"توضیح دستور /cancel","group":"admin","inline":true,"value":"لغو کار در حال انتظار و بازگشت"},
     "admin_cmd_start":{"audience":"admin","label":"توضیح دستور /start","group":"admin","inline":true,"value":"منوی اصلی"},
-    "cookie_settings_notice":{"audience":"admin","label":"پیام بعد از بررسی همین الان","group":"cookies","value":"🔎 بررسی همهٔ کوکی‌ها شروع شد؛ فقط اگر مشکلی باشد به مدیران گفته می‌شود و نتیجه در «📊 وضعیت ربات ← 🍪 کوکی‌ها» دیده می‌شود."}
+    "cookie_settings_notice":{"audience":"admin","label":"پیام بعد از بررسی همین الان","group":"cookies","value":"🔎 بررسی همهٔ کوکی‌ها شروع شد؛ فقط اگر مشکلی باشد به مدیران گفته می‌شود و نتیجه در «📊 وضعیت ربات ← 🍪 کوکی‌ها» دیده می‌شود."},
+    "beeg_caption":{"audience":"user","label":"کپشن ویدیوی Beeg","group":"beeg","variables":["title","quality","duration","people","views","tags","notice"],"caption":true,"value":"{notice}<b>🔞 {title}</b>{people}\n<blockquote>⏱ {duration} · 🎞 {quality}{views}</blockquote>{tags}"},
+    "beeg_people":{"audience":"user","label":"خط بازیگران در کپشن Beeg","group":"beeg","variables":["people"],"inline":true,"value":"👤 <b>{people}</b>"},
+    "beeg_views":{"audience":"user","label":"تعداد بازدید در کپشن Beeg","group":"beeg","variables":["n"],"inline":true,"value":"👁 {n}"},
+    "beeg_tags":{"audience":"user","label":"برچسب‌ها در کپشن Beeg","group":"beeg","variables":["tags"],"value":"<blockquote expandable>🏷 {tags}</blockquote>"},
+    "beeg_notice":{"audience":"user","label":"یادداشت حذف خودکار در کپشن Beeg","group":"beeg","variables":["seconds"],"value":"<blockquote>🗑 این پیام {seconds} ثانیه بعد پاک می‌شود.\n💾 برای نگه‌داشتن، آن را در «پیام‌های ذخیره‌شده» (Saved Messages) خودت ذخیره کن.</blockquote>"},
+    "beeg_error_size":{"audience":"user","label":"خطای حجم Beeg","group":"beeg","value":"<blockquote><b>حجم این ویدیو از سقف ارسال ربات بیشتر است.</b></blockquote>\nکیفیت پایین‌تر را انتخاب کن؛ برای ویدیوهای بزرگ مدیر باید Local Bot API را فعال کند."},
+    "beeg_error_restricted":{"audience":"user","label":"ویدیوی در دسترس نبودن Beeg","group":"beeg","value":"<blockquote><b>این ویدیو حذف شده، خصوصی است یا در دسترس نیست.</b></blockquote>"},
+    "beeg_error_format":{"audience":"user","label":"کیفیت ناموجود Beeg","group":"beeg","value":"<blockquote><b>کیفیت قابل دانلودی برای این ویدیو پیدا نشد.</b></blockquote>\nلینک را دوباره بفرست."},
+    "beeg_error_network":{"audience":"user","label":"خطای شبکهٔ Beeg","group":"beeg","value":"<blockquote><b>اتصال سرور به سایت برقرار نشد.</b></blockquote>\nکمی بعد دوباره تلاش کن."},
+    "beeg_error_blocked":{"audience":"user","label":"محدودیت دسترسی Beeg","group":"beeg","value":"<blockquote><b>⚠️ سایت دسترسی این سرور را محدود کرده است.</b></blockquote>\nمدیر می‌تواند پراکسی شبکه‌های اجتماعی را تنظیم کند."},
+    "report_name_beeg":{"audience":"admin","label":"نام سرویس در گزارش: Beeg","group":"admin","inline":true,"value":"Beeg"},
+    "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← ⚙️ قابلیت‌ها و محدودیت‌ها ← 🔞 تنظیمات سایت بزرگسال»."}
   },
   "buttons": {
     "cookie_youtube":{"audience":"admin","label":"▶️ یوتیوب","group":"cookies","value":"▶️ یوتیوب"},
@@ -801,7 +813,7 @@
     "adult_pornhub":{"audience":"admin","label":"روشن و خاموش‌کردن Pornhub","group":"custom","value":"🔞 Pornhub: {state}"},
     "radio_switch":{"audience":"admin","label":"روشن و خاموش‌کردن رادیو","group":"custom","variables":["state"],"value":"📻 رادیو: {state}"},
     "radio_access_switch":{"audience":"admin","label":"فقط ادمین‌های ربات برای رادیو","group":"custom","variables":["state"],"value":"👤 فقط ادمین‌های ربات: {state}"},
-    "adult_admins":{"audience":"admin","label":"Pornhub فقط برای مدیرها","group":"custom","value":"👮 فقط مدیرها: {state}"},
+    "adult_admins":{"audience":"admin","label":"سایت‌های بزرگسال فقط برای مدیرها","group":"custom","value":"👮 فقط مدیرها: {state}"},
     "adult_delete_private":{"audience":"admin","label":"حذف خودکار ویدیو در پی‌وی","group":"custom","value":"🗑 حذف خودکار در پی‌وی: {state}"},
     "adult_delete_group":{"audience":"admin","label":"حذف خودکار ویدیو در گروه","group":"custom","value":"🗑 حذف خودکار در گروه: {state}"},
     "adult_delete_seconds":{"audience":"admin","label":"زمان حذف خودکار","group":"custom","variables":["n"],"value":"⏱ حذف بعد از {n} ثانیه"},
@@ -906,6 +918,9 @@
     "cs_every_720":{"audience":"admin","label":"زمان بررسی ۱۲ ساعت","group":"cookies","value":"⏱ ۱۲ ساعت"},
     "cs_every_1440":{"audience":"admin","label":"زمان بررسی ۲۴ ساعت","group":"cookies","value":"⏱ ۲۴ ساعت"},
     "cs_check_now":{"audience":"admin","label":"دکمهٔ بررسی همین الان","group":"cookies","value":"🔎 بررسی همین الان","style":"success"},
-    "cs_close":{"audience":"admin","label":"بستن تنظیمات کوکی","group":"cookies","value":"❌ بستن"}
+    "cs_close":{"audience":"admin","label":"بستن تنظیمات کوکی","group":"cookies","value":"❌ بستن"},
+    "section_beeg":{"audience":"admin","label":"🔞 Beeg","group":"custom","value":"🔞 Beeg"},
+    "group_beeg":{"audience":"admin","label":"Beeg","group":"custom","value":"Beeg"},
+    "adult_beeg":{"audience":"admin","label":"روشن و خاموش‌کردن Beeg","group":"custom","value":"🔞 Beeg: {state}"}
   }
 }

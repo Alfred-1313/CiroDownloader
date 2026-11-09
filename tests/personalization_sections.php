@@ -21,9 +21,9 @@ $temp=sys_get_temp_dir().'/ciro-sections-'.bin2hex(random_bytes(6));mkdir($temp,
 try {
     $store=new Zero\Store($temp);$api=new SectionApi();$bot=new Zero\Bot(new Zero\Config('123:fake',[42],$temp),$store,$api);
     $bot->handle(sectionClick('custom:sections'));
-    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','spotify','soundcloud','menu','batch','search','radio','help','group','access','progress','errors'] as $section) sectionCheck(in_array('custom:section:'.$section,sectionActions($api),true),'screen is available: '.$section);
+    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','beeg','spotify','soundcloud','menu','batch','search','radio','help','group','access','progress','errors'] as $section) sectionCheck(in_array('custom:section:'.$section,sectionActions($api),true),'screen is available: '.$section);
     $seen=[];
-    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','spotify','soundcloud','menu','batch','search','radio','help','group','access','progress','errors'] as $section) {
+    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','beeg','spotify','soundcloud','menu','batch','search','radio','help','group','access','progress','errors'] as $section) {
         // Long screens are paged; follow the Next links to see every item.
         $queue=['custom:section:'.$section]; $visited=[];
         while($queue) {

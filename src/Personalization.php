@@ -45,7 +45,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),'pornhub'],'music'=>[...musicServices(),'menu','batch','search','radio'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),...adultServices()],'music'=>[...musicServices(),'menu','batch','search','radio'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -90,6 +90,7 @@ final class Personalization
         $rows=[
             [$this->heading($ui->label('adult_who'),'adult_who')],
             [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
+            [$this->switchButton('adult_beeg','custom:adultbeeg',$store->get('adult.beeg','0')==='1')],
             [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
             [$this->heading($ui->label('adult_filters'),'adult_filters')],
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
@@ -254,7 +255,7 @@ final class Personalization
         $screens['radio']=array_merge(array_map(fn($key)=>['text',$key],['radio_panel','radio_panel_none','radio_panel_hint','radio_panel_row','radio_state_live','radio_state_off','radio_status','radio_status_live','radio_status_off','radio_now_none','radio_queue_row',
                 'radio_key_prompt','radio_key_invalid','radio_key_saved','radio_remove_confirm','radio_removed','radio_group_none','radio_not_admin','radio_no_station','radio_added','radio_added_idle','radio_added_many','radio_full','radio_long','radio_expired','radio_failed','radio_done','radio_output_failed','radio_disabled','radio_bot_only','radio_already']),
             array_map(fn($key)=>['button',$key],['radio_play','radio_play_all','radio_play_chosen','radio_mark_live','radio_mark_off','radio_skip','radio_stop','radio_clear','radio_refresh','radio_close','radio_back','radio_open','radio_setup','radio_use','radio_remove','radio_remove_yes']));
-        $screens['pornhub']=[['text','pornhub_caption'],['text','pornhub_notice'],['text','pornhub_people'],['text','pornhub_views'],['text','pornhub_tags'],['text','pornhub_error_size'],['text','pornhub_error_restricted'],['text','pornhub_error_format'],['text','pornhub_error_network'],['text','pornhub_error_blocked']];
+        foreach(adultServices() as $site) $screens[$site]=array_map(fn($key)=>['text',$site.'_'.$key],['caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked']);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
@@ -756,6 +757,9 @@ final class Personalization
             $this->adultPage($chat,$message);
         } elseif($op==='adult') {
             $this->bot->store->set('adult.pornhub',$this->bot->store->get('adult.pornhub','0')==='1'?'0':'1');
+            $this->adultPage($chat,$message);
+        } elseif($op==='adultbeeg') {
+            $this->bot->store->set('adult.beeg',$this->bot->store->get('adult.beeg','0')==='1'?'0':'1');
             $this->adultPage($chat,$message);
         } elseif($op==='adultdelp') {
             $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');

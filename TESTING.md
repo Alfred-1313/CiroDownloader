@@ -1,5 +1,7 @@
 # Verification
 
+`php tests/beeg.php` uses the pinned yt-dlp Python (set `YTDLP_TEST_PYTHON` outside Docker) and its actual Beeg extractor with neutral local metadata/HLS fixtures. Real video/audio downloads, FFmpeg and multipart Telegram uploads verify independent default-off access, quality selection and ownership, group topics, no YouTube-cookie reuse, site-specific captions/diagnostics, restart-safe deletion and separate reports. Public Beeg and Telegram endpoints are not contacted. The Pornhub regression remains separate to guard compatibility.
+
 GitHub Actions runs these checks on each push:
 
 - `php tests/run.php`: URL validation, admin authorization, queue limits, Persian help alerts, cookie export validation and redacted process/proxy errors.

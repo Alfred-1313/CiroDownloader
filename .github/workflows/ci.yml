@@ -79,6 +79,7 @@ jobs:
           php tests/cookie_health.php
           php tests/reports.php
           php tests/pornhub.php
+          YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/beeg.php
           php tests/network_options.php
           php tests/media.php
           php tests/downloader_access.php

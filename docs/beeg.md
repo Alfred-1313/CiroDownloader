@@ -1,0 +1,31 @@
+# Beeg
+
+Beeg uses the existing Pornhub/YouTube quality-selection flow through the installed `yt-dlp`. This addition stays on `main` without changing the version or creating a release.
+
+## Enable and test
+
+1. Open **🎨 شخصی‌سازی ← ⚙️ قابلیت‌ها و محدودیت‌ها ← 🔞 تنظیمات سایت بزرگسال**.
+2. Turn on **🔞 Beeg**. It defaults off and is independent of the Pornhub switch.
+3. Send a single video link, for example the shape `https://beeg.com/-VIDEO_ID`, then choose an offered quality or audio. Only the requester can choose.
+
+The existing **فقط مدیرها** restriction applies to both adult sites; it defaults on. Group use must also be enabled. A bot administrator receives a private explanation when the site or group switch prevents intake. Ordinary users receive the same refusal as the Pornhub flow.
+
+## Accepted links
+
+Single numeric video pages on `beeg.com` or `www.beeg.com` are supported, with an optional leading minus or `/video/` path. Leading zeros are preserved. Tracking and time-selection query parameters are removed so the full video is requested. Home pages, profiles, categories, other hosts, embedded credentials, ports and extra path components are rejected.
+
+Beeg stays outside the always-on public media list. Enabling Pornhub does not enable Beeg, and disabling Pornhub does not disable an independently enabled Beeg.
+
+## Delivery and settings
+
+The same status message becomes the quality menu. A poster is used if the extractor provides one; otherwise the menu remains text. The existing ladder (240/360/480/720/1080, as offered) and upload-size checks apply. The audio option extracts MP3 from the smallest available stream. Downloads use the configured social-media proxy when present, without passing YouTube cookies.
+
+**🎨 شخصی‌سازی ← 🔞 Beeg** contains independent caption, people/views/tags, deletion notice and error texts. Caption structure follows Pornhub: deletion notice first in a quote, an empty line, title and details, then collapsed tags. There is no source link or button. Missing metadata fields stay empty.
+
+The existing private/group auto-delete switches and delay are shared with Pornhub; their saved values are retained. Defaults are on with a ten-second delay. Pending deletions survive restart. Access is rechecked before extraction, after inspection and before upload, so disabling a site during processing prevents subsequent delivery.
+
+Reports count Beeg separately, including download/upload speed when a sample meets the existing minimum size. Failures retain a short cause such as `beeg=certificate` in administrator diagnostics; raw URLs and tokens are not retained in recent errors.
+
+## Verification
+
+`tests/beeg.php` runs the actual pinned Beeg extractor, HLS parser/downloader and FFmpeg against neutral local fixtures, with real multipart uploads to a local Telegram endpoint. It covers URL rules, independent switches, access restrictions, quality ownership, MP4/MP3 delivery, captions, deletion and reports. This validates the integration without contacting Beeg or Telegram; real access from a deployment's IP is tested by sending a video link after updating.

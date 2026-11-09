@@ -37,26 +37,26 @@ final class Bot
     public function admin(int $id): bool { return $this->store->isAdmin($id,$this->config->admins); }
     public function allowed(int $id,?int $chat=null): bool { return !($chat<0&&!$this->store->groupsEnabled())&&($this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1')); }
     /**
-     * Pornhub links: off unless the administrator turns them on, and by default only for administrators. They work in a
+     * Adult-site links: off unless the administrator turns them on, and by default only for administrators. They work in a
      * private chat with the bot and in groups (when group use is on); the video is deleted again a few seconds after it
      * is sent unless that filter is switched off for that kind of chat. Everyone else gets the usual "send a supported
      * link" answer, so the site is never advertised.
      */
-    public function adultAllowed(int $user,int $chat): bool
+    public function adultAllowed(int $user,int $chat,string $site='pornhub'): bool
     {
-        if($this->store->get('adult.pornhub','0')!=='1') return false;
+        if(!in_array($site,adultServices(),true)||$this->store->get('adult.'.$site,'0')!=='1') return false;
         if($chat<0) { if(!$this->store->groupsEnabled()) return false; }
         elseif($chat<1||$chat!==$user) return false;
         return $this->store->get('adult.admins_only','1')!=='1'||$this->admin($user);
     }
     /**
-     * Why a Pornhub link was refused, told ONLY to an administrator of the bot (who can change it): the text key, or null
+     * Why an adult-site link was refused, told ONLY to an administrator of the bot (who can change it): the text key, or null
      * for everyone else, so the site is never advertised. In a group the hint goes to the administrator's private chat.
      */
-    public function adultHint(int $user,int $chat): ?string
+    public function adultHint(int $user,int $chat,string $site='pornhub'): ?string
     {
-        if(!$this->admin($user)) return null;
-        if($this->store->get('adult.pornhub','0')!=='1') return 'adult_hint_off';
+        if(!$this->admin($user)||!in_array($site,adultServices(),true)) return null;
+        if($this->store->get('adult.'.$site,'0')!=='1') return $site==='pornhub'?'adult_hint_off':'beeg_hint_off';
         if($chat<0&&!$this->store->groupsEnabled()) return 'adult_hint_groups';
         return null;
     }
@@ -226,7 +226,7 @@ final class Bot
             $reason=MediaFailure::process(1,$detail)->reason;
         }
         $service=$this->store->get('last_job_service');
-        $key=(in_array($service,[...galleryServices(),...musicServices(),'pornhub'],true)?$service.'_':'').'error_'.$reason;
+        $key=(in_array($service,[...galleryServices(),...musicServices(),...adultServices()],true)?$service.'_':'').'error_'.$reason;
         // Only a clean list written by the bot itself ("youtube=blocked, soundcloud=format"), never raw downloader output.
         $sources=$this->store->get('last_job_sources');
         return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed').(preg_match('/^[a-z]+=[a-z]+(?:, [a-z]+=[a-z]+){0,4}$/D',$sources)===1?"\n".$sources:'');
@@ -385,7 +385,7 @@ final class Bot
         $thread=$group?max(0,(int)($message['message_thread_id']??0)):0;
         if($group&&!$this->store->groupsEnabled()) {
             if($cb) $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('groups_disabled'),'show_alert'=>true]);
-            elseif(pornhubUrl(trim((string)($message['text']??'')))!==null&&($hint=$this->adultHint($user,$chat))!==null) {
+            elseif(($site=adultService(trim((string)($message['text']??''))))!==null&&($hint=$this->adultHint($user,$chat,$site))!==null) {
                 // Group use is off, so nothing is said in the group; an administrator is told privately why the link was not taken.
                 try { $this->send($user,$this->text($hint)); } catch(\Throwable) { /* The administrator never started the bot. */ }
             }
@@ -552,9 +552,9 @@ final class Bot
         // /music and /spotify with the text to look for.
         if(($search=MusicSearch::parse($text))!==null) { MusicSearch::handle($this,$update,$user,$chat,0,$search); return; }
         $url=mediaUrl($text);
-        if(!$url&&($adult=pornhubUrl($text))!==null) {
-            if($this->adultAllowed($user,$chat)) $url=$adult;
-            elseif(($hint=$this->adultHint($user,$chat))!==null) { $this->send($chat,$this->text($hint)); return; }
+        if(!$url&&($adult=adultUrl($text))!==null) {
+            if($this->adultAllowed($user,$chat,adultService($adult))) $url=$adult;
+            elseif(($hint=$this->adultHint($user,$chat,adultService($adult)))!==null) { $this->send($chat,$this->text($hint)); return; }
         }
         if(!$url) { $this->send($chat,$this->text('invalid')); return; }
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));
