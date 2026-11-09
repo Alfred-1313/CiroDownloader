@@ -10,6 +10,7 @@ namespace Zero;
 final class Reports
 {
     public const SCREENS=['stats','services','cookies','errors','server','speed'];
+    private const SPEED_SERVICES=['youtube','spotify','soundcloud','batch','instagram','pinterest','tiktok','twitter','article','pornhub'];
     private const SERVICES=['youtube','instagram','pinterest','tiktok','twitter','spotify','soundcloud','menu','batch','pornhub'];
     public function __construct(private Bot $bot) {}
 
@@ -117,26 +118,63 @@ final class Reports
     {
         return $ms>0?$this->bot->ui->plainWith('report_mbps',['n'=>number_format($bytes/1048576/($ms/1000),1)]):$this->bot->ui->plain('report_none');
     }
-    /** Where the time of the last delivered files went: preparing them (download, conversion) against the upload to Telegram. */
-    private function speed(): string
+    /** The delivered files kept for the speed report (up to ten per service), newest first. */
+    private function speedLog(): array
     {
-        $ui=$this->bot->ui; $config=$this->bot->config; $list=json_decode($this->bot->store->get('recent_speeds','[]'),true); $list=is_array($list)?$list:[];
-        $bytes=0; $prepare=0; $upload=0; $rows=[];
-        foreach($list as $index=>$item) {
-            $b=(int)($item['b']??0); $p=(int)($item['p']??0); $u=(int)($item['u']??0);
-            $bytes+=$b; $prepare+=$p; $upload+=$u;
-            if($index<6) $rows[]=$ui->text('report_speed_row',['ago'=>$this->ago((int)($item['t']??0)),'name'=>$this->name((string)($item['s']??'')),'size'=>number_format($b/1048576,1),
-                'prepare'=>$this->seconds((float)$p),'upload'=>$this->seconds((float)$u),'rate'=>$this->speedOf($b,$u)]);
+        $list=json_decode($this->bot->store->get('recent_speeds','[]'),true);
+        return is_array($list)?array_values(array_filter($list,'is_array')):[];
+    }
+    /** What one stored file says: downloaded bytes and time (0 when it needed no download), uploaded bytes and time. */
+    private static function speedParts(array $item): array
+    {
+        $uploaded=(int)($item['b']??0); $downloaded=array_key_exists('d',$item)?(int)$item['d']:$uploaded;
+        return [max(0,$downloaded),$downloaded>0?(int)($item['p']??0):0,$uploaded,(int)($item['u']??0)];
+    }
+    /** Totals of some delivered files: count, size, average times, speeds and which side takes most of the time. */
+    private function speedTotals(array $list): array
+    {
+        $ui=$this->bot->ui; $downBytes=0; $downMs=0; $downCount=0; $upBytes=0; $upMs=0; $count=count($list);
+        foreach($list as $item) {
+            [$d,$p,$b,$u]=self::speedParts($item);
+            $upBytes+=$b; $upMs+=$u;
+            if($d>0) { $downBytes+=$d; $downMs+=$p; $downCount++; }
         }
-        $count=count($list); $share=$prepare+$upload>0?$upload/($prepare+$upload):0.5;
-        return $ui->text('report_speed_page',[
-            'count'=>$count,'size'=>number_format($bytes/1048576,1),
-            'prepare_rate'=>$this->speedOf($bytes,$prepare),'prepare_time'=>$count>0?$this->seconds($prepare/$count):$ui->plain('report_none'),
-            'upload_rate'=>$this->speedOf($bytes,$upload),'upload_time'=>$count>0?$this->seconds($upload/$count):$ui->plain('report_none'),
+        $share=$downMs+$upMs>0?$upMs/($downMs+$upMs):0.5;
+        return [
+            'count'=>$count,'size'=>number_format($upBytes/1048576,1),
+            'prepare_rate'=>$this->speedOf($downBytes,$downMs),'prepare_time'=>$downCount>0?$this->seconds($downMs/$downCount):$ui->plain('report_none'),
+            'upload_rate'=>$this->speedOf($upBytes,$upMs),'upload_time'=>$count>0?$this->seconds($upMs/$count):$ui->plain('report_none'),
             'verdict'=>$count>0?$ui->plain($share>=0.6?'report_speed_verdict_upload':($share<=0.4?'report_speed_verdict_prepare':'report_speed_verdict_balanced')):$ui->plain('report_none'),
-            'rows'=>$rows?implode("\n\n",$rows):$ui->text('report_speed_none'),
-            'api'=>$ui->plain($config->api==='https://api.telegram.org'?'report_api_cloud':'report_api_local'),
-        ],['rows']);
+        ];
+    }
+    /** Where the time of the last delivered files went, with one line per service and a button for each one's last ten. */
+    private function speed(): array
+    {
+        $ui=$this->bot->ui; $list=$this->speedLog(); $lines=[]; $buttons=[];
+        foreach(self::SPEED_SERVICES as $code) {
+            $own=array_values(array_filter($list,fn($item)=>($item['s']??'')===$code));
+            if(!$own) continue;
+            $total=$this->speedTotals($own);
+            $lines[]=$ui->text('report_speed_service',['name'=>$this->name($code),'count'=>$total['count'],'prepare_rate'=>$total['prepare_rate'],'upload_rate'=>$total['upload_rate']]);
+            $buttons[]=$ui->button('report_speed_open','rp:speed:'.$code,['name'=>$this->name($code)]);
+        }
+        $text=$ui->text('report_speed_page',$this->speedTotals($list)+[
+            'services'=>$lines?implode("\n\n",$lines):$ui->text('report_speed_none'),
+            'api'=>$ui->plain($this->bot->config->api==='https://api.telegram.org'?'report_api_cloud':'report_api_local'),
+        ],['services']);
+        return [$text,array_chunk($buttons,2)];
+    }
+    /** The last ten files of one service: each one's size, download and upload time and speed. */
+    private function speedOfService(string $code): string
+    {
+        $ui=$this->bot->ui; $own=array_slice(array_values(array_filter($this->speedLog(),fn($item)=>($item['s']??'')===$code)),0,10); $rows=[];
+        foreach($own as $item) {
+            [$d,$p,$b,$u]=self::speedParts($item);
+            $rows[]=$ui->text('report_speed_row',['ago'=>$this->ago((int)($item['t']??0)),
+                'down'=>$d>0?$ui->text('report_speed_down',['dsize'=>number_format($d/1048576,1),'prepare'=>$this->seconds((float)$p),'prepare_rate'=>$this->speedOf($d,$p)]):'',
+                'usize'=>number_format($b/1048576,1),'upload'=>$this->seconds((float)$u),'rate'=>$this->speedOf($b,$u)],['down']);
+        }
+        return $ui->text('report_speed_detail',$this->speedTotals($own)+['name'=>$this->name($code),'rows'=>$rows?implode("\n\n",$rows):$ui->text('report_speed_none')],['rows']);
     }
 
     /** One report screen in the message that asked for it ($message), or the main status message for "home". */
@@ -145,9 +183,16 @@ final class Reports
         $ui=$this->bot->ui;
         if($screen==='x') { try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return; }
         if($screen==='home') { $this->bot->health($chat,$message); return; }
+        // "speed:SERVICE" is the last ten files of one service; its Back returns to the speed screen.
+        if(preg_match('/^speed:([a-z]+)$/D',$screen,$match)===1&&in_array($match[1],self::SPEED_SERVICES,true)) {
+            $this->bot->send($chat,$this->speedOfService($match[1]),[[$ui->button('report_refresh','rp:'.$screen),$ui->button('report_back','rp:speed')],[$ui->button('report_close','rp:x')]],$message);
+            return;
+        }
         if(!in_array($screen,self::SCREENS,true)) return;
-        $text=match($screen) {'stats'=>$this->stats(),'services'=>$this->services(),'cookies'=>$this->cookies(),'errors'=>$this->errors(),'server'=>$this->server(),'speed'=>$this->speed()};
-        $rows=[[$ui->button('report_refresh','rp:'.$screen),$ui->button('report_back','rp:home')],[$ui->button('report_close','rp:x')]];
+        $extra=[];
+        if($screen==='speed') [$text,$extra]=$this->speed();
+        else $text=match($screen) {'stats'=>$this->stats(),'services'=>$this->services(),'cookies'=>$this->cookies(),'errors'=>$this->errors(),'server'=>$this->server()};
+        $rows=[...$extra,[$ui->button('report_refresh','rp:'.$screen),$ui->button('report_back','rp:home')],[$ui->button('report_close','rp:x')]];
         $this->bot->send($chat,$text,$rows,$message);
     }
 }

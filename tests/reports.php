@@ -3,6 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Bot.php';
 require dirname(__DIR__).'/src/Download.php';
+require dirname(__DIR__).'/src/Worker.php';
 
 final class ReportApi implements Zero\Api {
     public array $calls=[];
@@ -76,19 +77,51 @@ try {
     rpCheck(str_contains($edit['text'],'<b>🖥 وضعیت سرور</b>')&&str_contains($edit['text'],Zero\Updates::version())&&str_contains($edit['text'],'فضای آزاد')&&str_contains($edit['text'],'بار پردازنده')&&str_contains($edit['text'],'سرور ابری تلگرام')&&str_contains($edit['text'],'/setinline'),'the server report shows the version, free space, load, the Telegram interface and whether sharing (inline mode) is on');
     rpCheck(!str_contains($edit['text'],$config->token)&&!str_contains($edit['text'],'42'.'</b>'),'the report never shows the token or an administrator ID');
 
-    // Speed: the numbers of delivered files, nothing else.
+    // Speed: the numbers of delivered files, service by service, nothing else.
     $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
     rpCheck(str_contains($edit['text'],'<b>⚡ سرعت انتقال</b>')&&str_contains($edit['text'],'هنوز ارسالی ثبت نشده')&&rpActions($edit)===['rp:speed','rp:home','rp:x'],'the speed report says so while nothing has been delivered');
     $store->pushSpeed('youtube',30*1048576,8000,4000); $store->pushSpeed('spotify',9*1048576,3000,6000); $store->pushSpeed('instagram',1000,5,5); $store->pushSpeed('youtube',50*1048576,1000,0);
     rpCheck(count(json_decode($store->get('recent_speeds'),true))===2,'files under half a megabyte and uploads without a time are not recorded');
     $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
-    rpCheck(str_contains($edit['text'],'<b>2</b> فایل · جمعاً <b>39.0</b> مگابایت')&&str_contains($edit['text'],'آپلود به تلگرام: <b>3.9 مگابایت/ثانیه</b>')&&str_contains($edit['text'],'دانلود و آماده‌سازی: <b>3.5 مگابایت/ثانیه</b>'),'the report adds up the size and shows the download and upload speeds');
-    rpCheck(strpos($edit['text'],'اسپاتیفای')<strpos($edit['text'],'یوتیوب')&&str_contains($edit['text'],'(7.5 مگابایت/ثانیه)')&&!str_contains($edit['text'],'http'),'the newest file is listed first with its own upload speed and no link');
-    $store->set('recent_speeds','[]'); for($i=0;$i<25;$i++) $store->pushSpeed('youtube',2097152,1000,9000);
-    $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
-    rpCheck(count(json_decode($store->get('recent_speeds'),true))===20&&str_contains($edit['text'],'بیشتر زمان صرف آپلود به تلگرام می‌شود')&&substr_count($edit['text'],'🕒')===6,'twenty files are kept, six are listed and a slow upload is named as the bottleneck');
+    rpCheck(str_contains($edit['text'],'<b>2</b> ارسال اخیر · جمعاً <b>39.0</b> مگابایت')&&str_contains($edit['text'],'آپلود: <b>3.9 مگابایت/ثانیه</b>')&&str_contains($edit['text'],'دانلود و آماده‌سازی: <b>3.5 مگابایت/ثانیه</b>'),'the report adds up the size and shows the download and upload speeds');
+    rpCheck(str_contains($edit['text'],'<b>یوتیوب</b> · 1 ارسال')&&str_contains($edit['text'],'<b>اسپاتیفای</b> · 1 ارسال')&&!str_contains($edit['text'],'اینستاگرام')&&rpActions($edit)===['rp:speed:youtube','rp:speed:spotify','rp:speed','rp:home','rp:x'],'each service that has files gets a line and its own button; the others are not listed');
+    $bot->handle(rpClick('rp:speed:spotify',777)); $edit=$api->last('editMessageText');
+    rpCheck(str_contains($edit['text'],'<b>⚡ سرعت اسپاتیفای</b>')&&str_contains($edit['text'],'<b>9.0</b> مگابایت')&&str_contains($edit['text'],"⬇️ 9.0 مگابایت · 3.0 ثانیه (3.0 مگابایت/ثانیه)\n⬆️ 9.0 مگابایت · 6.0 ثانیه (1.5 مگابایت/ثانیه)")&&!str_contains($edit['text'],'30.0')&&!str_contains($edit['text'],'http')&&rpActions($edit)===['rp:speed:spotify','rp:speed','rp:x'],'a service opens its own files with time and speed of the download and the upload, and Back returns to the speed screen');
+    // Ten files per service are kept, so a burst of one service does not push the others out.
+    for($i=0;$i<14;$i++) $store->pushSpeed('youtube',(20+$i)*1048576,6000+$i*100,3000);
+    $kept=json_decode($store->get('recent_speeds'),true);
+    rpCheck(count(array_filter($kept,fn($item)=>$item['s']==='youtube'))===10&&count(array_filter($kept,fn($item)=>$item['s']==='spotify'))===1,'ten files are kept for each service, and a busy service does not push out another');
+    $bot->handle(rpClick('rp:speed:youtube',777)); $edit=$api->last('editMessageText');
+    rpCheck(substr_count($edit['text'],'🕒')===10&&strpos($edit['text'],'⬆️ 33.0 مگابایت')<strpos($edit['text'],'⬆️ 24.0 مگابایت')&&str_contains($edit['text'],'<b>10</b> ارسال اخیر'),'the last ten of a service are listed, newest first');
+    $store->set('recent_speeds',json_encode(array_fill(0,10,['t'=>time(),'s'=>'youtube','b'=>2097152,'p'=>1000,'u'=>9000])));
+    $bot->handle(rpClick('rp:speed:youtube',777)); rpCheck(str_contains($api->last('editMessageText')['text'],'بیشتر زمان صرف آپلود می‌شود'),'a slow upload is named as the bottleneck');
     $store->set('recent_speeds',json_encode([['t'=>time(),'s'=>'youtube','b'=>20971520,'p'=>20000,'u'=>1000]]));
-    $bot->handle(rpClick('rp:speed',777)); rpCheck(str_contains($api->last('editMessageText')['text'],'بیشتر زمان صرف دانلود و آماده‌سازی می‌شود'),'a slow download is named as the bottleneck');
+    $bot->handle(rpClick('rp:speed:youtube',777)); rpCheck(str_contains($api->last('editMessageText')['text'],'بیشتر زمان صرف دانلود و آماده‌سازی می‌شود'),'a slow download is named as the bottleneck');
+    $before=count($api->calls); $bot->handle(rpClick('rp:speed:menu',777)); $bot->handle(rpClick('rp:speed:nonsense',777)); $bot->handle(rpClick('rp:speed:youtube:x',777));
+    rpCheck(count(array_filter(array_slice($api->calls,$before),fn($c)=>str_starts_with($c[0],'edit')||$c[0]==='sendMessage'))===0,'an unknown service in the speed screen changes nothing');
+    $before=count($api->calls); $bot->handle(rpClick('rp:speed:youtube',777,7,7));
+    rpCheck(!array_filter(array_slice($api->calls,$before),fn($c)=>str_contains((string)($c[1]['text']??''),'⚡')),'an ordinary user cannot open a service speed screen');
+
+    // The other features report their own speed too, and the page carries no explanatory text.
+    $M=1048576; $store->set('recent_speeds','[]');
+    $store->pushSpeed('instagram',3*$M,9000,2000,24*$M); $store->pushSpeed('instagram',2*$M,0,1500,0); $store->pushSpeed('batch',90*$M,40000,30000,90*$M); $store->pushSpeed('article',12*$M,5000,8000,12*$M);
+    $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
+    rpCheck(rpActions($edit)===['rp:speed:batch','rp:speed:instagram','rp:speed:article','rp:speed','rp:home','rp:x']&&str_contains($edit['text'],'<b>دانلود گروهی</b>')&&str_contains($edit['text'],'<b>مقالهٔ تلگراف</b>')&&str_contains($edit['text'],'<b>اینستاگرام</b> · 2 ارسال'),'download all, carousels and articles have their own lines and buttons next to the single files');
+    rpCheck(!str_contains($edit['text'],'پریمیوم')&&!str_contains($edit['text'],'دیتاسنتر')&&substr_count($edit['text'],'<blockquote>')===1,'the speed page has only its title as a quote, with no explanation or Premium remark');
+    $bot->handle(rpClick('rp:speed:instagram',777)); $edit=$api->last('editMessageText');
+    rpCheck(str_contains($edit['text'],"⬇️ 24.0 مگابایت · 9.0 ثانیه (2.7 مگابایت/ثانیه)\n⬆️ 3.0 مگابایت · 2.0 ثانیه (1.5 مگابایت/ثانیه)")&&str_contains($edit['text'],"🕒 1 دقیقه پیش\n⬆️ 2.0 مگابایت · 1.5 ثانیه")&&str_contains($edit['text'],'دانلود و آماده‌سازی: <b>2.7 مگابایت/ثانیه</b>'),'a carousel shows all slides downloaded but one uploaded, and a page turn shows an upload only that does not dilute the download speed');
+    $bot->handle(rpClick('rp:speed:article',777)); rpCheck(str_contains($api->last('editMessageText')['text'],'⚡ سرعت مقالهٔ تلگراف'),'the article has its own screen');
+
+    // The worker notes each kind of delivery with the right sizes.
+    $worker=new Zero\Worker($config,$store,$api); $note=new ReflectionMethod($worker,'noteSpeed'); $note->setAccessible(true); $of=new ReflectionMethod($worker,'bytesOf'); $of->setAccessible(true);
+    $dir=$temp.'/sizes'; mkdir($dir); file_put_contents($dir.'/a.bin',str_repeat('a',600000)); file_put_contents($dir.'/b.bin',str_repeat('b',400000));
+    rpCheck($of->invoke(null,[['path'=>$dir.'/a.bin'],['path'=>$dir.'/b.bin'],['path'=>$dir.'/missing.bin'],$dir.'/a.bin'])===1600000,'the size of prepared files is added up, a missing file counts as nothing');
+    $store->set('recent_speeds','[]');
+    $note->invoke($worker,'youtube',700000,['prepare_ms'=>4000,'upload_ms'=>2000]);
+    $note->invoke($worker,'tiktok',600000,['prepare_ms'=>3000],0,1200);
+    $note->invoke($worker,'twitter',100,['prepare_ms'=>1000,'upload_ms'=>1000]);
+    $kept=json_decode($store->get('recent_speeds'),true);
+    rpCheck(count($kept)===2&&$kept[0]['s']==='tiktok'&&($kept[0]['d']??null)===0&&$kept[0]['u']===1200&&$kept[1]['s']==='youtube'&&!array_key_exists('d',$kept[1])&&$kept[1]['b']===700000,'the worker notes a page turn without a download, an upload time of its own, and skips tiny files');
 
     // Back goes home, Close removes the message, unknown screens do nothing.
     $bot->handle(rpClick('rp:home',777)); $edit=$api->last('editMessageText');

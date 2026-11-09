@@ -69,7 +69,8 @@ class GalleryPages
             $this->store->db->exec('COMMIT'); return $notice;
         } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
     }
-    public function deliver(array $job,Bot $bot): void
+    /** @return int the bytes uploaded to Telegram (0 when Telegram already had the slide) */
+    public function deliver(array $job,Bot $bot): int
     {
         $state=$this->state($job); $index=(int)($state['target']??0);
         if(!$state||(int)$state['expires']<=time()||$index<1||$index>count($state['items'])) throw new MediaFailure('expired','Gallery page session expired');
@@ -109,6 +110,7 @@ class GalleryPages
         if($initial) try { $bot->finishJob($job); } catch(\Throwable) { error_log('Gallery page delivered; status cleanup unavailable'); }
         $state['message']=(int)$result['message_id']; $state['current']=$index; $state['target']=$index; $state['revision']=$revision;
         $this->store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['pages'=>$state],JSON_THROW_ON_ERROR),$job['id']]);
+        return $cached?0:(int)@filesize($path);
     }
     public function clean(array $job): void
     {

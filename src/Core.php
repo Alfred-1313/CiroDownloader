@@ -476,16 +476,26 @@ final class Store
         $this->set('recent_errors',json_encode(array_slice($list,0,10),JSON_THROW_ON_ERROR));
     }
     /**
-     * The last twenty delivered files, newest first: [time, service, bytes, prepare ms, upload ms]. It holds numbers only,
-     * so the speed report can show where the time goes (download and conversion against the upload to Telegram).
-     * Files under half a megabyte are left out: their time is mostly connection setup and says nothing about speed.
+     * The last ten delivered files of each service, newest first: [time, service, bytes, prepare ms, upload ms]. It holds
+     * numbers only, so the speed report can show where the time goes (download and conversion against the upload to
+     * Telegram) service by service. Files under half a megabyte are left out: their time is mostly connection setup and
+     * says nothing about speed.
      */
-    public function pushSpeed(string $service,int $bytes,int $prepareMs,int $uploadMs): void
+    public function pushSpeed(string $service,int $bytes,int $prepareMs,int $uploadMs,?int $downloadBytes=null): void
     {
         if($bytes<524288||$uploadMs<1) return;
         $list=json_decode($this->get('recent_speeds','[]'),true); $list=is_array($list)?$list:[];
-        array_unshift($list,['t'=>time(),'s'=>$service,'b'=>$bytes,'p'=>max(0,$prepareMs),'u'=>$uploadMs]);
-        $this->set('recent_speeds',json_encode(array_slice($list,0,20),JSON_THROW_ON_ERROR));
+        // "b" is what was uploaded; "d" is what was downloaded when that differs (a carousel downloads every slide but uploads one,
+        // a page turn downloads nothing: 0).
+        $entry=['t'=>time(),'s'=>$service,'b'=>$bytes,'p'=>max(0,$prepareMs),'u'=>$uploadMs];
+        if($downloadBytes!==null&&$downloadBytes!==$bytes) $entry['d']=max(0,$downloadBytes);
+        array_unshift($list,$entry);
+        $seen=[]; $kept=[];
+        foreach($list as $item) {
+            $name=(string)($item['s']??''); $seen[$name]=($seen[$name]??0)+1;
+            if($seen[$name]<=10) $kept[]=$item;
+        }
+        $this->set('recent_speeds',json_encode(array_slice($kept,0,120),JSON_THROW_ON_ERROR));
     }
     public function groupsEnabled(): bool { return $this->get('groups_enabled','1')==='1'; }
     /**

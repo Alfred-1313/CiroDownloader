@@ -73,15 +73,16 @@ final class Worker
                 $pages=new GalleryPages($config,$store,$api,$service);
                 if($job['phase']===$service.'_page') {
                     $stage='upload'; $uploadStarted=hrtime(true);
-                    $pages->deliver($job,$bot);
+                    $sent=$pages->deliver($job,$bot);
                     $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+                    $this->noteSpeed($service,$sent,$timings,0);
                     return;
                 }
                 $bot->jobMessage($job,$bot->text($service.'_downloading'));
                 $inspectionStarted=hrtime(true);
                 $media=GalleryMedia::forService($config,$service)->fetch($job['url'],$folder);
                 $timings['prepare_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
-                $stage='upload'; $uploadStarted=hrtime(true);
+                $stage='upload'; $uploadStarted=hrtime(true); $mediaBytes=self::bytesOf($media);
                 if(count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text($service.'_article_building'));
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
@@ -89,12 +90,16 @@ final class Worker
                     $bot->jobMessage($job,$bot->text($service.'_article_ready',['count'=>count($media),'page_url'=>$url,'url'=>$job['url']]),[[$button]]);
                     $store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['article_url'=>$url],JSON_THROW_ON_ERROR),$job['id']]);
                     $timings['publish_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+                    // The upload here goes to the public file host, not to Telegram, so the article has its own line.
+                    $this->noteSpeed('article',$mediaBytes,$timings,$mediaBytes,$timings['publish_ms']);
                     return;
                 }
                 if(count($media)>1) {
                     $job=$pages->prepare($job,$media);
-                    $pages->deliver($job,$bot);
+                    $sent=$pages->deliver($job,$bot);
                     $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+                    // Every slide was downloaded, but only the first one is uploaded now (the others when someone turns the page).
+                    $this->noteSpeed($service,$sent,$timings,$mediaBytes);
                     return;
                 }
                 $this->galleryDelivery($job,$media,$bot,$service);
@@ -351,7 +356,7 @@ final class Worker
         if(!is_dir($dir)&&!mkdir($dir,0700,true)&&!is_dir($dir)) throw new MediaFailure('storage','Cannot create the batch folder');
         $menus=new MusicMenu($bot,$this->catalog,$this->soundcloud);
         $stop=[[$bot->ui->button('batch_stop','mb:'.(int)$job['id'])]];
-        $started=hrtime(true); $stopped=false; $denied=false; $shown=0.0; $checked=0.0;
+        $started=hrtime(true); $runStart=time(); $stopped=false; $denied=false; $shown=0.0; $checked=0.0;
         $pending=fn()=>array_values(array_filter(array_keys($tracks),fn($i)=>!is_file($dir.'/'.$i.'.json')&&!is_file($dir.'/'.$i.'.fail')));
         // The names of the tracks that failed so far, so the person sees which ones are missing.
         $failedNames=function() use($dir,$tracks,$bot): array {
@@ -436,6 +441,9 @@ final class Worker
         $back=[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]];
         $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder,$back,$sending):$this->sendTracks($job,$bot,$items,$title,$back,$sending);
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+        // Only tracks prepared in this run count as downloaded, so a continued batch does not inflate the download speed.
+        $fresh=array_values(array_filter($items,fn($item)=>(int)@filemtime((string)$item['path'])>=$runStart-1));
+        $this->noteSpeed('batch',self::bytesOf($zip?$items:array_slice($items,0,max(1,count($ids)))),$timings,self::bytesOf($fresh));
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         // The last track carries the caption and the way back (Telegram shows buttons only under a message of its own); the old menu is deleted.
         $menus->delivered($menuId,$batch,$ids,count($items),$failed,(int)end($ids));
@@ -591,9 +599,15 @@ final class Worker
     }
 
     /** One delivered file for the speed report; a failure to note it never touches the delivery itself. */
-    private function noteSpeed(string $service,int $bytes,array $timings): void
+    private function noteSpeed(string $service,int $uploadBytes,array $timings,?int $downloadBytes=null,?int $uploadMs=null): void
     {
-        try { $this->store->pushSpeed($service,$bytes,(int)($timings['prepare_ms']??0),(int)($timings['upload_ms']??0)); } catch(Throwable) {}
+        try { $this->store->pushSpeed($service,$uploadBytes,(int)($timings['prepare_ms']??0),$uploadMs??(int)($timings['upload_ms']??0),$downloadBytes); } catch(Throwable) {}
+    }
+    /** The size on disk of prepared files, for the speed report. */
+    private static function bytesOf(array $items): int
+    {
+        $sum=0; foreach($items as $item) $sum+=(int)@filesize((string)(is_array($item)?($item['path']??''):$item));
+        return $sum;
     }
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void
     {
