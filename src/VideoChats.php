@@ -42,9 +42,9 @@ final class VideoChats
                 if($chatId!==0&&($channel||$asGroup||($starter>0&&Radio::chatAdmin($bot->api,$bot->store,$chatId,$starter)))) $radio->seen($chatId,$title,$channel?'channel':'group');
             }
         } catch(\Throwable) { /* The news to the administrators does not depend on the radio. */ }
-        // In a group the administrators hear about it when one of them started it, or when the group's own administrators did
-        // so anonymously in a group that already has a radio.
-        if(!$channel&&!($starter>0&&$bot->admin($starter))&&!($asGroup&&isset($radio)&&$radio->station($chatId)!==null)) return true;
+        // In a group the administrators hear about it when one of them started it, or when one of the group's administrators
+        // did so anonymously ("as the group"); only administrators can, so this is no stranger's news.
+        if(!$channel&&!($starter>0&&$bot->admin($starter))&&!$asGroup) return true;
         $text=$event[1]==='started'?$bot->text('video_chat_started',['chat'=>$title!==''?$title:'—']):$bot->text('video_chat_ended',['chat'=>$title!==''?$title:'—',
             'duration'=>Ui::duration(max(0,(int)($post[$event[0]]['duration']??0)))]);
         foreach($bot->store->administratorIds($bot->config->admins) as $admin) {

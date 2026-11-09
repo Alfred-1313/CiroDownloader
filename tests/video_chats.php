@@ -34,7 +34,7 @@ try {
     // An administrator who stays anonymous starts it "as the group": the group may be set up as a radio, and once it is one the administrators hear about it.
     $anonymous=fn(array $extra)=>['update_id'=>9,'message'=>['message_id'=>9,'from'=>['id'=>1087968824,'is_bot'=>true,'first_name'=>'Group'],'sender_chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'date'=>time()]+$extra];
     $api->calls=[]; $bot->handle($anonymous(['video_chat_started'=>[]])); $radio=new Zero\Radio($config,$store);
-    vcCheck(in_array(-1002,array_map('intval',array_column($radio->candidates(),'chat_id')),true)&&!$api->sent(),'a stream started anonymously makes the group a radio candidate (no news while it is no radio yet)');
+    vcCheck(in_array(-1002,array_map('intval',array_column($radio->candidates(),'chat_id')),true)&&count($api->sent())===2,'a stream started anonymously is reported to the administrators and makes the group a radio candidate');
     $radio->save(-1002,'Party','group',42,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $api->calls=[];
     $bot->handle($anonymous(['video_chat_started'=>[]])); vcCheck(count($api->sent())===2&&(int)$radio->station(-1002)['live']===1,'once it is a radio, an anonymous start is reported and makes the radio live');
     $bot->handle($anonymous(['video_chat_ended'=>['duration'=>3]])); vcCheck((int)$radio->station(-1002)['live']===0,'and an anonymous end stops it');
