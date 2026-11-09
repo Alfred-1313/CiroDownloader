@@ -136,6 +136,8 @@ foreach($_FILES as $key=>$file) {
 }
 $record($method,$_POST,$uploads);
 $next=(int)@file_get_contents($root.'/counter')+1; file_put_contents($root.'/counter',(string)$next);
+// Chat administrators for the radio tests: 55 administers every chat, everybody else is a member.
+if($method==='getChatMember') { $uid=(int)($_POST['user_id']??0); $json(['ok'=>true,'result'=>['status'=>$uid===55?'administrator':'member','user'=>['id'=>$uid]]]); return; }
 if($method==='getMe') { $json(['ok'=>true,'result'=>['id'=>1,'is_bot'=>true,'username'=>'fixture_bot','supports_inline_queries'=>!empty($mode['inline'])]]); return; }
 // A refused upload from the second track on (to test a delivery that stops halfway).
 if($method==='sendAudio'&&!empty($mode['refuse_after'])) { $n=(int)@file_get_contents($root.'/refuse.count')+1; file_put_contents($root.'/refuse.count',(string)$n); if($n>(int)$mode['refuse_after']) { $json(['ok'=>false,'error_code'=>400,'description'=>'Bad Request: file is too big']); return; } }

@@ -123,6 +123,7 @@ final class MusicMenu
         // A single needs no "download all": its track is one tap away.
         // (Search results are different songs, so they offer no "download all".)
         $whole=$data['kind']!=='search'&&($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1&&!$now['single'];
+        $radioAllowed=(new RadioPanel($this->bot))->allowed((int)$menu['chat_id'],(int)$menu['user_id']);
         // Choosing tracks: a tap marks a track (blue), and "send the chosen" fetches only those.
         $picking=$whole&&is_array($view['pick']??null); $picked=$picking?array_values(array_map('intval',$view['pick'])):[];
         if($whole) {
@@ -131,13 +132,17 @@ final class MusicMenu
             if($picking) {
                 $row=[];
                 if($picked) $row[]=$ui->button('menu_pick_send','mm:'.$id.':d',['count'=>(string)count($picked)]);
+                $radioRows=$picked&&$radioAllowed?[[$ui->button('radio_play_chosen','mm:'.$id.':y:p',['count'=>(string)count($picked)])]]:[];
                 $row[]=$ui->button('menu_pick_cancel','mm:'.$id.':m:0');
                 $rows[]=$row;
+                array_push($rows,...$radioRows);
             } else {
                 $rows[]=[$ui->button('menu_all','mm:'.$id.':a:each'),$ui->button('menu_pick','mm:'.$id.':m:1')];
                 $rows[]=[$ui->button('menu_zip','mm:'.$id.':a:zip')];
             }
         }
+        // Play the whole list, first to last, on the radio of this chat (or the person's own): for any list of several songs, for the people who run one.
+        if(!$picking&&count(self::tracksOf($items))>1&&!$now['single']&&$radioAllowed) $rows[]=[$ui->button('radio_play_all','mm:'.$id.':y')];
         if($pages>1) $rows[]=[$ui->button('menu_page','mm:'.$id.':n',['page'=>(string)($page+1),'pages'=>(string)$pages])];
         $keys=['t'=>'menu_track','a'=>'menu_album','p'=>'menu_playlist','s'=>'menu_playlist','r'=>'menu_artist'];
         foreach(array_slice($items,$page*self::PAGE,self::PAGE,true) as $index=>$item) {
@@ -257,6 +262,19 @@ final class MusicMenu
                 // The choice is used up; the batch itself was saved by requestAll.
                 if($key==='menu_sent') { unset($view['pick']); $this->bot->store->query('UPDATE music_menus SET view=? WHERE id=?',[json_encode($view,JSON_THROW_ON_ERROR),$menu['id']]); }
                 $this->answer($cb,$key,!in_array($key,['menu_sent','menu_again'],true)); return;
+            }
+            if($op==='y') {
+                // "Play all": every song of the open list goes into the radio queue, first to last.
+                $now=$this->listOf($data,$view); $songs=[];
+                $source=$arg==='p'?array_intersect_key($now['items'],array_flip(array_map('intval',(array)($view['pick']??[])))):$now['items'];
+                foreach(array_slice(self::tracksOf($source),0,self::BATCH_MAX) as $item) {
+                    $track=self::trackJob($item); if($track===null) continue;
+                    $service=isset($track['u'])&&musicService($track['u'])==='soundcloud'?'soundcloud':'spotify';
+                    $songs[]=['source'=>['service'=>$service]+$track,'title'=>(string)$item['n'],'artists'=>(string)($item['a']??''),'duration'=>(int)($item['d']??0)];
+                }
+                $panel=new RadioPanel($this->bot); $key=$songs?$panel->enqueueMany($chat,$user,$songs):'menu_pick_empty';
+                $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>mb_substr($this->bot->ui->plainWith($key,$key==='radio_added_many'?$panel->answerVars:[]),0,200),'show_alert'=>$key!=='radio_added_many','cache_time'=>0]);
+                return;
             }
             if($op==='a'||$op==='c') {
                 $key=$this->requestAll($menu,$data,$view,$op==='c'?'resume':$arg,(int)$update['update_id'],$thread);

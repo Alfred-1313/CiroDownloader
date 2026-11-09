@@ -45,7 +45,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),'pornhub'],'music'=>[...musicServices(),'menu','batch','search'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),'pornhub'],'music'=>[...musicServices(),'menu','batch','search','radio'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -73,6 +73,9 @@ final class Personalization
             [$ui->button('adult_page','custom:adultpage')],
             [$this->heading($ui->label('feat_reaction'),'feat_reaction')],
             [$ui->button('reaction_settings','custom:reaction')],
+            [$this->heading($ui->label('feat_radio'),'feat_radio')],
+            [$this->switchButton('radio_switch','custom:radio',Radio::enabled($store))],
+            [$this->switchButton('radio_access_switch','custom:radioaccess',Radio::botOnly($store))],
             [$this->heading($ui->label('feat_limits'),'feat_limits')],
             [$ui->button('processing_limits','custom:limits')],
             [$ui->button('back_custom','custom:home'),$ui->button('close','custom:close')],
@@ -247,6 +250,10 @@ final class Personalization
             [['text','menu_pick_info'],['text','menu_picked'],['text','menu_pick_empty'],['text','menu_pick_full'],['button','menu_pick'],['button','menu_pick_send'],['button','menu_pick_cancel'],['button','batch_stop'],['button','batch_resume'],['button','batch_back'],['button','music_share']]);
         // The /music and /spotify commands: their help, progress and empty-result texts, and the descriptions in Telegram's "/" menu.
         $screens['search']=array_map(fn($key)=>['text',$key],['search_queued','search_loading','search_empty','music_usage','spotify_usage','command_music','command_spotify','command_start','command_help']);
+        // The radio of a group or channel: its panel, controls, answers and buttons.
+        $screens['radio']=array_merge(array_map(fn($key)=>['text',$key],['radio_panel','radio_panel_none','radio_panel_hint','radio_panel_row','radio_state_live','radio_state_off','radio_status','radio_status_live','radio_status_off','radio_now_none','radio_queue_row',
+                'radio_key_prompt','radio_key_invalid','radio_key_saved','radio_remove_confirm','radio_removed','radio_group_none','radio_not_admin','radio_no_station','radio_added','radio_added_idle','radio_added_many','radio_full','radio_long','radio_expired','radio_failed','radio_done','radio_output_failed','radio_disabled','radio_bot_only']),
+            array_map(fn($key)=>['button',$key],['radio_play','radio_play_all','radio_play_chosen','radio_skip','radio_stop','radio_clear','radio_refresh','radio_close','radio_back','radio_open','radio_setup','radio_use','radio_remove','radio_remove_yes']));
         $screens['pornhub']=[['text','pornhub_caption'],['text','pornhub_notice'],['text','pornhub_people'],['text','pornhub_views'],['text','pornhub_tags'],['text','pornhub_error_size'],['text','pornhub_error_restricted'],['text','pornhub_error_format'],['text','pornhub_error_network'],['text','pornhub_error_blocked']];
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
@@ -763,6 +770,12 @@ final class Personalization
         } elseif($op==='adultadmins') {
             $this->bot->store->set('adult.admins_only',$this->bot->store->get('adult.admins_only','1')==='1'?'0':'1');
             $this->adultPage($chat,$message);
+        } elseif($op==='radio') {
+            $this->bot->store->set('radio.enabled',Radio::enabled($this->bot->store)?'0':'1');
+            $this->features($chat,$message);
+        } elseif($op==='radioaccess') {
+            $this->bot->store->set('radio.access',Radio::botOnly($this->bot->store)?'chat':'bot');
+            $this->features($chat,$message);
         } elseif($op==='groups_mode') {
             $this->bot->store->set('groups_enabled',$this->bot->store->groupsEnabled()?'0':'1');
             (new GroupSupport($this->bot))->syncHelpButtons();

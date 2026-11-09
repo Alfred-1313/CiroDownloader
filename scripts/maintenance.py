@@ -118,7 +118,7 @@ class Maintenance:
 
     def running(self):
         names = self.command('docker', 'compose', 'ps', '--status', 'running', '--services').splitlines()
-        return [name for name in names if name in ('bot', 'worker')]
+        return [name for name in names if name in ('bot', 'worker', 'radio')]
 
     def start(self, services, recreate=False):
         if not services:
@@ -154,7 +154,7 @@ class Maintenance:
                 data = Path(folder) / 'data.tar'
                 with data.open('xb') as output:
                     self.command('docker', 'compose', 'run', '--rm', '--no-deps', '-T', '--entrypoint', 'tar', 'worker',
-                                 '-cf', '-', '--exclude=./downloads', '--exclude=./instagram-pages', '--exclude=./pinterest-pages', '--exclude=./tiktok-pages', '--exclude=./twitter-pages', '--exclude=./music-batches', '--exclude=./.youtube-blocked', '--exclude=./.youtube-ok', '--exclude=./yt-cache', '--exclude=./.keepalive-*', '--exclude=./*.lock', '--exclude=./.cookie-check-*',
+                                 '-cf', '-', '--exclude=./downloads', '--exclude=./instagram-pages', '--exclude=./pinterest-pages', '--exclude=./tiktok-pages', '--exclude=./twitter-pages', '--exclude=./music-batches', '--exclude=./.youtube-blocked', '--exclude=./.youtube-ok', '--exclude=./yt-cache', '--exclude=./radio', '--exclude=./.keepalive-*', '--exclude=./*.lock', '--exclude=./.cookie-check-*',
                                  '-C', '/app/storage', '.', output=output)
                 if data.stat().st_size > MAX_BYTES:
                     raise MaintenanceError('The backup is larger than the supported 512 MB data limit.')

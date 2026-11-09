@@ -32,6 +32,14 @@ services:
   worker:
     <<: *common
     command: [php, bin/worker.php]
+  # The live radio: plays queued songs into the live stream of a group or channel (see docs/radio.md).
+  # Start it with: docker compose --profile radio up -d radio
+  radio:
+    <<: *common
+    profiles: [radio]
+    command: [php, bin/radio.php]
+    cpus: 0.75
+    mem_limit: 512m
   # Optional PO Token provider for YouTube. Start it with: docker compose --profile pot up -d
   # and set YOUTUBE_POT_PLUGIN=1 and YOUTUBE_POT_URL=http://pot:4416 in .env. No port is published.
   pot:

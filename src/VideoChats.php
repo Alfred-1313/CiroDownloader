@@ -28,7 +28,16 @@ final class VideoChats
         if($event===null) return $channel;
         $chat=is_array($post['chat']??null)?$post['chat']:[];
         $title=trim((string)($chat['title']??''));
-        $starter=(int)($post['from']['id']??0);
+        $starter=(int)($post['from']['id']??0); $chatId=(int)($chat['id']??0);
+        // The radio of this chat: its stream is live or not, and a chat where an administrator started one can be set up.
+        try {
+            $radio=new Radio($bot->config,$bot->store);
+            if($event[1]==='ended') $radio->setLive($chatId,false);
+            else {
+                $radio->setLive($chatId,true);
+                if($chatId!==0&&($channel||($starter>0&&Radio::chatAdmin($bot->api,$bot->store,$chatId,$starter)))) $radio->seen($chatId,$title,$channel?'channel':'group');
+            }
+        } catch(\Throwable) { /* The news to the administrators does not depend on the radio. */ }
         if(!$channel&&!($starter>0&&$bot->admin($starter))) return true;
         $text=$event[1]==='started'?$bot->text('video_chat_started',['chat'=>$title!==''?$title:'—']):$bot->text('video_chat_ended',['chat'=>$title!==''?$title:'—',
             'duration'=>Ui::duration(max(0,(int)($post[$event[0]]['duration']??0)))]);

@@ -82,7 +82,7 @@ def install(api_id, api_hash):
     phase = json.loads(MARKER.read_text()).get('phase') if MARKER.exists() else ''
     if endpoint not in (CLOUD, LOCAL) or (endpoint == LOCAL and not phase):
         raise MaintenanceError('A different or already enabled Bot API is configured; no migration was performed.')
-    if not phase and set(app.running()) != {'bot', 'worker'}:
+    if not phase and set(app.running()) - {'radio'} != {'bot', 'worker'}:
         raise MaintenanceError('Start both bot and worker before enabling large uploads.')
     atomic(PRIVATE / 'api.env', ('TELEGRAM_API_ID=' + api_id + '\nTELEGRAM_API_HASH=' + api_hash + '\n').encode())
     api_compose = ('docker', 'compose', '-f', 'compose.telegram-api.yaml')
@@ -103,7 +103,7 @@ def install(api_id, api_hash):
         raise MaintenanceError('The local Bot API did not start. The current bot configuration was kept.')
     if not phase:
         services = app.running()
-        if set(services) != {'bot', 'worker'}:
+        if set(services) - {'radio'} != {'bot', 'worker'}:
             raise MaintenanceError('Start both bot and worker before enabling large uploads.')
         marker('preparing')
         phase = 'preparing'

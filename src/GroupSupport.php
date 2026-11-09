@@ -77,11 +77,16 @@ final class GroupSupport
         if(preg_match('~^/([A-Za-z_]+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',$text,$parts)) {
             if(!empty($parts[2])&&strcasecmp($parts[2],$this->username())!==0) return;
             $command=strtolower($parts[1]); $argument=trim($parts[3]??'');
-            if(!in_array($command,['start','help','download','update','music','spotify'],true)) return;
+            if(!in_array($command,['start','help','download','update','music','spotify','radio'],true)) return;
         }
         if($command==='music'||$command==='spotify') {
             $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
             MusicSearch::handle($this->bot,$update,$user,$chat,$thread,['command'=>$command,'argument'=>$argument,'bot'=>'']);
+            return;
+        }
+        if($command==='radio') {
+            $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+            if($this->bot->allowed($user,$chat)) (new RadioPanel($this->bot))->commandGroup($chat,$user,$thread);
             return;
         }
         if($command==='update') {

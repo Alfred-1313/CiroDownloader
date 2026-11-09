@@ -29,8 +29,8 @@ try {
     vcCheck(substr_count($logged,'Channel update:')===1&&!str_contains($logged,'hello'),'channel updates are logged by field name only, at most every ten minutes');
     // Groups: only when a bot administrator started the video chat (the bot may sit in groups of strangers).
     $api->calls=[]; $bot->handle($groupMessage(42,['video_chat_started'=>[]])); vcCheck(count($api->sent())===2&&str_contains($api->sent()[0][1]['text'],'Party'),'an administrator starting a video chat in a group is reported');
-    $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_started'=>[]])); vcCheck(!$api->calls,'a stranger starting one in a group is not');
-    $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_ended'=>['duration'=>5]])); vcCheck(!$api->calls,'nor is its end');
+    $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_started'=>[]])); vcCheck(!$api->sent(),'a stranger starting one in a group is not');
+    $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_ended'=>['duration'=>5]])); vcCheck(!$api->sent(),'nor is its end');
     // Everything else is handled as before.
     vcCheck(Zero\VideoChats::handle($bot,$groupMessage(9,['text'=>'hello']))===false&&Zero\VideoChats::handle($bot,['update_id'=>3,'callback_query'=>['id'=>'x']])===false,'ordinary group messages and other updates are left to the normal handlers');
     $api->calls=[]; $bot->handle(['update_id'=>4,'message'=>['message_id'=>8,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/id']]);

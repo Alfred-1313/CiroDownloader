@@ -215,12 +215,20 @@ final class Worker
         $spotify=$this->spotify??new Spotify($this->config);
         return isset($track['m'])?$spotify->fromDetails($track['m'],$folder):$spotify->fetch((string)$track['u'],$folder);
     }
+    /** For the radio: the audio of one song prepared like any music download, from {"service":"spotify|soundcloud","u":ADDRESS} or {"service":..,"m":DETAILS}. */
+    public function radioAudio(array $source,string $folder): array
+    {
+        $service=($source['service']??'')==='soundcloud'?'soundcloud':'spotify';
+        if(isset($source['m'])&&is_array($source['m'])) return $this->prepareTrack($service,['m'=>$source['m']],$folder);
+        if(!is_string($source['u']??null)) throw new MediaFailure('format','The radio song has no source');
+        return $this->prepareTrack($service,['u'=>$source['u']],$folder);
+    }
     /**
      * One audio message with the same caption as each track of a whole album (artist and title in bold, its length in a
      * quote). Rows: the source button when on, share (anyone, when inline mode is on), then $back (the way back to a
      * menu, its owner only). @return int the message ID
      */
-    private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source,string $album='',array $back=[]): int
+    private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source,string $album='',array $back=[],?array $radio=null): int
     {
         $config=$this->config;
         if($config->api==='http://ciro-telegram-api:8081') Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
@@ -232,7 +240,9 @@ final class Worker
             'audio'=>new \CURLFile($media['path'],$media['mime']??'audio/mpeg',$media['name'])];
         if($media['thumbnail']!==null) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
         $shares=new Shares($bot); $token=$shares->reserve();
-        $rows=array_merge($bot->ui->gallerySourceRows($service,$media['page']??$source),$token!==null?[$shares->row($token)]:[],$back);
+        // Under the share button, the radio's play button when this chat (or this person) has a radio.
+        $panel=new RadioPanel($bot); $play=$radio!==null&&$panel->available((int)$job['chat_id'],(int)$job['user_id'])?[$panel->row($radio,(string)$media['title'],(string)$media['performer'],(int)($media['length']??$media['duration']??0))]:[];
+        $rows=array_merge($bot->ui->gallerySourceRows($service,$media['page']??$source),$token!==null?[$shares->row($token)]:[],$play,$back);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call('sendAudio',$params);
@@ -258,7 +268,7 @@ final class Worker
         // A track chosen in a menu that closed gets the red way back to that menu, like a whole album.
         $menuId=(int)($options['menu']??0); $menus=new MusicMenu($bot,$this->catalog,$this->soundcloud);
         $back=$menuId>0&&$menus->owns($menuId,(int)$job['user_id'],(int)$job['chat_id'])?[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]]:[];
-        $audio=$this->sendTrack($job,$bot,$service,$media,$job['url'],(string)($options['album']??''),$back);
+        $audio=$this->sendTrack($job,$bot,$service,$media,$job['url'],(string)($options['album']??''),$back,['service'=>$service]+($track!==null?['m'=>$track]:['u'=>$job['url']]));
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
         $this->noteSpeed($service,(int)@filesize((string)($media['path']??'')),$timings);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
@@ -436,7 +446,7 @@ final class Worker
         $items=[];
         foreach($good as $position=>$i) {
             $meta=json_decode((string)file_get_contents($dir.'/'.$i.'.json'),true);
-            $items[]=$meta+['path'=>$dir.'/'.$i.'.'.$meta['extension'],'thumbnail'=>$meta['cover']?$dir.'/'.$i.'.jpg':null,'order'=>$position+1];
+            $items[]=$meta+['path'=>$dir.'/'.$i.'.'.$meta['extension'],'thumbnail'=>$meta['cover']?$dir.'/'.$i.'.jpg':null,'order'=>$position+1,'radio'=>['service'=>$service]+array_intersect_key($tracks[$i],['u'=>1,'m'=>1])];
         }
         $back=[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]];
         $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder,$back,$sending):$this->sendTracks($job,$bot,$items,$title,$back,$sending);
@@ -528,7 +538,7 @@ final class Worker
      */
     private function sendTracks(array $job,Bot $bot,array $items,string $title,array $back,callable $sending): array
     {
-        $shares=new Shares($bot); $ids=[]; $last=null;
+        $shares=new Shares($bot); $ids=[]; $last=null; $panel=new RadioPanel($bot); $radioOn=$panel->available((int)$job['chat_id'],(int)$job['user_id']);
         // Telegram allows about one message a second in a private chat and twenty a minute in a group; a long album is
         // paced to stay under that (the client also waits when Telegram asks it to).
         $gap=!$this->config->paceMessages?0.0:((int)$job['chat_id']<0?3.1:1.05); $previous=0.0;
@@ -536,7 +546,8 @@ final class Worker
             $caption=$bot->ui->fitCaption($bot->text('batch_caption',['artist'=>mb_substr((string)$item['performer'],0,150),'title'=>mb_substr((string)$item['title'],0,100),
                 'duration'=>Ui::duration((int)($item['length']??$item['duration']??0)),'album'=>$title]));
             $token=$shares->reserve();
-            $rows=array_merge($token!==null?[$shares->row($token)]:[],$n===count($items)-1?$back:[]);
+            $play=$radioOn&&is_array($item['radio']??null)?[$panel->row($item['radio'],(string)$item['title'],(string)$item['performer'],(int)($item['length']??$item['duration']??0))]:[];
+            $rows=array_merge($token!==null?[$shares->row($token)]:[],$play,$n===count($items)-1?$back:[]);
             if(($pause=$gap-(microtime(true)-$previous))>0) usleep((int)($pause*1e6));
             $previous=microtime(true);
             try { $result=$this->sendOne($job,'audio',$item,$caption,$rows); }

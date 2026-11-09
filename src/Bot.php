@@ -19,6 +19,8 @@ require_once __DIR__.'/CookieHealth.php';
 require_once __DIR__.'/Reports.php';
 require_once __DIR__.'/AdminCommands.php';
 require_once __DIR__.'/MusicSearch.php';
+require_once __DIR__.'/Radio.php';
+require_once __DIR__.'/RadioPanel.php';
 require_once __DIR__.'/VideoChats.php';
 require_once __DIR__.'/Shares.php';
 require_once __DIR__.'/TimedDeletes.php';
@@ -398,7 +400,8 @@ final class Bot
             $pageCounter=$action==='igpage:noop';
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back','update:close'],true);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu;
+            $isRadio=preg_match('/^rd:[A-Za-z]:(?:-?\d{1,14}|[A-Za-z0-9_-]{16})$/D',$action)===1;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
@@ -421,6 +424,7 @@ final class Bot
             }
             if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
+            if($isRadio) { (new RadioPanel($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }
             if($isPage) {
@@ -484,7 +488,7 @@ final class Bot
         $text=trim((string)($message['text']??''));
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
-        $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help'];
+        $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help','/radio'];
         $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
         if(in_array($text,$commands,true)||$reply!==null) { $this->store->query('DELETE FROM states WHERE user_id=?',[$user]); (new CookieJars($this))->cancelLabel($user); }
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
@@ -504,6 +508,7 @@ final class Bot
             if($reply==='back_home') { $this->home($chat,$user); return; }
         }
         if(in_array($text,['/start','/cancel'],true)) { $this->home($chat,$user); return; }
+        if($text==='/radio') { (new RadioPanel($this))->commandPrivate($chat,$user); return; }
         if($text==='/help'||$reply==='help') { (new GroupSupport($this))->help($chat); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
@@ -516,6 +521,8 @@ final class Bot
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'ui:')) {
             $custom->receive($chat,$user,$message,json_decode(substr($state,3),true,512,JSON_THROW_ON_ERROR)); return;
         }
+        // The stream address and key of a radio, right after "set up": read, deleted from the chat, saved privately.
+        if(is_string($state)&&str_starts_with($state,'radio.key:')&&$text!==''&&preg_match('/^radio\.key:(-?\d{1,14})$/D',$state,$radioChat)===1) { (new RadioPanel($this))->receiveKey($chat,$user,$message,(int)$radioChat[1]); return; }
         if(isset($message['document'])) {
             if($state==='tt_cookie.upload') (new TikTokCookies($this))->document($chat,$user,$message);
             elseif($state==='x_cookie.upload') (new TwitterCookies($this))->document($chat,$user,$message);
