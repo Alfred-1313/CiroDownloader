@@ -15,12 +15,14 @@ with open(TRACE, "a") as trace:
     trace.write(json.dumps(args) + "\n")
 original_page = InfoExtractor._download_webpage
 original_json = InfoExtractor._download_json
+original_open = yt_dlp.YoutubeDL.urlopen
 original_hls = InfoExtractor._extract_m3u8_formats
 
 
 def page(self, url, video_id, *args, **kwargs):
     if BeegIE.suitable(url):
-        return "<html><head><title>Neutral fixture</title></head><body></body></html>"
+        cover = "" if settings.get("no_cover") else '<meta property="og:image" content="https://thumbs.externulls.com/cover.jpg">'
+        return "<html><head>" + cover + "<title>Neutral fixture</title></head><body></body></html>"
     if url.startswith("https://store.externulls.com/video/play_url/"):
         return original_page(self, BASE + urllib.parse.urlsplit(url).path, video_id, *args, **kwargs)
     return original_page(self, url, video_id, *args, **kwargs)
@@ -44,6 +46,13 @@ def hls(self, url, video_id, *args, **kwargs):
     return original_hls(self, BASE + urllib.parse.urlsplit(url).path, video_id, *args, **kwargs)
 
 
+def open_request(self, request):
+    if request.url == "https://thumbs.externulls.com/cover.jpg":
+        request.update(url=BASE + "/cover.jpg")
+    return original_open(self, request)
+
+
+yt_dlp.YoutubeDL.urlopen = open_request
 InfoExtractor._download_webpage = page
 InfoExtractor._download_json = metadata
 InfoExtractor._extract_m3u8_formats = hls

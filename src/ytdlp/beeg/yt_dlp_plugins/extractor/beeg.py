@@ -16,7 +16,7 @@ class BeegIE(BuiltinBeegIE, plugin_name="ciro"):
         if not title:
             title = next((item.get("cd_value") for item in file.get("data") or []
                           if isinstance(item, dict) and item.get("cd_column") == "sf_name"), None)
-        return title if isinstance(title, str) and title.strip() else None
+        return title.strip() if isinstance(title, str) and title.strip() else None
 
     def _real_extract(self, url):
         video_id = self._match_id(url)
@@ -51,11 +51,30 @@ class BeegIE(BuiltinBeegIE, plugin_name="ciro"):
                                           headers=self._HEADERS, fatal=False)
             if isinstance(details, dict):
                 title = self._title(details)
+        # The API has no stable thumbnail field. The page advertises its own cover via OpenGraph.
+        # Only inspection writes a thumbnail; avoid another page request for each selected download.
+        thumbnail = None
+        if self.get_param("writethumbnail"):
+            webpage = self._download_webpage(url, video_id, headers=self._HEADERS, fatal=False)
+            if webpage:
+                candidate = self._og_search_thumbnail(webpage, default=None)
+                try:
+                    image = urlsplit(candidate or "")
+                    host = image.hostname or ""
+                    if (image.scheme == "https" and not image.username and not image.password
+                            and image.port is None and len(candidate or "") <= 2048
+                            and any(host == domain or host.endswith("." + domain)
+                                    for domain in ("beeg.com", "externulls.com"))):
+                        thumbnail = candidate
+                except ValueError:
+                    pass
+                title = title or self._og_search_title(webpage, default=None)
         facts = [fact for fact in video.get("fc_facts") or [] if isinstance(fact, dict)]
         first = min(facts, key=lambda fact: int_or_none(fact.get("id")) or 0, default={})
         file = video["file"]
         return {
             "id": video_id, "display_id": str_or_none(first.get("id")), "title": title or video_id,
+            "thumbnail": thumbnail,
             "description": (file.get("stuff") or {}).get("sf_story"),
             "duration": int_or_none(file.get("fl_duration")),
             "timestamp": unified_timestamp(first.get("fc_created")),

@@ -47,10 +47,10 @@ final class MusicMenu
         if($collection['service']==='soundcloud'&&$collection['kind']==='profile'&&str_contains($collection['id'],'/')) $first=explode('/',$collection['id'])[1];
         $view=['tab'=>isset($data['tabs'][$first])?$first:$tabs[0],'page'=>0,'stack'=>[]];
         $data['photo']=false; $data['shown']='';
+        self::purge($bot->config,$store);
         $store->db->exec('BEGIN IMMEDIATE');
         try {
             $store->query('DELETE FROM music_menus WHERE expires<?',[time()]);
-            self::purge($bot->config);
             $store->query('DELETE FROM music_menus WHERE user_id=? AND id NOT IN (SELECT id FROM music_menus WHERE user_id=? ORDER BY id DESC LIMIT ?)',[(int)$job['user_id'],(int)$job['user_id'],self::KEEP-1]);
             $store->query('INSERT INTO music_menus(user_id,chat_id,thread_id,service,kind,data,view,created,expires) VALUES(?,?,?,?,?,?,?,?,?)',
                 [(int)$job['user_id'],(int)$job['chat_id'],(int)($job['thread_id']??0),$data['service'],$data['kind'],
@@ -502,9 +502,16 @@ final class MusicMenu
         foreach(glob($config->storage.'/music-batches/'.$menu.'-*',GLOB_ONLYDIR)?:[] as $folder) Download::clean($folder);
     }
     /** Prepared tracks older than the menus themselves are removed. */
-    public static function purge(Config $config): void
+    public static function purge(Config $config,?Store $store=null): void
     {
-        foreach(glob($config->storage.'/music-batches/*',GLOB_ONLYDIR)?:[] as $folder) if(filemtime($folder)<time()-self::TTL-3600) Download::clean($folder);
+        foreach(glob($config->storage.'/music-batches/*',GLOB_ONLYDIR)?:[] as $folder) {
+            if(is_link($folder)||!preg_match('/^(\d+)-[a-f0-9]{8}$/D',basename($folder),$match)) continue;
+            // Never touch a live preparation or a queued continuation, however old its folder is.
+            if($store&&$store->query("SELECT 1 FROM jobs WHERE phase='batch' AND status IN ('queued','running','confirming') AND json_extract(options,'$.batch.key')=? LIMIT 1",[basename($folder)])->fetchColumn()) continue;
+            $data=$store?$store->query('SELECT data FROM music_menus WHERE id=?',[(int)$match[1]])->fetchColumn():false;
+            $done=$data!==false&&(json_decode((string)$data,true)['batch']['state']??'')==='done';
+            if($done||filemtime($folder)<time()-self::TTL-3600) Download::clean($folder);
+        }
     }
 
     /** A tap on "stop" under a running download of a whole list. Only its owner can stop it. */

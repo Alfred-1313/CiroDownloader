@@ -596,6 +596,7 @@
     "admin_cmd_cancel":{"audience":"admin","label":"توضیح دستور /cancel","group":"admin","inline":true,"value":"لغو کار در حال انتظار و بازگشت"},
     "admin_cmd_start":{"audience":"admin","label":"توضیح دستور /start","group":"admin","inline":true,"value":"منوی اصلی"},
     "cookie_settings_notice":{"audience":"admin","label":"پیام بعد از بررسی همین الان","group":"cookies","value":"🔎 بررسی همهٔ کوکی‌ها شروع شد؛ فقط اگر مشکلی باشد به مدیران گفته می‌شود و نتیجه در «📊 وضعیت ربات ← 🍪 کوکی‌ها» دیده می‌شود."},
+    "beeg_quality_prompt":{"audience":"user","label":"کپشن کاور و انتخاب کیفیت Beeg","group":"beeg","variables":["title","duration","qualities","max_size"],"caption":true,"value":"<b>🎬 {title}</b>\n\n<blockquote>⏱ {duration}\n🎞 کیفیت‌های موجود: {qualities}</blockquote>\nکیفیت ویدیو یا استخراج صدا را انتخاب کن.\nسقف ارسال: {max_size} MB"},
     "beeg_caption":{"audience":"user","label":"کپشن ویدیوی Beeg","group":"beeg","variables":["title","quality","duration","people","views","tags","notice"],"caption":true,"value":"{notice}<b>🔞 {title}</b>{people}\n<blockquote>⏱ {duration} · 🎞 {quality}{views}</blockquote>{tags}"},
     "beeg_people":{"audience":"user","label":"خط بازیگران در کپشن Beeg","group":"beeg","variables":["people"],"inline":true,"value":"👤 <b>{people}</b>"},
     "beeg_views":{"audience":"user","label":"تعداد بازدید در کپشن Beeg","group":"beeg","variables":["n"],"inline":true,"value":"👁 {n}"},

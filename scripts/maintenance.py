@@ -20,7 +20,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 BACKUPS = Path('/var/backups/ciro-downloader')
 MAX_BYTES = 512 * 1024 * 1024
 FIELDS = {'BOT_TOKEN', 'ADMIN_IDS', 'YOUTUBE_PROXY', 'GALLERY_PROXY'}
-ENV_KEYS = FIELDS | {'BOT_API_URL', 'MAX_FILE_BYTES', 'STORAGE_DIR', 'YT_DLP_BIN', 'YOUTUBE_COOKIES_FILE', 'WORKER_CONCURRENCY', 'GALLERY_DL_BIN', 'INSTAGRAM_COOKIES_FILE', 'YOUTUBE_POT_URL', 'YOUTUBE_POT_PLUGIN', 'TIKTOK_PREFER_H264'}
+ENV_KEYS = FIELDS | {'LOCAL_API_SHARED_STORAGE', 'BOT_API_URL', 'MAX_FILE_BYTES', 'STORAGE_DIR', 'YT_DLP_BIN', 'YOUTUBE_COOKIES_FILE', 'WORKER_CONCURRENCY', 'GALLERY_DL_BIN', 'INSTAGRAM_COOKIES_FILE', 'YOUTUBE_POT_URL', 'YOUTUBE_POT_PLUGIN', 'TIKTOK_PREFER_H264'}
 
 
 class MaintenanceError(RuntimeError):
@@ -41,6 +41,8 @@ def environment(content):
     validate('YOUTUBE_PROXY', values.get('YOUTUBE_PROXY', ''))
     if not re.fullmatch(r'[1-8]', values.get('WORKER_CONCURRENCY') or '3'):
         raise MaintenanceError('WORKER_CONCURRENCY must be between 1 and 8.')
+    if values.get('LOCAL_API_SHARED_STORAGE', '0') not in ('0', '1'):
+        raise MaintenanceError('LOCAL_API_SHARED_STORAGE must be 0 or 1.')
     if values.get('STORAGE_DIR', '/app/storage') != '/app/storage':
         raise MaintenanceError('Backups require the managed /app/storage volume.')
     try:

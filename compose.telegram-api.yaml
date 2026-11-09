@@ -11,6 +11,7 @@ services:
     read_only: true
     volumes:
       - telegram-api-data:/telegram-api
+      - app-data:/app/storage:ro
     ports:
       - 127.0.0.1:18081:8081
     networks:
@@ -27,6 +28,9 @@ networks:
     name: ciro-downloader_default
     external: true
 volumes:
+  app-data:
+    external: true
+    name: ciro-downloader_data
   telegram-api-data:
     name: ciro-downloader-telegram-api-data
 

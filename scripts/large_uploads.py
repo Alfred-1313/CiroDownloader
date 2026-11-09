@@ -136,6 +136,8 @@ def install(api_id, api_hash):
         phase = 'authenticated'
     if phase != 'authenticated':
         raise MaintenanceError('Invalid migration state; contact support before starting the bot.')
+    values['LOCAL_API_SHARED_STORAGE'] = '1'
+    atomic(path, ''.join(key + '=' + value + '\n' for key, value in values.items()).encode())
     # A previous attempt may have restarted the services before being interrupted.
     # Do not recreate them while a resumed download is running.
     queue_pause()

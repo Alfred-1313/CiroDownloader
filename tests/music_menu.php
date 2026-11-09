@@ -151,6 +151,7 @@ try {
     menuCheck(array_map(fn($call)=>$call['params']['caption']??'',$audios)===array_map(fn($name)=>"<b>🎧 Fixture Artist - $name</b>\n\n<blockquote>⏱ تایم موزیک: 00:12</blockquote>",['Album Cut One','Album Cut Two','Album Cut Three']),'every track has its own caption: the artist and title in bold and its length in a quote');
     $markButton=json_decode($lastAudio['reply_markup'],true)['inline_keyboard'][0][0];
     menuCheck($markButton['callback_data']==='mm:'.$id.':r'&&($markButton['style']??'')==='danger'&&str_starts_with($markButton['text'],'🔙')&&!array_filter($called('sendMessage'),fn($call)=>str_contains((string)($call['params']['reply_markup']??''),'mm:'.$id.':r')),'the red "🔙 back to the previous menu" sits right under the last track, with no extra message');
+    menuCheck(!glob($config->storage.'/music-batches/*'),'delivered album files are released immediately before Back is pressed');
     $row=$store->query('SELECT * FROM music_menus WHERE id=?',[$id])->fetch(); $state=json_decode($row['data'],true)['batch']; $lastId=end($state['delivered']);
     $deleted=array_values(array_filter($called('deleteMessage'),fn($call)=>(int)$call['params']['message_id']===$menuMessage));
     $sendingNotes=array_values(array_filter($called('editMessageCaption'),fn($call)=>str_contains($call['params']['caption'],'در حال ارسال آهنگ‌ها')));

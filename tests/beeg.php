@@ -17,6 +17,7 @@ try {
         mkdir($temp.'/'.$height,0700);
         $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.$width.'x'.$pixels.':r=5:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest','-hls_time','2','-hls_list_size','0',$temp.'/'.$height.'/stream.m3u8'],$temp,60);
     }
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=640x360','-frames:v','1','-threads','1',$temp.'/cover.jpg'],$temp,30);
     file_put_contents($temp.'/master.m3u8',"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=150000,RESOLUTION=426x240,CODECS=\"avc1.640015,mp4a.40.2\"\n/240/stream.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=854x480,CODECS=\"avc1.64001f,mp4a.40.2\"\n/480/stream.m3u8\n");
     $log=$temp.'/http.jsonl'; $trace=$temp.'/backend.jsonl'; $mode=$temp.'/mode.json'; file_put_contents($log,''); file_put_contents($trace,''); file_put_contents($mode,'{}');
     $router=$temp.'/router.php';
@@ -34,6 +35,7 @@ try {
             if(!empty($mode['sparse'])) {unset($data['file']['stuff']);$data['fc_facts']=null;if(($_GET['tag']??'')==='27173') $data['file']['data']=[['cd_column'=>'sf_name','cd_value'=>'Neutral detail title']];}
             echo json_encode($data);return;
         }
+        if($path==='/cover.jpg') { header('Content-Type: image/jpeg');readfile($root.'/cover.jpg');return; }
         if($path==='/master.m3u8'||preg_match('~^/(240|480)/stream[0-9]*\.(m3u8|ts)$~D',$path)) {
             if(($_SERVER['HTTP_ORIGIN']??'')!=='https://beeg.com'||($_SERVER['HTTP_REFERER']??'')!=='https://beeg.com/') {http_response_code(403);return;}
             header('Content-Type: '.(str_ends_with($path,'.m3u8')?'application/vnd.apple.mpegurl':'video/mp2t'));readfile($root.$path);return;
@@ -64,7 +66,7 @@ PHP
     $store->set('adult.pornhub','0'); beegCheck($bot->adultAllowed(42,42,'beeg')&&!$bot->adultAllowed(42,42),'Beeg stays enabled independently of Pornhub');
     $send(7,7); beegCheck($jobs()===0,'administrators-only is shared and defaults on');
     $click('custom:adultbeeg',7,7); beegCheck($store->get('adult.beeg')==='1','ordinary users cannot change the Beeg switch');
-    foreach(['caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked'] as $suffix) beegCheck($bot->ui->customizable('text','beeg_'.$suffix),'Beeg user text is independently customizable: '.$suffix);
+    foreach(['quality_prompt','caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked'] as $suffix) beegCheck($bot->ui->customizable('text','beeg_'.$suffix),'Beeg user text is independently customizable: '.$suffix);
     $click('custom:section:beeg'); $edits=$calls('editMessageText'); $markup=json_decode(end($edits)['params']['reply_markup'],true)['inline_keyboard']; beegCheck((bool)$markup,'Beeg has its own Personalization screen');
     $store->set('groups_enabled','0'); file_put_contents($log,''); $send(42,-100123); $messages=$calls('sendMessage'); beegCheck($jobs()===0&&count($messages)===1&&(int)$messages[0]['params']['chat_id']===42,'disabled group use is explained privately to the administrator'); $store->set('groups_enabled','1');
     $store->set('adult.admins_only','0'); $send(7,7); beegCheck($jobs()===1,'turning administrators-only off permits ordinary users'); $store->query('DELETE FROM jobs'); $store->set('adult.admins_only','1');
@@ -72,16 +74,21 @@ PHP
     $send(42,-100123,'/download@FixtureBot '.$link); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     if($saved['status']!=='waiting_quality') throw new RuntimeException($store->get('last_job_error'));
     $options=json_decode($saved['options'],true); beegCheck(isset($options[240],$options[480],$options['audio'],$options['meta'])&&$options['meta']['tags']===['Topic One','Tag Two'],'the Beeg API accepts the numeric ID and site headers; the new playback endpoint supplies real HLS qualities and audio');
+    $posters=$calls('editMessageMedia'); beegCheck($saved['message_kind']==='photo'&&end($posters)['uploads']['poster']['bytes']>0,'the Beeg OpenGraph cover is uploaded into the same quality-menu message');
+    $cover=json_decode(end($posters)['params']['media'],true)['caption']; beegCheck(str_contains($cover,'240p · 480p')&&str_contains($cover,'00:02')&&str_contains($cover,'<b>🎬 Neutral Fixture Video</b>'),'the cover caption lists the actual available qualities and duration with a bold title');
     $args=json_decode(file($trace)[0],true); beegCheck(!in_array('--cookies',$args,true)&&$store->get('youtube_probe_url')==='','Beeg receives no YouTube cookies and never replaces its probe address');
     $click('quality:'.$job['id'].':480',7,-100123,(int)$saved['message_id']); beegCheck($store->claim('media')===null,'another member cannot choose this request quality');
     $click('quality:'.$job['id'].':480',42,-100123,(int)$saved['message_id']); $work=$store->claim('media'); $worker->process($work); $videos=$calls('sendVideo');
     if(!$videos) throw new RuntimeException($store->get('last_job_error'));
     $video=end($videos); beegCheck($video['uploads']['video']['bytes']>0&&$video['uploads']['video']['mime']==='video/mp4'&&(int)$video['params']['chat_id']===-100123&&(int)$video['params']['message_thread_id']===321,'the chosen Beeg video is downloaded and uploaded as real MP4 bytes in the original group topic');
     beegCheck(str_starts_with($video['params']['caption'],'<blockquote>🗑')&&str_contains($video['params']['caption'],"</blockquote>\n\n<b>🔞 ")&&str_contains($video['params']['caption'],'#topic_one')&&!isset($video['params']['reply_markup']),'caption and deletion notice match the existing adult flow, with no source button');
+    beegCheck(str_contains($video['params']['caption'],'🎞 480p')&&str_contains($video['params']['caption'],'Neutral Fixture Video')&&$video['uploads']['thumbnail']['mime']==='image/jpeg'&&$video['uploads']['thumbnail']['bytes']<200000,'the delivered caption has the title and measured quality, with a real JPEG video thumbnail');
     $deletion=$store->query('SELECT * FROM timed_deletes')->fetch(); beegCheck($deletion&&(int)$deletion['chat_id']===-100123&&(int)$deletion['message_id']===$video['result_message_id']&&(int)$deletion['at']>=time()+8,'the exact delivered Beeg message is scheduled for the shared deletion delay');
     beegCheck((int)$store->query("SELECT ok FROM stats WHERE service='beeg'")->fetchColumn()===1,'successful Beeg delivery is counted as its own service');
     $scheduled=(int)$deletion['message_id']; Zero\TimedDeletes::run($store,$api,time()+20); $removed=$calls('deleteMessage'); beegCheck((bool)array_filter($removed,fn($call)=>(int)$call['params']['message_id']===$scheduled&&(int)$call['params']['chat_id']===-100123),'scheduled deletion targets the delivered message in its original chat');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); beegCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','the audio choice produces an actual MP3 through the same Beeg path');
+    file_put_contents($mode,json_encode(['no_cover'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    beegCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','a missing site cover still allows quality selection'); $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
     file_put_contents($mode,json_encode(['sparse'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     beegCheck($saved['status']==='waiting_quality'&&$saved['title']==='Neutral detail title','missing legacy facts and HLS resources do not crash; the optional detail response supplies the title');
     $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);

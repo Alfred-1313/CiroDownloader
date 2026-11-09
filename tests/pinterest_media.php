@@ -88,7 +88,7 @@ try {
     $rows=json_decode($slides[0]['params']['reply_markup'],true)['inline_keyboard'];
     pinMediaCheck(count($state['items'])===3&&count($slides)===1&&$rows[0][0]['callback_data']==='pinpage:'.$job['id'].':2:1'&&!isset($rows[0][0]['style'])&&str_contains($slides[0]['params']['caption'],'&lt;script&gt;'),'a mixed story excludes music/text assets and displays its first slide with an escaped caption and neutral Next button');
     $cache=$config->storage.'/pinterest-pages/'.$state['folder'];
-    pinMediaCheck(count(glob($cache.'/*'))===3&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'Pinterest retains only private prepared visual files in its separate page cache');
+    pinMediaCheck(count(glob($cache.'/*'))===2&&!is_file($cache.'/1.jpg')&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'Pinterest keeps only unsent private slides and releases the sent slide');
     $turn=function(int $page,?int $user=null,?int $thread=321,?string $prefix=null) use($bot,$store,&$job,$message): void {
         $state=json_decode($job['options'],true)['pages']; $caption=['message_id'=>$message,'chat'=>['id'=>(int)$job['chat_id'],'type'=>'supergroup']]; if($thread!==null) $caption['message_thread_id']=$thread;
         $bot->handle(['callback_query'=>['id'=>'pin-turn','from'=>['id'=>$user??(int)$job['user_id']],'message'=>$caption,'data'=>($prefix??'pinpage').':'.$job['id'].':'.$page.':'.$state['revision']]]);

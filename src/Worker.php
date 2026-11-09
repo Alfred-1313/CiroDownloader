@@ -143,12 +143,13 @@ final class Worker
                 $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id'])); return;
             }
             $stage='upload';
-            if($config->api==='http://ciro-telegram-api:8081') {
+            if($config->api==='http://ciro-telegram-api:8081'&&!$config->localApiSharedStorage) {
                 // The local API receives a second copy of the completed file.
                 Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
             }
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             if($adult) {
+                if($adultSite==='beeg'&&preg_match('/^\d+$/D',$media['title'])&&trim((string)($job['title']??''))!=='') $media['title']=$job['title'];
                 // Its own caption (title, people, categories, tags, views) and no link back to the site.
                 $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$bot->adultDeleteAfter((int)$job['chat_id']),$adultSite);
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
@@ -160,6 +161,7 @@ final class Worker
                     'reply_markup'=>['inline_keyboard'=>[[$link]]]];
             }
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
+            if(!$audio&&!empty($media['thumbnail'])) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
             $uploadStarted=hrtime(true);
             if($audio) $sent=$api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
@@ -231,7 +233,7 @@ final class Worker
     private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source,string $album='',array $back=[],?array $radio=null): int
     {
         $config=$this->config;
-        if($config->api==='http://ciro-telegram-api:8081') Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
+        if($config->api==='http://ciro-telegram-api:8081'&&!$config->localApiSharedStorage) Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
         $title=mb_substr($media['title'],0,100);
         $caption=$bot->ui->fitCaption($bot->text($service.'_caption',['title'=>$title,'work'=>trim($album)!==''?mb_substr(trim($album),0,100):$title,'artist'=>mb_substr($media['performer'],0,150),
             'year'=>$media['year'],'duration'=>Ui::duration($media['length']),'url'=>$source]));
@@ -457,6 +459,8 @@ final class Worker
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         // The last track carries the caption and the way back (Telegram shows buttons only under a message of its own); the old menu is deleted.
         $menus->delivered($menuId,$batch,$ids,count($items),$failed,(int)end($ids));
+        // Back needs menu state and message IDs, not the already delivered audio files.
+        Download::clean($dir);
     }
 
     /** What a .fail file says: the reason and the clean list of what each source said (older files hold only the reason). */
@@ -626,7 +630,7 @@ final class Worker
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
         $item=$media[0];
         $bot->jobMessage($job,$bot->text($service.'_uploading',['sent'=>0,'count'=>1]));
-        if($this->config->api==='http://ciro-telegram-api:8081') Download::ensureSpace('/telegram-api',filesize($item['path'])+268435456);
+        if($this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($item['path'])+268435456);
         $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text($service.'_caption',['index'=>1,'count'=>1,'url'=>$job['url']])),'parse_mode'=>'HTML'];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         if($item['type']==='video') $params+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];

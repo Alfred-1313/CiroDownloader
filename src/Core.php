@@ -16,6 +16,8 @@ final class Config
     public bool $musicCopy=true;
     /** Space whole-album deliveries to Telegram's per-chat limits (tests turn it off to run quickly). */
     public bool $paceMessages=true;
+    /** Local Bot API shares /app/storage read-only: send paths instead of making another full upload copy. */
+    public bool $localApiSharedStorage=false;
     /** How many tracks of a whole album are prepared at the same time (MUSIC_PARALLEL, 1 to 8; unset: sized to the container). */
     public int $musicParallel=3;
     /** Optional proxy for Instagram, Pinterest, TikTok and X downloads (never used for Telegram). */
@@ -82,6 +84,7 @@ final class Config
         $config->musicParallel=$parallel!==false&&$parallel!==''?(int)$parallel:self::musicSlots(self::cgroupCpus(),self::cgroupMemory());
         $config->tiktokPreferH264=(getenv('TIKTOK_PREFER_H264')?:'1')!=='0';
         $config->galleryProxy=$galleryProxy; $config->youtubePotUrl=rtrim($potUrl,'/');
+        $config->localApiSharedStorage=getenv('LOCAL_API_SHARED_STORAGE')==='1';
         return $config;
     }
 
@@ -250,6 +253,7 @@ final class Telegram implements FileApi
     }
     public function call(string $method, array $params = []): mixed
     {
+        $params=$this->localFiles($params);
         if (isset($params['reply_markup']) && is_array($params['reply_markup'])) $params['reply_markup'] = self::withoutHidden($params['reply_markup']);
         foreach ($params as &$value) {
             if (is_array($value)) $value = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
@@ -286,6 +290,33 @@ final class Telegram implements FileApi
             throw new \RuntimeException('Telegram API error ' . ($result['error_code'] ?? 0),(int)($result['error_code']??0));
         }
         return $result['result'];
+    }
+
+    /** Use the official local server's file:// uploads only after its shared volume has been enabled. */
+    public function localFiles(array $params): array
+    {
+        if(!$this->config->localApiSharedStorage||$this->config->api!=='http://ciro-telegram-api:8081') return $params;
+        $root=realpath($this->config->storage); $files=[];
+        foreach($params as $key=>$value) if($value instanceof \CURLFile) {
+            $path=realpath($value->getFilename());
+            if($root===false||$path===false||!str_starts_with($path,$root.'/')||!is_file($path)||!is_readable($path)) continue;
+            // Both containers mount the same named volume at /app/storage.
+            $files[$key]='file:///app/storage/'.substr($path,strlen($root)+1);
+        }
+        $attached=[];
+        $replace=function(mixed $value) use (&$replace,&$attached,$files): mixed {
+            if(is_array($value)) return array_map($replace,$value);
+            if(is_string($value)&&str_starts_with($value,'attach://')&&isset($files[$key=substr($value,9)])) {
+                $attached[$key]=true; return $files[$key];
+            }
+            return $value;
+        };
+        $params=array_map($replace,$params);
+        foreach($files as $key=>$path) {
+            if(isset($attached[$key])) unset($params[$key]);
+            else $params[$key]=$path;
+        }
+        return $params;
     }
 
     public function downloadFile(string $filePath, int $maxBytes): string
@@ -366,6 +397,7 @@ final class Store
             if(!in_array('thread_id',array_column($this->query('PRAGMA table_info(update_requests)')->fetchAll(),'name'),true)) $this->db->exec('ALTER TABLE update_requests ADD COLUMN thread_id INTEGER NOT NULL DEFAULT 0');
             // Limits are configurable and checked under BEGIN IMMEDIATE. A unique
             // per-user index would reject the second job even with limits off.
+            $this->db->exec('CREATE INDEX IF NOT EXISTS jobs_status_phase ON jobs(status,phase,id)');
             $index=$this->query("SELECT sql FROM sqlite_master WHERE type='index' AND name='one_active'")->fetchColumn();
             if($index&&(str_contains(strtoupper($index),'UNIQUE')||str_contains($index,'choosing')||!str_contains($index,'confirming'))) $this->db->exec('DROP INDEX one_active');
             // Retain the old name so a rollback does not try to recreate a unique
@@ -531,6 +563,9 @@ final class Store
     public function claim(?string $lane=null): ?array
     {
         if(!in_array($lane,[null,'inspect','media'],true)) throw new \InvalidArgumentException('Unknown worker lane');
+        // Idle lane polling must not acquire SQLite's writer lock every 100 ms.
+        $filter=$lane==='inspect'?" AND phase='inspect'":($lane==='media'?" AND phase<>'inspect'":'');
+        if(!$this->query("SELECT 1 FROM jobs WHERE status='queued' AND (message_id IS NULL OR message_id>0)".$filter." LIMIT 1")->fetchColumn()) return null;
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             // Serve chosen media before fresh inspections, but promote an

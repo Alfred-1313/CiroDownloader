@@ -25,14 +25,19 @@ run_step() {
   if [[ ${1:-} == --live ]]; then live=1; shift; fi
   local label=$1; shift
   [[ -d $LOG_DIR ]] || mkdir -m 700 -- "$LOG_DIR" || return
+  python3 -B "$PROJECT_DIR/scripts/bounded-log.py" --prune "$LOG_DIR" || return
   LAST_STEP_LOG="$(mktemp "$LOG_DIR/step-XXXXXXXX.log")" || return
   local started=$SECONDS result=0 frame=0 frames=('-' '\\' '|' '/')
   ui_step_start "$label"
   ui_note "Private log: $LAST_STEP_LOG"
-  "$@" <&0 >"$LAST_STEP_LOG" 2>&1 & RUN_PID=$!
+  local log_fd capture_pid
+  exec {log_fd}> >(python3 -B "$PROJECT_DIR/scripts/bounded-log.py" "$LAST_STEP_LOG")
+  capture_pid=$!
+  "$@" <&0 >&"$log_fd" 2>&1 & RUN_PID=$!
+  exec {log_fd}>&-
   if ((live)); then
     # Follow only explicitly selected output; configuration steps stay private.
-    tail --pid="$RUN_PID" --sleep-interval=0.2 -n +1 -f -- "$LAST_STEP_LOG" & RUN_LOG_PID=$!
+    tail --pid="$capture_pid" --sleep-interval=0.2 -n +1 -f -- "$LAST_STEP_LOG" & RUN_LOG_PID=$!
   elif [[ $UI_TTY == 1 ]]; then
     printf '\033[?25l'
     while kill -0 "$RUN_PID" 2>/dev/null; do
@@ -44,6 +49,7 @@ run_step() {
   fi
   if wait "$RUN_PID"; then result=0; else result=$?; fi
   RUN_PID=''
+  wait "$capture_pid" || { ((result!=0)) || result=1; }
   if [[ -n $RUN_LOG_PID ]]; then wait "$RUN_LOG_PID" || true; RUN_LOG_PID=''; fi
   ui_step_end "$label" "$result" "$((SECONDS-started))"
   if ((result!=0)); then

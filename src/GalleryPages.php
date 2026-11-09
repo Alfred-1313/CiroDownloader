@@ -76,13 +76,14 @@ class GalleryPages
         if(!$state||(int)$state['expires']<=time()||$index<1||$index>count($state['items'])) throw new MediaFailure('expired','Gallery page session expired');
         $item=$state['items'][$index-1]; $folder=$this->root().'/'.$state['folder'];
         $name=$index.($item['type']==='photo'?'.jpg':'.mp4'); $path=$folder.'/'.$name;
-        if(is_link($folder)||is_link($path)||!is_file($path)) throw new MediaFailure('expired','Gallery slide is no longer available');
+        $cached=is_string($item['file_id']??null)&&preg_match('/^[A-Za-z0-9_-]{1,1024}$/D',$item['file_id']);
+        if(is_link($folder)||is_link($path)||(!$cached&&!is_file($path))) throw new MediaFailure('expired','Gallery slide is no longer available');
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery page delivery no longer authorized');
         $count=count($state['items']);
         $initial=(int)$state['message']===0;
         if($initial) $bot->jobMessage($job,$bot->text($this->service.'_uploading',['sent'=>0,'count'=>$count]));
-        $cached=is_string($item['file_id']??null)&&preg_match('/^[A-Za-z0-9_-]{1,1024}$/D',$item['file_id']);
-        if(!$cached&&$this->config->api==='http://ciro-telegram-api:8081') Download::ensureSpace('/telegram-api',filesize($path)+268435456);
+        $bytes=$cached?0:(int)filesize($path);
+        if(!$cached&&$this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($path)+268435456);
         $description=$state['description'];
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
         $caption=Ui::fitCaption($bot->text($this->service.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description]));
@@ -98,7 +99,7 @@ class GalleryPages
         if($initial) {
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             unset($media['type'],$media['media']);
-            $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+$media+[$item['type']=>$file]);
+            $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+$media+[$item['type']=>($cached?$item['file_id']:$file)]);
         } else {
             $result=$this->api->call('editMessageMedia',$params+['message_id'=>(int)$state['message'],'media'=>$media]+($cached?[]:['slide'=>$file]));
         }
@@ -110,7 +111,9 @@ class GalleryPages
         if($initial) try { $bot->finishJob($job); } catch(\Throwable) { error_log('Gallery page delivered; status cleanup unavailable'); }
         $state['message']=(int)$result['message_id']; $state['current']=$index; $state['target']=$index; $state['revision']=$revision;
         $this->store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['pages'=>$state],JSON_THROW_ON_ERROR),$job['id']]);
-        return $cached?0:(int)@filesize($path);
+        // Persist the Telegram ID first. Previous/Next reuses it without keeping a second local copy.
+        if(isset($state['items'][$index-1]['file_id'])&&is_file($path)) @unlink($path);
+        return $bytes;
     }
     public function clean(array $job): void
     {
@@ -119,8 +122,20 @@ class GalleryPages
     public function prune(): void
     {
         foreach(glob($this->root().'/job-*')?:[] as $folder) {
-            if(is_link($folder)||!is_dir($folder)||filemtime($folder)>time()-self::TTL||!preg_match('/^job-(\d+)-[a-f0-9]{16}$/D',basename($folder),$match)) continue;
-            if(!$this->store->query("SELECT 1 FROM jobs WHERE id=? AND status IN ('queued','running')",[(int)$match[1]])->fetchColumn()) Download::clean($folder);
+            if(is_link($folder)||!is_dir($folder)||!preg_match('/^job-(\d+)-[a-f0-9]{16}$/D',basename($folder),$match)) continue;
+            $modified=filemtime($folder);
+            $job=$this->store->query('SELECT status,options FROM jobs WHERE id=?',[(int)$match[1]])->fetch();
+            if($job&&in_array($job['status'],['queued','running'],true)) continue;
+            // Release confirmed slides left by older versions too, keeping unsent slides for navigation.
+            $pages=$job?json_decode($job['options'],true)['pages']??[]:[];
+            if(($pages['folder']??'')===basename($folder)) foreach($pages['items']??[] as $i=>$item) {
+                if(is_string($item['file_id']??null)&&preg_match('/^[A-Za-z0-9_-]{1,1024}$/D',$item['file_id'])) {
+                    $path=$folder.'/'.($i+1).($item['type']==='photo'?'.jpg':'.mp4');
+                    if(is_file($path)) @unlink($path);
+                }
+            }
+            if($modified<time()-self::TTL) Download::clean($folder);
+            else touch($folder,$modified);
         }
     }
 }

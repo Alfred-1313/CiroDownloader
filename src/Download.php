@@ -54,18 +54,26 @@ final class Download
     }
     public function run(array $command, string $folder, int $seconds,?int $maxTemporaryBytes=null,?int $maxFileBytes=null): string
     {
-        $stdout=$folder.'/stdout.log'; $stderr=$folder.'/stderr.log';
+        // Drain both streams without writing unbounded process logs to disk.
+        $stdout=''; $stderr='';
         // GNU timeout manages the child process group. No URL is interpreted by a shell.
         $command=array_merge(['timeout','--signal=TERM','--kill-after=5',(string)$seconds],$command);
-        $proc=proc_open($command,[0=>['file','/dev/null','r'],1=>['file',$stdout,'w'],2=>['file',$stderr,'w']],$pipes,$folder,
+        $proc=proc_open($command,[0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,$folder,
             ['PATH'=>getenv('PATH')?:'/usr/local/bin:/usr/bin:/bin','HOME'=>$folder,'LANG'=>'C.UTF-8']);
         if (!is_resource($proc)) throw new \RuntimeException('Cannot start downloader');
+        stream_set_blocking($pipes[1],false); stream_set_blocking($pipes[2],false);
+        $drain=static function() use (&$stdout,&$stderr,$pipes): void {
+            $stdout.=(string)stream_get_contents($pipes[1],1048576);
+            $stderr=substr($stderr.(string)stream_get_contents($pipes[2],1048576),-65536);
+            if(strlen($stdout)>16777216) throw new MediaFailure('format','Downloader output exceeds metadata limit');
+        };
         $exit=-1;
         $nextStorageCheck=0.0;
         try {
             do {
+                $drain();
                 $status=proc_get_status($proc);
-                if (!$status['running']) { $exit=$status['exitcode']; break; }
+                if (!$status['running']) { $exit=$status['exitcode']; $drain(); break; }
                 if(microtime(true)>=$nextStorageCheck) {
                     self::ensureSpace($folder);
                     $bytes=0;
@@ -90,13 +98,13 @@ final class Download
                 while(proc_get_status($proc)['running']&&microtime(true)<$deadline) usleep(100000);
                 if(proc_get_status($proc)['running']) proc_terminate($proc,9);
             }
+            fclose($pipes[1]); fclose($pipes[2]);
             proc_close($proc);
         }
         if ($exit!==0) {
-            $detail=is_file($stderr)?(string)file_get_contents($stderr):'';
-            throw MediaFailure::process($exit,substr($detail,-6000));
+            throw MediaFailure::process($exit,substr($stderr,-6000));
         }
-        return file_get_contents($stdout)?:'';
+        return $stdout;
     }
     /** Arguments for one attempt. A null jar means an anonymous request. */
     private function access(string $folder,?array $jar): array
@@ -276,7 +284,7 @@ final class Download
             // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
             $options=self::sizedOptions($info,$this->config->maxBytes);
             $options['meta']=self::siteMeta($info);
-            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>'','poster_file'=>self::posterFile($folder)];
+            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>'','poster_file'=>self::posterFile($folder),'duration'=>max(0,(int)ceil((float)($info['duration']??0)))];
         }
         $options=self::qualityOptions($info);
         $audio=self::audioOptions($info);
@@ -598,9 +606,25 @@ final class Download
         $info=$this->probe($ready,$folder); $video=null;
         foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
         if(!$video||min((int)$video['width'],(int)$video['height'])>$target||($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality)) throw new MediaFailure('format','Prepared resolution does not match the selected quality');
-        return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube',
+        // The selected file, not an estimated playlist label, supplies the final caption's resolution.
+        $thumbnail=$site==='beeg'?$this->videoThumbnail($ready,$folder):null;
+        @unlink($file); // The validated MP4 is the only full video needed during upload.
+        return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube','thumbnail'=>$thumbnail,
             'height'=>(int)$video['height'],'width'=>(int)$video['width'],
             'quality'=>min((int)$video['height'],(int)$video['width']).'p','duration'=>(int)ceil($duration)];
+    }
+
+    /** A small JPEG from the actual video; optional, never another media download. */
+    private function videoThumbnail(string $file,string $folder): ?string
+    {
+        $path=$folder.'/cover.jpg';
+        try {
+            $this->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$file,
+                '-frames:v','1','-vf','scale=320:320:force_original_aspect_ratio=decrease','-q:v','6','-threads','1',$path],$folder,15);
+            if(is_file($path)&&filesize($path)>0&&filesize($path)<200000) return $path;
+        } catch(MediaFailure) {}
+        if(is_file($path)) @unlink($path);
+        return null;
     }
 
     private function probe(string $file, string $folder): array
@@ -622,6 +646,7 @@ final class Download
     }
     public static function clean(string $folder): void
     {
+        if(is_link($folder)) { unlink($folder); return; }
         if (!is_dir($folder)) return;
         foreach(new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($folder,\FilesystemIterator::SKIP_DOTS),\RecursiveIteratorIterator::CHILD_FIRST) as $p) {
             if($p->isDir()&&!$p->isLink()) rmdir($p->getPathname()); else unlink($p->getPathname());

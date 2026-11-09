@@ -1,6 +1,6 @@
 # Large Telegram uploads with Docker
 
-The hosted Telegram Bot API has a 50 MB upload limit. The optional local Bot API is built from the official Telegram source and accepts uploads up to 2000 MB. Ciro Downloader sets its limit to 1990 MB to leave a margin. The server needs enough free disk space for downloading, preparing, and uploading the file. Available space is checked during processing, and a large upload needs room for an additional copy; smaller files do not require the full 1990 MB limit in free space.
+The hosted Telegram Bot API has a 50 MB upload limit. The optional local Bot API is built from the official Telegram source and accepts uploads up to 2000 MB. Ciro Downloader sets its limit to 1990 MB to leave a margin. The server needs enough free disk space for downloading, preparing, and uploading the file. Available space is checked during processing. Current setups share the prepared files read-only with the local API and send their local paths, avoiding another upload copy. Older multipart setups still need room for an additional copy; smaller files do not require the full 1990 MB limit in free space.
 
 ## Required Telegram credentials
 
@@ -69,3 +69,18 @@ If setup reports a failure after logout, keep the bot paused and choose **Settin
 
 Source: https://github.com/tdlib/telegram-bot-api#moving-a-bot-to-a-local-server
 
+
+## Avoiding a second upload copy on existing installations
+
+New large-upload setups enable `LOCAL_API_SHARED_STORAGE=1` after starting the local API with the read-only `ciro-downloader_data:/app/storage` mount. The application sends `file:///app/storage/...` only to the managed local API, only for readable files inside that volume, and deletes the application’s temporary files after Telegram confirms the request. Cloud API uploads stay multipart.
+
+For an existing local API installation, finish active jobs and stop `bot`, `worker` (and `radio` if running), then recreate the local API **from the updated checkout** before setting `LOCAL_API_SHARED_STORAGE=1` in `.env` and recreating the application services:
+
+```bash
+docker compose stop bot worker
+docker compose -f compose.telegram-api.yaml up -d --no-build telegram-api
+# Set LOCAL_API_SHARED_STORAGE=1 in .env only after the command above succeeds.
+docker compose up -d --no-build --force-recreate bot worker
+```
+
+If radio was running, stop it before this operation and restart it afterward. Keep the setting at `0` if the shared mount has not been applied. The setting does not delete the local API’s older upload/download cache or its session database. Do not delete that volume while the API is running; historical API cache reclamation requires a separate, stopped-service maintenance operation. See [storage maintenance](storage.md).

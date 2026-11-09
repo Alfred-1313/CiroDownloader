@@ -96,7 +96,9 @@ try {
     igMediaCheck($job['status']==='done'&&count($slides)===1&&$slides[0]['method']==='sendPhoto'&&count($markup[0])===1&&$markup[0][0]['callback_data']==='igpage:'.$job['id'].':2:1'&&$markup[0][0]['text']==='بعدی ⏭️'&&!isset($markup[0][0]['style']),'the first slide has one full-row neutral Next button with no counter or Previous button');
     igMediaCheck(count($markup)===1&&!str_contains($slides[0]['params']['caption'],'href='),'a default carousel keeps its navigation without an original-post link or source button');
     igMediaCheck(str_contains($slides[0]['params']['caption'],'متن اصلی پست')&&str_contains($slides[0]['params']['caption'],'&lt;script&gt;')&&!array_filter($calls,fn($call)=>in_array($call['method'],['upload','fallback','createAccount','createPage'],true)),'native pages include an escaped original caption and never contact an external host');
-    igMediaCheck(count(glob($cache.'/*'))===3&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'only the prepared private media files survive initial-job cleanup');
+    igMediaCheck(count(glob($cache.'/*'))===2&&!is_file($cache.'/1.jpg')&&!glob($cache.'/*cookies*')&&(fileperms($cache.'/2.mp4')&0777)===0600,'only unsent private slides survive; the sent slide is stored by Telegram');
+    file_put_contents($cache.'/1.jpg','legacy confirmed copy'); (new Zero\InstagramPages($config,$store,$api))->prune();
+    igMediaCheck(!is_file($cache.'/1.jpg')&&is_file($cache.'/2.mp4'),'maintenance releases confirmed copies left by older versions while preserving unsent slides');
     // A new poller/store instance must use the durable cursor, not process memory.
     $pageBot=new Zero\Bot($config,new Zero\Store($storage),$api);
     $toggleSource=fn()=>$pageBot->handle(['callback_query'=>['id'=>'source-toggle','from'=>['id'=>42],'message'=>['message_id'=>777,'chat'=>['id'=>42,'type'=>'private']],'data'=>'custom:igsource']]);

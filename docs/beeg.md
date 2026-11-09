@@ -20,9 +20,9 @@ Beeg stays outside the always-on public media list. Enabling Pornhub does not en
 
 ## Delivery and settings
 
-The same status message becomes the quality menu. A poster is used if the extractor provides one; otherwise the menu remains text. The existing ladder (240/360/480/720/1080, as offered) and upload-size checks apply. The audio option extracts MP3 from the smallest available stream. Downloads use the configured social-media proxy when present, without passing YouTube cookies.
+The same status message becomes the quality menu. The plugin reads the page’s OpenGraph cover on the site’s HTTPS image hosts and yt-dlp uploads it into that same message, with the quality caption beneath it. If it is missing, the menu remains text. The delivered MP4 includes a small JPEG thumbnail taken from the actual video; it is generated locally without a second download. Its caption uses the measured resolution of the validated MP4, never an estimated bitrate label. The existing ladder (240/360/480/720/1080, as offered) and upload-size checks apply. The audio option extracts MP3 from the smallest available stream. Downloads use the configured social-media proxy when present, without passing YouTube cookies.
 
-**🎨 شخصی‌سازی ← 🔞 Beeg** contains independent caption, people/views/tags, deletion notice and error texts. Caption structure follows Pornhub: deletion notice first in a quote, an empty line, title and details, then collapsed tags. There is no source link or button. Missing metadata fields stay empty.
+**🎨 شخصی‌سازی ← 🔞 Beeg** contains an independent quality-cover caption (title, duration, available qualities and upload limit), delivery caption, people/views/tags, deletion notice and error texts. Caption structure follows Pornhub: deletion notice first in a quote, an empty line, title and details, then collapsed tags. There is no source link or button. Missing metadata fields stay empty.
 
 The existing private/group auto-delete switches and delay are shared with Pornhub; their saved values are retained. Defaults are on with a ten-second delay. Pending deletions survive restart. Access is rechecked before extraction, after inspection and before upload, so disabling a site during processing prevents subsequent delivery.
 

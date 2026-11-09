@@ -59,6 +59,7 @@ class LargeUploadMigrationTests(unittest.TestCase):
         values = large.environment((self.project / '.env').read_text())
         self.assertEqual(values['BOT_API_URL'], large.LOCAL)
         self.assertEqual(values['MAX_FILE_BYTES'], '1990000000')
+        self.assertEqual(values['LOCAL_API_SHARED_STORAGE'], '1')
         self.assertFalse((self.private / 'migration.json').exists())
         self.assertNotIn('a'*32, (self.project / '.env').read_text())
 
