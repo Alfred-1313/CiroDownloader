@@ -37,7 +37,7 @@ try {
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(1,1,1,'https://example.invalid/a','done',?),(2,2,2,'https://example.invalid/b','failed',?),(3,3,3,'https://example.invalid/c','done',?)",[time()-100,time()-3*86400,time()-20*86400]);
     $bot->handle(['message'=>['message_id'=>5,'from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
     $home=$api->last('sendMessage');
-    rpCheck(str_contains($home['text'],'📊 وضعیت ربات')&&rpActions($home)===['rp:stats','rp:services','rp:cookies','rp:errors','rp:server','rp:x'],'the status message keeps its text and offers the five reports and Close');
+    rpCheck(str_contains($home['text'],'📊 وضعیت ربات')&&rpActions($home)===['rp:stats','rp:services','rp:cookies','rp:errors','rp:server','rp:speed','rp:x'],'the status message keeps its text and offers the six reports and Close');
 
     // Each report is edited into the same message.
     $bot->handle(rpClick('rp:stats',777)); $edit=$api->last('editMessageText');
@@ -75,6 +75,20 @@ try {
     $bot->handle(rpClick('rp:server',777)); $edit=$api->last('editMessageText');
     rpCheck(str_contains($edit['text'],'<b>🖥 وضعیت سرور</b>')&&str_contains($edit['text'],Zero\Updates::version())&&str_contains($edit['text'],'فضای آزاد')&&str_contains($edit['text'],'بار پردازنده')&&str_contains($edit['text'],'سرور ابری تلگرام')&&str_contains($edit['text'],'/setinline'),'the server report shows the version, free space, load, the Telegram interface and whether sharing (inline mode) is on');
     rpCheck(!str_contains($edit['text'],$config->token)&&!str_contains($edit['text'],'42'.'</b>'),'the report never shows the token or an administrator ID');
+
+    // Speed: the numbers of delivered files, nothing else.
+    $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
+    rpCheck(str_contains($edit['text'],'<b>⚡ سرعت انتقال</b>')&&str_contains($edit['text'],'هنوز ارسالی ثبت نشده')&&rpActions($edit)===['rp:speed','rp:home','rp:x'],'the speed report says so while nothing has been delivered');
+    $store->pushSpeed('youtube',30*1048576,8000,4000); $store->pushSpeed('spotify',9*1048576,3000,6000); $store->pushSpeed('instagram',1000,5,5); $store->pushSpeed('youtube',50*1048576,1000,0);
+    rpCheck(count(json_decode($store->get('recent_speeds'),true))===2,'files under half a megabyte and uploads without a time are not recorded');
+    $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
+    rpCheck(str_contains($edit['text'],'<b>2</b> فایل · جمعاً <b>39.0</b> مگابایت')&&str_contains($edit['text'],'آپلود به تلگرام: <b>3.9 مگابایت/ثانیه</b>')&&str_contains($edit['text'],'دانلود و آماده‌سازی: <b>3.5 مگابایت/ثانیه</b>'),'the report adds up the size and shows the download and upload speeds');
+    rpCheck(strpos($edit['text'],'اسپاتیفای')<strpos($edit['text'],'یوتیوب')&&str_contains($edit['text'],'(7.5 مگابایت/ثانیه)')&&!str_contains($edit['text'],'http'),'the newest file is listed first with its own upload speed and no link');
+    $store->set('recent_speeds','[]'); for($i=0;$i<25;$i++) $store->pushSpeed('youtube',2097152,1000,9000);
+    $bot->handle(rpClick('rp:speed',777)); $edit=$api->last('editMessageText');
+    rpCheck(count(json_decode($store->get('recent_speeds'),true))===20&&str_contains($edit['text'],'بیشتر زمان صرف آپلود به تلگرام می‌شود')&&substr_count($edit['text'],'🕒')===6,'twenty files are kept, six are listed and a slow upload is named as the bottleneck');
+    $store->set('recent_speeds',json_encode([['t'=>time(),'s'=>'youtube','b'=>20971520,'p'=>20000,'u'=>1000]]));
+    $bot->handle(rpClick('rp:speed',777)); rpCheck(str_contains($api->last('editMessageText')['text'],'بیشتر زمان صرف دانلود و آماده‌سازی می‌شود'),'a slow download is named as the bottleneck');
 
     // Back goes home, Close removes the message, unknown screens do nothing.
     $bot->handle(rpClick('rp:home',777)); $edit=$api->last('editMessageText');

@@ -99,6 +99,7 @@ final class Worker
                 }
                 $this->galleryDelivery($job,$media,$bot,$service);
                 $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+                $this->noteSpeed($service,(int)@filesize((string)($media[0]['path']??'')),$timings);
                 $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
                 try { $bot->finishJob($job); } catch(Throwable) { error_log(ucfirst($service).' media delivered; status cleanup unavailable'); }
                 return;
@@ -163,6 +164,7 @@ final class Worker
             // so a restart in between does not leave it in the chat).
             if($adult&&($after=$bot->adultDeleteAfter((int)$job['chat_id']))>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$after);
             $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+            $this->noteSpeed($label,(int)@filesize($media['path']),$timings);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
             try { $bot->finishJob($job); }
             catch(Throwable) { error_log('Media delivered; status cleanup unavailable'); }
@@ -253,6 +255,7 @@ final class Worker
         $back=$menuId>0&&$menus->owns($menuId,(int)$job['user_id'],(int)$job['chat_id'])?[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]]:[];
         $audio=$this->sendTrack($job,$bot,$service,$media,$job['url'],(string)($options['album']??''),$back);
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+        $this->noteSpeed($service,(int)@filesize((string)($media['path']??'')),$timings);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         if($back) $menus->trackDelivered($menuId,(int)$job['user_id'],(int)$job['chat_id'],$audio);
         try { $bot->finishJob($job); }
@@ -587,6 +590,11 @@ final class Worker
         return is_array($result)?$result:[];
     }
 
+    /** One delivered file for the speed report; a failure to note it never touches the delivery itself. */
+    private function noteSpeed(string $service,int $bytes,array $timings): void
+    {
+        try { $this->store->pushSpeed($service,$bytes,(int)($timings['prepare_ms']??0),(int)($timings['upload_ms']??0)); } catch(Throwable) {}
+    }
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void
     {
         if(count($media)!==1) throw new MediaFailure('format','Expected one gallery media file');

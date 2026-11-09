@@ -9,14 +9,14 @@ namespace Zero;
  */
 final class Reports
 {
-    public const SCREENS=['stats','services','cookies','errors','server'];
+    public const SCREENS=['stats','services','cookies','errors','server','speed'];
     private const SERVICES=['youtube','instagram','pinterest','tiktok','twitter','spotify','soundcloud','menu','batch','pornhub'];
     public function __construct(private Bot $bot) {}
 
     /** The buttons under the main status message. */
     public static function homeRows(Ui $ui): array
     {
-        $rows=[[$ui->button('report_stats','rp:stats'),$ui->button('report_services','rp:services')],[$ui->button('report_cookies','rp:cookies'),$ui->button('report_errors','rp:errors')],[$ui->button('report_server','rp:server')]];
+        $rows=[[$ui->button('report_stats','rp:stats'),$ui->button('report_services','rp:services')],[$ui->button('report_cookies','rp:cookies'),$ui->button('report_errors','rp:errors')],[$ui->button('report_server','rp:server'),$ui->button('report_speed','rp:speed')]];
         $rows[]=[$ui->button('report_close','rp:x')];
         return $rows;
     }
@@ -113,6 +113,32 @@ final class Reports
         ]);
     }
 
+    private function speedOf(int $bytes,int $ms): string
+    {
+        return $ms>0?$this->bot->ui->plainWith('report_mbps',['n'=>number_format($bytes/1048576/($ms/1000),1)]):$this->bot->ui->plain('report_none');
+    }
+    /** Where the time of the last delivered files went: preparing them (download, conversion) against the upload to Telegram. */
+    private function speed(): string
+    {
+        $ui=$this->bot->ui; $config=$this->bot->config; $list=json_decode($this->bot->store->get('recent_speeds','[]'),true); $list=is_array($list)?$list:[];
+        $bytes=0; $prepare=0; $upload=0; $rows=[];
+        foreach($list as $index=>$item) {
+            $b=(int)($item['b']??0); $p=(int)($item['p']??0); $u=(int)($item['u']??0);
+            $bytes+=$b; $prepare+=$p; $upload+=$u;
+            if($index<6) $rows[]=$ui->text('report_speed_row',['ago'=>$this->ago((int)($item['t']??0)),'name'=>$this->name((string)($item['s']??'')),'size'=>number_format($b/1048576,1),
+                'prepare'=>$this->seconds((float)$p),'upload'=>$this->seconds((float)$u),'rate'=>$this->speedOf($b,$u)]);
+        }
+        $count=count($list); $share=$prepare+$upload>0?$upload/($prepare+$upload):0.5;
+        return $ui->text('report_speed_page',[
+            'count'=>$count,'size'=>number_format($bytes/1048576,1),
+            'prepare_rate'=>$this->speedOf($bytes,$prepare),'prepare_time'=>$count>0?$this->seconds($prepare/$count):$ui->plain('report_none'),
+            'upload_rate'=>$this->speedOf($bytes,$upload),'upload_time'=>$count>0?$this->seconds($upload/$count):$ui->plain('report_none'),
+            'verdict'=>$count>0?$ui->plain($share>=0.6?'report_speed_verdict_upload':($share<=0.4?'report_speed_verdict_prepare':'report_speed_verdict_balanced')):$ui->plain('report_none'),
+            'rows'=>$rows?implode("\n\n",$rows):$ui->text('report_speed_none'),
+            'api'=>$ui->plain($config->api==='https://api.telegram.org'?'report_api_cloud':'report_api_local'),
+        ],['rows']);
+    }
+
     /** One report screen in the message that asked for it ($message), or the main status message for "home". */
     public function show(int $chat,string $screen,int $message): void
     {
@@ -120,7 +146,7 @@ final class Reports
         if($screen==='x') { try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return; }
         if($screen==='home') { $this->bot->health($chat,$message); return; }
         if(!in_array($screen,self::SCREENS,true)) return;
-        $text=match($screen) {'stats'=>$this->stats(),'services'=>$this->services(),'cookies'=>$this->cookies(),'errors'=>$this->errors(),'server'=>$this->server()};
+        $text=match($screen) {'stats'=>$this->stats(),'services'=>$this->services(),'cookies'=>$this->cookies(),'errors'=>$this->errors(),'server'=>$this->server(),'speed'=>$this->speed()};
         $rows=[[$ui->button('report_refresh','rp:'.$screen),$ui->button('report_back','rp:home')],[$ui->button('report_close','rp:x')]];
         $this->bot->send($chat,$text,$rows,$message);
     }

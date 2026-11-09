@@ -466,6 +466,18 @@ final class Store
         array_unshift($list,['t'=>time(),'s'=>$service,'r'=>$reason,'c'=>$sources]);
         $this->set('recent_errors',json_encode(array_slice($list,0,10),JSON_THROW_ON_ERROR));
     }
+    /**
+     * The last twenty delivered files, newest first: [time, service, bytes, prepare ms, upload ms]. It holds numbers only,
+     * so the speed report can show where the time goes (download and conversion against the upload to Telegram).
+     * Files under half a megabyte are left out: their time is mostly connection setup and says nothing about speed.
+     */
+    public function pushSpeed(string $service,int $bytes,int $prepareMs,int $uploadMs): void
+    {
+        if($bytes<524288||$uploadMs<1) return;
+        $list=json_decode($this->get('recent_speeds','[]'),true); $list=is_array($list)?$list:[];
+        array_unshift($list,['t'=>time(),'s'=>$service,'b'=>$bytes,'p'=>max(0,$prepareMs),'u'=>$uploadMs]);
+        $this->set('recent_speeds',json_encode(array_slice($list,0,20),JSON_THROW_ON_ERROR));
+    }
     public function groupsEnabled(): bool { return $this->get('groups_enabled','1')==='1'; }
     /**
      * @param ?string $phase set only for jobs the bot builds itself (a track chosen in a music menu)
