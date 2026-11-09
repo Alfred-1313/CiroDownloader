@@ -18,6 +18,7 @@ require_once __DIR__.'/CookieJars.php';
 require_once __DIR__.'/CookieHealth.php';
 require_once __DIR__.'/Reports.php';
 require_once __DIR__.'/AdminCommands.php';
+require_once __DIR__.'/MusicSearch.php';
 require_once __DIR__.'/Shares.php';
 require_once __DIR__.'/TimedDeletes.php';
 
@@ -360,7 +361,7 @@ final class Bot
             if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
             $service=galleryService($url)??$phase??musicService($url);
-            try { $this->jobMessage($job,$this->text($service?$service.'_queued':(collectionUrl($url)!==null?'menu_queued':'queued'))); }
+            try { $collection=$service?null:collectionUrl($url); $this->jobMessage($job,$this->text($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'))); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
             Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
@@ -538,6 +539,8 @@ final class Bot
         if($state==='pin_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('pin_cookie_waiting')); return; }
         if($state==='tt_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('tt_cookie_waiting')); return; }
         if($state==='x_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('x_cookie_waiting')); return; }
+        // /music and /spotify with the text to look for.
+        if(($search=MusicSearch::parse($text))!==null) { MusicSearch::handle($this,$update,$user,$chat,0,$search); return; }
         $url=mediaUrl($text);
         if(!$url&&($adult=pornhubUrl($text))!==null) {
             if($this->adultAllowed($user,$chat)) $url=$adult;

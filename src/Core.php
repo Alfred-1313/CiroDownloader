@@ -694,6 +694,24 @@ function soundcloudUrl(string $input): ?string
  * or a Deezer artist (reached from the "similar artists" list). The user gets a menu to pick tracks from.
  * @return ?array{service:string,kind:string,id:string,url:string}
  */
+/**
+ * The text of a music search ("pishro-separ", "shayea"): control and direction marks removed, spaces collapsed,
+ * 2 to 80 characters with at least one letter or digit. Null when it is not a usable search.
+ */
+function searchQuery(string $text): ?string
+{
+    $clean=preg_replace('/[\x00-\x1F\x7F\x{200B}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]+/u',' ',$text);
+    if($clean===null) return null;
+    $clean=trim(preg_replace('/\s+/u',' ',$clean)??'');
+    if(mb_strlen($clean)<2||mb_strlen($clean)>80||preg_match('/[\p{L}\p{N}]/u',$clean)!==1) return null;
+    return $clean;
+}
+/** The address a music search travels as: a Spotify search page, "/artists" for a name or "/tracks" for songs. */
+function searchAddress(string $kind,string $query): string
+{
+    return 'https://open.spotify.com/search/'.rawurlencode($query).'/'.($kind==='artists'?'artists':'tracks');
+}
+
 function collectionUrl(string $input): ?array
 {
     $input=trim($input);
@@ -702,6 +720,10 @@ function collectionUrl(string $input): ?array
     $parts=parse_url($input);
     if(!$parts||!in_array(strtolower($parts['scheme']??''),['https','http'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return null;
     $host=strtolower($parts['host']??''); $path=$parts['path']??'';
+    if($host==='open.spotify.com'&&preg_match('~^/search/([^/]{1,400})/(artists|tracks)/?$~D',$path,$match)) {
+        $query=searchQuery(rawurldecode($match[1]));
+        return $query===null?null:['service'=>'search','kind'=>$match[2],'id'=>$query,'url'=>searchAddress($match[2],$query)];
+    }
     if(in_array($host,['open.spotify.com','play.spotify.com'],true)) {
         if(!preg_match('~^/(?:intl-[a-z]{2}(?:-[A-Za-z]{2,4})?/)?(artist|album|playlist)/([A-Za-z0-9]{22})/?$~D',$path,$match)) return null;
         return ['service'=>'spotify','kind'=>$match[1],'id'=>$match[2],'url'=>'https://open.spotify.com/'.$match[1].'/'.$match[2]];

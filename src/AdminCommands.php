@@ -23,7 +23,8 @@ final class AdminCommands
     {
         $menu=[];
         foreach(self::LIST as $name) $menu[]=['command'=>$name,'description'=>mb_substr($ui->plain('admin_cmd_'.$name),0,256)];
-        return $menu;
+        // An administrator's chat menu replaces the public one, so the search commands are repeated here.
+        return array_merge($menu,MusicSearch::adminMenu($ui));
     }
     /**
      * Show the commands in this administrator's "/" menu (only theirs, never the ordinary users').

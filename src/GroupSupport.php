@@ -77,7 +77,12 @@ final class GroupSupport
         if(preg_match('~^/([A-Za-z_]+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',$text,$parts)) {
             if(!empty($parts[2])&&strcasecmp($parts[2],$this->username())!==0) return;
             $command=strtolower($parts[1]); $argument=trim($parts[3]??'');
-            if(!in_array($command,['start','help','download','update'],true)) return;
+            if(!in_array($command,['start','help','download','update','music','spotify'],true)) return;
+        }
+        if($command==='music'||$command==='spotify') {
+            $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+            MusicSearch::handle($this->bot,$update,$user,$chat,$thread,['command'=>$command,'argument'=>$argument,'bot'=>'']);
+            return;
         }
         if($command==='update') {
             if($argument===''&&$this->bot->admin($user)) (new Updates($this->bot->config,$this->bot->store,$this->bot->api,$thread))->menu($chat,$user,0,'',true);

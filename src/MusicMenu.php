@@ -17,7 +17,7 @@ final class MusicMenu
 {
     public const PAGE=8, KEEP=8, TTL=86400, RECENT=120, VIEWS=6, BATCH_MAX=50;
     private const TABS=['popular','albums','singles','eps','compilations','playlists','related','tracks','sets','reposts','likes'];
-    private const ICONS=['artist'=>'🎤','album'=>'💿','playlist'=>'📻','profile'=>'🎧','set'=>'📻'];
+    private const ICONS=['artist'=>'🎤','album'=>'💿','playlist'=>'📻','profile'=>'🎧','set'=>'📻','search'=>'🔎'];
 
     public function __construct(private Bot $bot,private ?MusicCatalog $catalog=null,private ?SoundCloud $soundcloud=null) {}
     private function catalog(): MusicCatalog { return $this->catalog??new MusicCatalog($this->bot->config); }
@@ -29,8 +29,15 @@ final class MusicMenu
     public function open(array $job,array $collection,string $folder): void
     {
         $bot=$this->bot; $store=$bot->store;
-        $bot->jobMessage($job,$bot->text('menu_loading'));
-        $data=$this->catalog()->build($collection,fn(string $url)=>$this->soundcloud()->listing($url,$folder));
+        $search=$collection['service']==='search';
+        $bot->jobMessage($job,$search?$bot->text('search_loading',['query'=>$collection['id']]):$bot->text('menu_loading'));
+        try { $data=$this->catalog()->build($collection,fn(string $url)=>$this->soundcloud()->listing($url,$folder),$folder); }
+        catch(MediaFailure $e) {
+            // A search that finds nothing is an answer, not an error: say so, with the way to write it.
+            if(!$search||$e->reason!=='search') throw $e;
+            $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+            $bot->jobMessage($job,$bot->text('search_empty',['query'=>$collection['id']])); return;
+        }
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
@@ -46,7 +53,7 @@ final class MusicMenu
             self::purge($bot->config);
             $store->query('DELETE FROM music_menus WHERE user_id=? AND id NOT IN (SELECT id FROM music_menus WHERE user_id=? ORDER BY id DESC LIMIT ?)',[(int)$job['user_id'],(int)$job['user_id'],self::KEEP-1]);
             $store->query('INSERT INTO music_menus(user_id,chat_id,thread_id,service,kind,data,view,created,expires) VALUES(?,?,?,?,?,?,?,?,?)',
-                [(int)$job['user_id'],(int)$job['chat_id'],(int)($job['thread_id']??0),$collection['service'],$collection['kind'],
+                [(int)$job['user_id'],(int)$job['chat_id'],(int)($job['thread_id']??0),$data['service'],$data['kind'],
                  json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),json_encode($view,JSON_THROW_ON_ERROR),time(),time()+self::TTL]);
             $id=(int)$store->db->lastInsertId();
             $store->db->exec('COMMIT');
@@ -114,7 +121,8 @@ final class MusicMenu
         }
         // A list of tracks inside an album, playlist or set (or a page that is one) can be fetched whole.
         // A single needs no "download all": its track is one tap away.
-        $whole=($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1&&!$now['single'];
+        // (Search results are different songs, so they offer no "download all".)
+        $whole=$data['kind']!=='search'&&($view['stack']||$data['kind']!=='artist'&&$data['kind']!=='profile')&&count(self::tracksOf($items))>1&&!$now['single'];
         // Choosing tracks: a tap marks a track (blue), and "send the chosen" fetches only those.
         $picking=$whole&&is_array($view['pick']??null); $picked=$picking?array_values(array_map('intval',$view['pick'])):[];
         if($whole) {

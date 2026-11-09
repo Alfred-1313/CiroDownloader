@@ -10,13 +10,13 @@ final class Music
 {
     public const MAX_PAGE=2097152, MAX_COVER=3145728;
 
-    /** One GET without redirects, never larger than $limit bytes. Cover and page hosts are checked by the caller. */
-    public static function get(Config $config,string $url,int $limit,string $label): string
+    /** One GET without redirects, never larger than $limit bytes. Cover and page hosts are checked by the caller. $agent names the program to a service that wants that (MusicBrainz). */
+    public static function get(Config $config,string $url,int $limit,string $label,?string $agent=null): string
     {
         $body=''; $ch=curl_init($url);
         $options=[CURLOPT_FOLLOWLOCATION=>false,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>20,CURLOPT_HTTPHEADER=>['Accept-Language: en'],
             CURLOPT_PROTOCOLS=>CURLPROTO_HTTP|CURLPROTO_HTTPS,
-            CURLOPT_USERAGENT=>'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+            CURLOPT_USERAGENT=>$agent??'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
             CURLOPT_WRITEFUNCTION=>function($handle,string $chunk) use (&$body,$limit): int { $body.=$chunk; return strlen($body)>$limit?0:strlen($chunk); }];
         if($config->galleryProxy!=='') $options[CURLOPT_PROXY]=$config->galleryProxy;
         curl_setopt_array($ch,$options);

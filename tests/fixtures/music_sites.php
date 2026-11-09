@@ -25,7 +25,7 @@ if(preg_match('~^/embed/(artist|album|playlist|track)/([A-Za-z0-9]{22})$~',$path
         $name=preg_match('~^t(\d+)x*$~',$m[2],$n)?'Hit Song '.$n[1]:'Other Song';
         $embed(['type'=>'track','id'=>$m[2],'name'=>$name,'artists'=>[['name'=>'Fixture Artist']],'duration'=>12000,'releaseDate'=>['isoString'=>'2020-01-01T00:00:00Z']]); return;
     }
-    $names=['3TVXtAsR1Inumwj472S9r4'=>'Fixture Artist','1Xyo4u8uXC1ZmMpatF05PJ'=>'Unknown Band','2Xyo4u8uXC1ZmMpatF05PJ'=>'Nobody Known'];
+    $names=['3TVXtAsR1Inumwj472S9r4'=>'Fixture Artist','1Xyo4u8uXC1ZmMpatF05PJ'=>'Unknown Band','2Xyo4u8uXC1ZmMpatF05PJ'=>'Nobody Known','5StarSearchArtistIdAb1'=>'Search Star'];
     $title=$m[1]==='artist'?($names[$m[2]]??'Nobody Known'):($m[1]==='album'?'Fixture Album':'Fixture Mix');
     $artist=$m[1]==='artist'?$title:'Fixture Artist';
     $embed(['type'=>$m[1],'id'=>$m[2],'name'=>$title,'title'=>$title,'subtitle'=>$m[1]==='album'?'Fixture Artist':'Top tracks',
@@ -38,6 +38,15 @@ if(preg_match('~^/embed/(artist|album|playlist|track)/([A-Za-z0-9]{22})$~',$path
 if(str_starts_with($path,'/deezer/')) {
     $p=substr($path,7); $record('deezer',['path'=>$p,'q'=>$query['q']??'']);
     if(($mode['deezer']??'ok')==='down') { $json(['error'=>['type'=>'Exception','code'=>4]]); return; }
+    // Searches typed as /music and /spotify commands (tests/music_search.php)
+    if($p==='/search'&&str_contains(strtolower((string)($query['q']??'')),'pishro')) {
+        $strict=str_contains((string)$query['q'],'artist:"');
+        $json(['data'=>$strict?[]:[['id'=>801,'title'=>'SEPAR (Shield)','duration'=>433,'artist'=>['id'=>5303898,'name'=>'Reza Pishro'],'album'=>['cover_big'=>'https://cdn-images.dzcdn.net/images/cover/801/1000x1000.jpg']],
+            ['id'=>802,'title'=>'Pishro','duration'=>304,'artist'=>['id'=>1,'name'=>'Mahsa Azimi']],['id'=>803,'title'=>'Leha Dodi','duration'=>153,'artist'=>['id'=>2,'name'=>'Sezen Aksu']]]]); return;
+    }
+    if($p==='/search/artist'&&str_contains((string)($query['q']??''),'Search Star')) { $json(['data'=>[['id'=>601,'name'=>'Search Star Tribute','nb_fan'=>5],['id'=>600,'name'=>'Search Star','nb_fan'=>900]]]); return; }
+    if($p==='/search/artist'&&str_contains((string)($query['q']??''),'Mismatch Act')) { $json(['data'=>[['id'=>700,'name'=>'Mismatch Act','nb_fan'=>50]]]); return; }
+    if($p==='/search/artist'&&str_contains((string)($query['q']??''),'Reza')) { $json(['data'=>[['id'=>5303898,'name'=>'Reza Pishro','nb_fan'=>3712],['id'=>9,'name'=>'Someone Else','nb_fan'=>999999]]]); return; }
     if($p==='/search') { $json(['data'=>str_contains((string)($query['q']??''),'artist:"Fixture Artist"')?[['id'=>701,'title'=>'Hit Song 1','duration'=>12,'artist'=>['id'=>111,'name'=>'Fixture Artist']]]:[]]); return; }
     if($p==='/search/artist') { $json(['data'=>str_contains((string)($query['q']??''),'Unknown Band')?[['id'=>400,'name'=>'Unknown Band','nb_fan'=>10]]:[]]); return; }
     if(preg_match('~^/artist/(111|222|400)$~',$p,$d)) { $json(['id'=>(int)$d[1],'name'=>['111'=>'Fixture Artist','222'=>'Other Artist','400'=>'Unknown Band'][$d[1]],'picture_xl'=>'https://cdn-images.dzcdn.net/images/artist/'.$d[1].'/1000x1000.jpg']); return; }
@@ -68,6 +77,12 @@ if(str_starts_with($path,'/deezer/')) {
 // Apple's iTunes Search API
 if(str_starts_with($path,'/itunes/')) {
     $p=substr($path,7); $record('itunes',['path'=>$p,'term'=>$query['term']??'','id'=>$query['id']??'']);
+    if($p==='/search'&&($query['entity']??'')==='musicArtist') {
+        $json(['results'=>str_contains((string)($query['term']??''),'Apple Only')?[['wrapperType'=>'artist','artistId'=>555,'artistName'=>'Apple Only'],['wrapperType'=>'artist','artistId'=>556,'artistName'=>'Apple Only Tribute']]:[]]); return;
+    }
+    if($p==='/search'&&($query['entity']??'')==='song'&&str_contains(strtolower((string)($query['term']??'')),'pishro')) {
+        $json(['results'=>[['wrapperType'=>'track','artistId'=>5,'artistName'=>'Reza Pishro','trackName'=>'Separ','trackTimeMillis'=>433000,'artworkUrl100'=>'https://is1-ssl.mzstatic.com/image/thumb/sep/100x100bb.jpg','releaseDate'=>'2020-01-01T08:00:00Z']]]); return;
+    }
     if($p==='/search') { $json(['results'=>str_contains((string)($query['term']??''),'Unknown Band')?[['wrapperType'=>'track','artistId'=>555,'artistName'=>'Unknown Band','trackName'=>'Hit Song 1','trackTimeMillis'=>12000]]:[]]); return; }
     if($p==='/lookup'&&($query['id']??'')==='555') {
         $json(['results'=>[['wrapperType'=>'artist','artistId'=>555],
@@ -81,6 +96,25 @@ if(str_starts_with($path,'/itunes/')) {
         return;
     }
     $json(['results'=>[]]); return;
+}
+
+// MusicBrainz (artist links, for /spotify)
+if(str_starts_with($path,'/mb/')) {
+    $p=substr($path,3); $record('musicbrainz',['path'=>$p,'q'=>$query['query']??'','agent'=>$_SERVER['HTTP_USER_AGENT']??'']);
+    if(($mode['musicbrainz']??'ok')==='down') { http_response_code(503); echo '{}'; return; }
+    $rel=fn(string $url)=>['type'=>'free streaming','url'=>['resource'=>$url]];
+    if($p==='/ws/2/artist/') {
+        $q=(string)($query['query']??'');
+        $json(['artists'=>str_contains($q,'"Search Star"')?[['id'=>'11111111-1111-1111-1111-111111111111','name'=>'Search Star','score'=>100]]
+            :(str_contains($q,'"Unknown Band"')?[['id'=>'22222222-2222-2222-2222-222222222222','name'=>'Unknown Band','score'=>100]]
+            :(str_contains($q,'"Mismatch Act"')?[['id'=>'33333333-3333-3333-3333-333333333333','name'=>'Mismatch Act','score'=>100]]:[]))]); return;
+    }
+    if($p==='/ws/2/artist/11111111-1111-1111-1111-111111111111') { $json(['relations'=>[$rel('https://open.spotify.com/artist/5StarSearchArtistIdAb1'),$rel('https://www.deezer.com/artist/600')]]); return; }
+    // The Spotify page of this one is gone (404), so the menu falls back to the Deezer artist.
+    if($p==='/ws/2/artist/22222222-2222-2222-2222-222222222222') { $json(['relations'=>[$rel('https://open.spotify.com/artist/0000BrokenPageArtistId1'),$rel('https://www.deezer.com/artist/400')]]); return; }
+    // MusicBrainz names another Deezer artist: it is somebody else, so the Spotify link is not trusted.
+    if($p==='/ws/2/artist/33333333-3333-3333-3333-333333333333') { $json(['relations'=>[$rel('https://open.spotify.com/artist/5StarSearchArtistIdAb1'),$rel('https://www.deezer.com/artist/999')]]); return; }
+    http_response_code(404); $json(['error'=>'Not Found']); return;
 }
 
 // SoundCloud's public pages (only their picture is read)

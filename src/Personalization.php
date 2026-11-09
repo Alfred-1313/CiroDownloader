@@ -45,7 +45,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),'pornhub'],'music'=>[...musicServices(),'menu','batch'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),'pornhub'],'music'=>[...musicServices(),'menu','batch','search'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -245,6 +245,8 @@ final class Personalization
         $screens['batch']=array_merge(array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','more','failed','stopping',
                 'source_youtube','source_soundcloud','source_original','reason_blocked','reason_format','reason_network','reason_cookies','reason_size','reason_storage','reason_restricted','reason_duration','reason_process']),
             [['text','menu_pick_info'],['text','menu_picked'],['text','menu_pick_empty'],['text','menu_pick_full'],['button','menu_pick'],['button','menu_pick_send'],['button','menu_pick_cancel'],['button','batch_stop'],['button','batch_resume'],['button','batch_back'],['button','music_share']]);
+        // The /music and /spotify commands: their help, progress and empty-result texts, and the descriptions in Telegram's "/" menu.
+        $screens['search']=array_map(fn($key)=>['text',$key],['search_queued','search_loading','search_empty','music_usage','spotify_usage','command_music','command_spotify','command_start','command_help']);
         $screens['pornhub']=[['text','pornhub_caption'],['text','pornhub_notice'],['text','pornhub_people'],['text','pornhub_views'],['text','pornhub_tags'],['text','pornhub_error_size'],['text','pornhub_error_restricted'],['text','pornhub_error_format'],['text','pornhub_error_network'],['text','pornhub_error_blocked']];
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];

@@ -22,7 +22,9 @@ final class MusicCatalog
     public const PAGE_LIMIT=300, MAX_ARTISTS=20;
     private const IMAGE_HOSTS=['scdn.co','spotifycdn.com','dzcdn.net','deezer.com','mzstatic.com','sndcdn.com'];
     public function __construct(private Config $config,private string $spotifyBase='https://open.spotify.com',private string $deezerBase='https://api.deezer.com',
-        private string $itunesBase='https://itunes.apple.com',private string $soundcloudBase='https://soundcloud.com') {}
+        private string $itunesBase='https://itunes.apple.com',private string $soundcloudBase='https://soundcloud.com',private string $musicbrainzBase='https://musicbrainz.org') {}
+    /** Microseconds between two MusicBrainz requests (its rule is one a second); tests set 0. */
+    public int $pause=1100000;
 
     /** Lower case words only; text in brackets such as "(Remastered)" is dropped. */
     public static function plain(string $text): string
@@ -255,14 +257,144 @@ final class MusicCatalog
         $rows=array_values(array_filter($this->itunes('/lookup?entity=song&limit=200&id='.$id),fn($row)=>is_array($row)&&($row['wrapperType']??'')==='track'));
         usort($rows,fn($a,$b)=>[(int)($a['discNumber']??1),(int)($a['trackNumber']??0)]<=>[(int)($b['discNumber']??1),(int)($b['trackNumber']??0)]);
         $tracks=[];
-        foreach($rows as $row) {
-            $title=self::clip((string)($row['trackName']??''),150); $seconds=(int)round(((int)($row['trackTimeMillis']??0))/1000);
-            $artists=array_values(array_filter(array_map('trim',preg_split('/\s*(?:,|&)\s*/u',(string)($row['artistName']??''))?:[])));
-            if($title===''||$seconds<1||!$artists) continue;
-            $tracks[]=['k'=>'t','n'=>$title,'a'=>implode(', ',array_slice($artists,0,4)),'d'=>$seconds,
-                'm'=>['artists'=>array_slice($artists,0,5),'year'=>(string)($album['y']??substr((string)($row['releaseDate']??''),0,4)),'cover'=>(string)($album['c']??self::artwork((string)($row['artworkUrl100']??'')))]];
-        }
+        foreach($rows as $row) if($track=$this->itunesSong($row,$album)) $tracks[]=$track;
         return $tracks;
+    }
+    /** One iTunes song as a menu track, or null when it lacks a title, artist or length. */
+    private function itunesSong(array $row,array $album=[]): ?array
+    {
+        $title=self::clip((string)($row['trackName']??''),150); $seconds=(int)round(((int)($row['trackTimeMillis']??0))/1000);
+        $artists=array_values(array_filter(array_map('trim',preg_split('/\s*(?:,|&)\s*/u',(string)($row['artistName']??''))?:[])));
+        if($title===''||$seconds<1||!$artists) return null;
+        return ['k'=>'t','n'=>$title,'a'=>implode(', ',array_slice($artists,0,4)),'d'=>$seconds,
+            'm'=>['artists'=>array_slice($artists,0,5),'year'=>(string)($album['y']??substr((string)($row['releaseDate']??''),0,4)),'cover'=>(string)($album['c']??self::artwork((string)($row['artworkUrl100']??'')))]];
+    }
+
+    // ---- Search by name (the /spotify and /music commands) ----------------------------------------------------
+
+    /** Lower case words of a name or search text. */
+    private static function words(string $text): array { return array_values(array_filter(explode(' ',self::plain($text)),fn($word)=>$word!=='')); }
+    /** How well a found name fits the wanted one: 2 same name, 1 contains every wanted word, 0 other. */
+    private static function fits(string $found,string $wanted): int
+    {
+        $want=self::compact($wanted); if($want==='') return 0;
+        if(self::compact($found)===$want) return 2;
+        $tokens=self::words($wanted);
+        return mb_strlen($want)>=3&&$tokens&&!array_diff($tokens,self::words($found))?1:0;
+    }
+    /**
+     * The Spotify artist ID that MusicBrainz lists for an artist, or null. Spotify has no search that needs no account,
+     * but MusicBrainz keeps people's own streaming links. A name alone proves nothing, so the same page must also name
+     * the Deezer artist already found (or be the only exact name when there is none).
+     */
+    private function musicbrainzSpotify(string $name,int $deezerId): ?string
+    {
+        $agent='CiroDownloader/1.0 (+https://github.com/Alfred-1313/CiroDownloader)'; $base=rtrim($this->musicbrainzBase,'/');
+        try {
+            $query='artist:"'.str_replace(['\\','"'],['\\\\','\\"'],$name).'"';
+            $data=json_decode(Music::get($this->config,$base.'/ws/2/artist/?fmt=json&limit=5&query='.rawurlencode($query),Music::MAX_PAGE,'MusicBrainz',$agent),true);
+            $want=self::compact($name); $found=[];
+            foreach(is_array($data['artists']??null)?$data['artists']:[] as $artist) {
+                if(is_array($artist)&&preg_match('/^[0-9a-f-]{36}$/D',(string)($artist['id']??''))&&(int)($artist['score']??0)>=90&&self::compact((string)($artist['name']??''))===$want) $found[]=(string)$artist['id'];
+            }
+            foreach(array_slice($found,0,2) as $mbid) {
+                if($this->pause>0) usleep($this->pause);
+                $page=json_decode(Music::get($this->config,$base.'/ws/2/artist/'.$mbid.'?inc=url-rels&fmt=json',Music::MAX_PAGE,'MusicBrainz',$agent),true);
+                $spotify=null; $deezer=0;
+                foreach(is_array($page['relations']??null)?$page['relations']:[] as $relation) {
+                    $url=is_array($relation)?(string)($relation['url']['resource']??''):'';
+                    if($spotify===null&&preg_match('~^https://open\.spotify\.com/artist/([A-Za-z0-9]{22})/?$~D',$url,$match)) $spotify=$match[1];
+                    if(preg_match('~^https://(?:www\.)?deezer\.com/(?:[a-z]{2}/)?artist/(\d+)/?$~D',$url,$match)) $deezer=(int)$match[1];
+                }
+                if($spotify!==null&&($deezerId>0&&$deezer===$deezerId||$deezer===0&&count($found)===1)) return $spotify;
+            }
+        } catch(MediaFailure) { /* MusicBrainz is only a shortcut; the other catalogues still answer. */ }
+        return null;
+    }
+    /**
+     * Where an artist typed by name can be opened, best first: the Spotify page (when MusicBrainz knows it), the Deezer
+     * artist, then Apple's. Each is a collection the menu can build; the first that builds is used.
+     * @return array{candidates:list<array>,answered:bool} answered is false when no catalogue replied at all
+     */
+    public function artistCandidates(string $name): array
+    {
+        $candidates=[]; $answered=false; $deezer=null;
+        try {
+            $rows=$this->deezer('/search/artist?limit=10&q='.rawurlencode($name))['data']??[]; $answered=true; $best=null;
+            foreach(is_array($rows)?$rows:[] as $row) {
+                if(!is_array($row)||!isset($row['id'])||!is_string($row['name']??null)||($fit=self::fits($row['name'],$name))===0) continue;
+                $rank=[$fit,(int)($row['nb_fan']??0)];
+                if($best===null||$rank>$best['rank']) $best=['row'=>$row,'rank'=>$rank];
+            }
+            $deezer=$best['row']??null;
+        } catch(MediaFailure) {}
+        $spotify=$this->musicbrainzSpotify($deezer!==null?(string)$deezer['name']:$name,$deezer!==null?(int)$deezer['id']:0);
+        if($spotify!==null) $candidates[]=['service'=>'spotify','kind'=>'artist','id'=>$spotify,'url'=>'https://open.spotify.com/artist/'.$spotify];
+        if($deezer!==null) $candidates[]=['service'=>'deezer','kind'=>'artist','id'=>(string)(int)$deezer['id'],'url'=>'https://www.deezer.com/artist/'.(int)$deezer['id']];
+        return ['candidates'=>$candidates,'answered'=>$answered];
+    }
+    /** The best Apple artist for a name as a collection, or null. */
+    public function itunesCandidate(string $name): ?array
+    {
+        $best=null;
+        foreach($this->itunes('/search?entity=musicArtist&limit=10&term='.rawurlencode($name)) as $row) {
+            if(!is_array($row)||!isset($row['artistId'])||!is_string($row['artistName']??null)||($fit=self::fits($row['artistName'],$name))===0) continue;
+            if($best===null||$fit>$best['fit']) $best=['fit'=>$fit,'row'=>$row];
+        }
+        if($best===null) return null;
+        $id=(int)$best['row']['artistId'];
+        return ['service'=>'itunes','kind'=>'artist','id'=>(string)$id,'url'=>'https://music.apple.com/artist/'.$id,'name'=>self::clip((string)$best['row']['artistName'],100)];
+    }
+    /**
+     * Songs for "artist-title" (or any words): Deezer's and Apple's catalogues, best match first. When they know almost
+     * nothing, $more adds what it finds (SoundCloud), which covers names written in another alphabet.
+     * @param ?callable(string):list<array> $more
+     * @return list<array> up to 16 tracks
+     */
+    public function searchTracks(string $query,?callable $more=null): array
+    {
+        $parts=preg_split('/\s*[-\x{2013}\x{2014}]\s*/u',$query,2)?:[$query];
+        $artist=count($parts)===2&&trim($parts[0])!==''&&trim($parts[1])!==''?trim($parts[0]):null; $title=$artist!==null?trim($parts[1]):null;
+        $text=$artist!==null?$artist.' '.$title:$query;
+        $found=[]; $answered=false;
+        $deezerQueries=$artist!==null?['artist:"'.str_replace('"','',$artist).'" track:"'.str_replace('"','',$title).'"',$text]:[$text];
+        foreach($deezerQueries as $q) {
+            try {
+                $rows=$this->deezer('/search?limit=25&q='.rawurlencode($q))['data']??[]; $answered=true;
+                foreach(is_array($rows)?$rows:[] as $row) if(is_array($row)&&($track=$this->deezerTrack($row))) $found[]=$track;
+            } catch(MediaFailure) {}
+        }
+        try {
+            foreach($this->itunes('/search?entity=song&limit=25&term='.rawurlencode($text)) as $row) if(is_array($row)&&($row['wrapperType']??'')==='track'&&($track=$this->itunesSong($row))) $found[]=$track;
+            $answered=true;
+        } catch(MediaFailure) {}
+        $tokens=self::words($text); $items=[]; $seen=[];
+        foreach($found as $order=>$track) {
+            $key=self::compact(self::firstArtist($track['a'])).'|'.self::compact(self::plain($track['n']));
+            if(isset($seen[$key])) continue;
+            $hay=self::compact($track['a'].' '.$track['n']); $matched=0; $placed=0;
+            foreach($tokens as $token) {
+                $needle=self::compact($token); if($needle==='') continue;
+                if(str_contains($hay,$needle)) $matched++;
+                // A word before the hyphen belongs to the artist, one after it to the title.
+                if($artist!==null) {
+                    $inArtist=in_array($token,self::words($artist),true); $side=$inArtist?self::compact($track['a']):self::compact($track['n']);
+                    if(str_contains($side,$needle)) $placed++;
+                }
+            }
+            if($tokens&&$matched<max(1,(int)ceil(count($tokens)/2))) continue;
+            $seen[$key]=true; $items[]=['track'=>$track,'rank'=>[$matched,$placed,-$order]];
+        }
+        usort($items,fn($a,$b)=>$b['rank']<=>$a['rank']);
+        $result=array_map(fn($item)=>$item['track'],array_slice($items,0,16));
+        if(count($result)<3&&$more!==null) {
+            try {
+                $known=array_column($result,'u');
+                foreach($more($text) as $track) if(!in_array($track['u'],$known,true)&&count($result)<16) $result[]=$track;
+            } catch(MediaFailure) {}
+        }
+        if(!$result&&!$answered) throw new MediaFailure('network','No catalogue answered');
+        return $result;
     }
 
     /** The picture SoundCloud shows for a profile or set (its og:image), or an empty text. */
@@ -279,10 +411,47 @@ final class MusicCatalog
      * @param callable(string):array{title:string,items:list<array>} $listing
      * @return array{service:string,kind:string,url:string,title:string,subtitle:string,image:string,note:string,tabs:array<string,array>,views:array}
      */
-    public function build(array $collection,callable $listing): array
+    /** A search typed as a command: a list of songs, or the menu of the artist it names. */
+    private function buildSearch(array $collection,callable $listing,?string $folder): array
+    {
+        $query=(string)$collection['id'];
+        if($collection['kind']==='tracks') {
+            $more=$folder===null?null:function(string $text) use($folder): array {
+                $tracks=[];
+                foreach((new Download($this->config))->searchSoundCloud($text,$folder,8) as $entry) {
+                    $seconds=is_float($entry['duration'])?(int)round($entry['duration']):0;
+                    if(trim($entry['title'])!=='') $tracks[]=['k'=>'t','n'=>self::clip($entry['title'],150),'a'=>self::clip($entry['channel'],100),'d'=>$seconds,'u'=>$entry['url']];
+                }
+                return $tracks;
+            };
+            $items=$this->searchTracks($query,$more);
+            if(!$items) throw new MediaFailure('search','No song matches the search');
+            return ['service'=>'search','kind'=>'search','url'=>$collection['url'],'title'=>$query,'subtitle'=>'','image'=>'','note'=>'','tabs'=>['tracks'=>['k'=>'t','items'=>$items]],'views'=>[]];
+        }
+        $found=$this->artistCandidates($query); $candidates=$found['candidates']; $triedApple=false; $failure=null;
+        while(true) {
+            foreach($candidates as $candidate) {
+                try { $data=$this->build($candidate,$listing,$folder); return ['kind'=>'artist']+$data; }
+                catch(MediaFailure $e) { $failure=$e; }
+            }
+            if($triedApple) break;
+            $triedApple=true; $candidates=[];
+            try { $apple=$this->itunesCandidate($query); $found['answered']=true; if($apple!==null) $candidates[]=$apple; } catch(MediaFailure) {}
+            if(!$candidates) break;
+        }
+        // Nothing found is an answer; every catalogue failing is a network problem to try again later.
+        throw $found['answered']&&!($failure&&$failure->reason==='network')?new MediaFailure('search','No artist matches the search'):new MediaFailure('network','No catalogue answered');
+    }
+    public function build(array $collection,callable $listing,?string $folder=null): array
     {
         ['service'=>$service,'kind'=>$kind,'id'=>$id]=$collection;
         $data=['service'=>$service,'kind'=>$kind,'url'=>$collection['url'],'title'=>'','subtitle'=>'','image'=>'','note'=>'','tabs'=>[],'views'=>[]];
+        if($service==='search') return $this->buildSearch($collection,$listing,$folder);
+        if($service==='itunes') {
+            $tabs=$this->itunesArtist((int)$id)['tabs'];
+            if(!$tabs) throw new MediaFailure('format','Nothing to show for this artist');
+            return ['title'=>(string)($collection['name']??''),'tabs'=>$tabs]+$data;
+        }
         if($service==='deezer') {
             $artist=$this->deezerArtist((int)$id);
             return ['title'=>$artist['title'],'image'=>$artist['image'],'tabs'=>$artist['tabs']]+$data;

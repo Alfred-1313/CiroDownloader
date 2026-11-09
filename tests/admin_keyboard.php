@@ -84,7 +84,7 @@ try {
     $panel=(string)end($api2->calls)[1]['text'];
     $listed=true; foreach(Zero\AdminCommands::LIST as $name) if(!str_contains($panel,'/'.$name.' — '.$bot2->ui->plain('admin_cmd_'.$name))) $listed=false;
     adminCheck($listed&&str_contains($panel,'<b>📜 دستورها</b>')&&str_contains($panel,'<b>🧭 راهنمای استفاده</b>')&&str_contains($panel,$bot2->label('health'))&&str_contains($panel,'/cancel'),'the panel lists every administrator command with its meaning and a usage guide');
-    adminCheck(count($menus())===1&&$menus()[0][1]['scope']===['type'=>'chat','chat_id'=>42]&&array_column($menus()[0][1]['commands'],'command')===Zero\AdminCommands::LIST,'the commands appear in the administrator\'s own "/" menu');
+    adminCheck(count($menus())===1&&$menus()[0][1]['scope']===['type'=>'chat','chat_id'=>42]&&array_column($menus()[0][1]['commands'],'command')===[...Zero\AdminCommands::LIST,'music','spotify'],'the commands appear in the administrator\'s own "/" menu, followed by the two search commands');
     adminCheck(!array_filter($menus()[0][1]['commands'],fn($command)=>$command['description']===''||mb_strlen($command['description'])>256||preg_match('/[<>]/',$command['description'])),'every command description is plain text within Telegram\'s limit');
     $bot2->handle(adminMessage('/admin'));
     adminCheck(count($menus())===1,'opening the panel again does not resend an unchanged menu');

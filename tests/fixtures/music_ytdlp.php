@@ -19,7 +19,11 @@ if(str_starts_with($target,'ytsearch')) {
     echo json_encode(['entries'=>str_contains($text,'Missing')||($mode['youtube']??'ok')==='empty'?[]:[['id'=>'goodMatch01','title'=>$name.' (Official Audio)','duration'=>12.0,'channel'=>'Fixture Artist']]]);
     exit(0);
 }
-if(str_starts_with($target,'scsearch')) { echo json_encode(['entries'=>[]]); exit(0); }
+if(str_starts_with($target,'scsearch')) {
+    // A search typed as /music in another alphabet finds this one upload when the mode names its words.
+    $text=substr($target,(int)strpos($target,':')+1);
+    echo json_encode(['entries'=>!empty($mode['scresults'])&&str_contains($text,(string)$mode['scresults'])?[['id'=>'777','title'=>'Pishro - Separ (live)','duration'=>240.0,'uploader'=>'Pishro Official']]:[]]); exit(0);
+}
 if(in_array('--flat-playlist',$args,true)) {
     $path=(string)parse_url($target,PHP_URL_PATH);
     if(str_contains($path,'/sets/')) {
