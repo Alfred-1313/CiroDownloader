@@ -102,6 +102,9 @@ jobs:
           php tests/large_upload.php
           php tests/disk_space.php
           php tests/storage_cleanup.php
+          php tests/radio.php
+          php tests/radio_panel.php
+          php tests/radio_music.php
 
       - name: Check PHP syntax
         run: find src bin tests -name '*.php' -exec php -l {} +
@@ -122,11 +125,17 @@ jobs:
           chmod -R go-rwx src bin resources
           docker build --tag ciro-downloader:ci .
 
-      - name: Verify radio covers and restart under production limits
+      - name: Verify radio artwork, controls and transitions under production limits
         run: |
           docker run --rm --cpus=0.75 --memory=512m --pids-limit=128 \
             --user "$(id -u):$(id -g)" --mount "type=bind,src=$PWD,dst=/app,readonly" \
             -w /app ciro-downloader:ci php tests/radio_player.php --rtmp
+          docker run --rm --cpus=0.75 --memory=512m --pids-limit=128 \
+            --user "$(id -u):$(id -g)" --mount "type=bind,src=$PWD,dst=/app,readonly" \
+            -w /app ciro-downloader:ci php tests/radio_transitions.php
+          docker run --rm --cpus=0.75 --memory=512m --pids-limit=128 \
+            --user "$(id -u):$(id -g)" --mount "type=bind,src=$PWD,dst=/app,readonly" \
+            -w /app ciro-downloader:ci php tests/radio_transport.php
 
       - name: Verify runtime can read code from a restrictive checkout
         run: |

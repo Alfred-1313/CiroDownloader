@@ -117,8 +117,8 @@ try {
     $bot->handle(rdClick('rd:l:-1100',55,-1100)); rdCheck((int)$radio->station(-1100)['live']===0,'and off again'); $radio->setLive(-1100,true);
 
     // 7. Controls in the group.
-    $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('sendMessage');
-    rdCheck(str_contains($status['text'],'رادیوی «The Group»')&&str_contains($status['text'],'🔴')&&rdActions($status)===['rd:l:-1100','rd:k:-1100','rd:s:-1100','rd:x:-1100','rd:v:-1100','rd:z:-1100'],'/radio in a group shows the controls to an administrator');
+    $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('editMessageText')??$api->last('sendMessage');
+    rdCheck(str_contains($status['text'],'پلی‌لیست بعدی')&&str_contains($status['text'],'●')&&rdActions($status)===['rd:o:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100'],'/radio in a group shows the controls to an administrator');
     $api->calls=[]; $bot->handle(rdText('/radio',66,-1100)); rdCheck(str_contains($api->last('sendMessage')['text'],'فقط مدیرهای'),'a member only gets a short refusal');
     $api->calls=[]; $bot->handle(rdText('/radio',55,-3333)); rdCheck(str_contains($api->last('sendMessage')['text'],'رادیو ندارد'),'a group without a radio says so');
     $bot->handle(rdClick('rd:k:-1100',55,-1100)); rdCheck($radio->station(-1100)['command']==='skip','skip is passed to the player');
@@ -159,7 +159,7 @@ try {
     $store->set('radio.enabled','1'); $store->set('radio.access','chat');
 
     // 9. Every text is the user's to reword; the controls obey the colour rule.
-    foreach(['radio_panel','radio_status','radio_key_prompt','radio_added','radio_full'] as $key) rdCheck($bot->ui->customizable('text',$key)&&($bot->ui->definition('text',$key)['audience']??'')==='user',"editable text: $key");
-    foreach(['radio_play','radio_play_all','radio_skip','radio_stop','radio_clear'] as $key) rdCheck($bot->ui->customizable('button',$key)&&($bot->ui->definition('button',$key)['audience']??'')==='user',"editable button: $key");
+    foreach(['radio_panel','radio_player_caption','radio_key_prompt','radio_added','radio_full'] as $key) rdCheck($bot->ui->customizable('text',$key)&&($bot->ui->definition('text',$key)['audience']??'')==='user',"editable text: $key");
+    foreach(['radio_play','radio_play_all','radio_next','radio_stop','radio_clear'] as $key) rdCheck($bot->ui->customizable('button',$key)&&($bot->ui->definition('button',$key)['audience']??'')==='user',"editable button: $key");
     rdCheck(($bot->ui->definition('button','radio_play_all')['style']??'')==='success'&&($bot->ui->definition('button','radio_stop')['style']??'')==='danger','green starts, red stops');
 } finally { exec('rm -rf '.escapeshellarg($temp)); }

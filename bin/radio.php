@@ -17,7 +17,7 @@ $php=PHP_BINARY; $players=[]; $preparing=[]; $stopping=false; $lastTidy=0; $last
 pcntl_async_signals(true);
 foreach([SIGTERM,SIGINT] as $signal) pcntl_signal($signal,static function() use (&$stopping): void { $stopping=true; });
 $env=['PATH'=>getenv('PATH')?:'/usr/bin:/bin','HOME'=>getenv('HOME')?:'/tmp'];
-foreach(['BOT_TOKEN','ADMIN_IDS','STORAGE_DIR','BOT_API_URL','MAX_FILE_BYTES','YT_DLP_BIN','YOUTUBE_PROXY','GALLERY_PROXY','YOUTUBE_POT_URL','YOUTUBE_COOKIES_FILE','RADIO_TEST_OUTPUT','RADIO_IDLE_SECONDS'] as $name) if(getenv($name)!==false) $env[$name]=(string)getenv($name);
+foreach(['BOT_TOKEN','ADMIN_IDS','STORAGE_DIR','BOT_API_URL','MAX_FILE_BYTES','YT_DLP_BIN','YOUTUBE_PROXY','GALLERY_PROXY','YOUTUBE_POT_URL','YOUTUBE_COOKIES_FILE','RADIO_TEST_OUTPUT','RADIO_IDLE_SECONDS','LOCAL_API_SHARED_STORAGE'] as $name) if(getenv($name)!==false) $env[$name]=(string)getenv($name);
 echo "Ciro Downloader radio started\n";
 // A crash may have left songs half prepared or playing.
 $store->query("UPDATE radio_queue SET status='pending' WHERE status='preparing'");
@@ -27,6 +27,12 @@ while(!$stopping) {
     try {
         if(time()-$lastBeat>=10) { $store->set('radio_heartbeat',(string)time()); $lastBeat=time(); }
         if(time()-$lastTidy>=300) { $radio->tidy(); $lastTidy=time(); }
+        // One separate HTTP helper refreshes all open panels; it cannot stall audio or preparation.
+        if(isset($panelProcess)&&!(proc_get_status($panelProcess)['running']??false)) { proc_close($panelProcess); unset($panelProcess); }
+        if(!isset($panelProcess)&&$store->query("SELECT 1 FROM radio_panels WHERE view IN ('player','menu') AND expires>? AND updated<=? LIMIT 1",[time(),time()-4])->fetchColumn()) {
+            $panelProcess=proc_open([$php,__DIR__.'/radio-panel.php'],[0=>$null,1=>['file','/dev/null','w'],2=>$log],$pipes,dirname(__DIR__),$env);
+            if(!is_resource($panelProcess)) unset($panelProcess);
+        }
         // Players: one per live station with songs waiting, never for a stopped one.
         $on=Zero\Radio::enabled($store);
         foreach($players as $chat=>$player) {
@@ -66,7 +72,7 @@ while(!$stopping) {
 }
 // Keep the supervisor lock until helpers have closed their decoders and download groups.
 // Otherwise a restart races the old children still holding the inherited lock.
-$closing=array_merge(array_values($players),array_column($preparing,'process'));
+$closing=array_merge(array_values($players),array_column($preparing,'process'),isset($panelProcess)?[$panelProcess]:[]);
 foreach($closing as $process) if(is_resource($process)) proc_terminate($process);
 $deadline=microtime(true)+8;
 while($closing&&microtime(true)<$deadline) {

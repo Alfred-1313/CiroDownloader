@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 namespace Zero;
+require_once __DIR__.'/RadioArtwork.php';
+require_once __DIR__.'/RadioPlayback.php';
 
 /**
  * The radio of a group or channel: songs are queued and one service (bin/radio.php) plays them, one after another with no
@@ -25,6 +27,7 @@ final class Radio
         $store->db->exec('CREATE INDEX IF NOT EXISTS radio_queue_chat ON radio_queue(chat_id,status,id)');
         if(!in_array('cover',array_column($store->query('PRAGMA table_info(radio_queue)')->fetchAll(),'name'),true)) $store->db->exec('ALTER TABLE radio_queue ADD COLUMN cover TEXT NOT NULL DEFAULT \'\'');
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_picks (token TEXT PRIMARY KEY,source TEXT NOT NULL,title TEXT NOT NULL DEFAULT \'\',artists TEXT NOT NULL DEFAULT \'\',duration INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)');
+        $store->db->exec("CREATE TABLE IF NOT EXISTS radio_panels (chat_id INTEGER NOT NULL,message_id INTEGER NOT NULL,station_id INTEGER NOT NULL,user_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,kind TEXT NOT NULL DEFAULT 'text',photo_key TEXT NOT NULL DEFAULT '',view TEXT NOT NULL DEFAULT 'player',hash TEXT NOT NULL DEFAULT '',updated INTEGER NOT NULL DEFAULT 0,expires INTEGER NOT NULL,PRIMARY KEY(chat_id,message_id))");
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_seen (chat_id INTEGER PRIMARY KEY,title TEXT NOT NULL DEFAULT \'\',type TEXT NOT NULL DEFAULT \'\',seen INTEGER NOT NULL)');
     }
 
@@ -66,6 +69,8 @@ final class Radio
         @unlink($this->keyFile($chat)); $this->clear($chat,true);
         $this->store->query('DELETE FROM radio_queue WHERE chat_id=?',[$chat]);
         $this->store->query('DELETE FROM radio_stations WHERE chat_id=?',[$chat]);
+        $this->store->query("UPDATE radio_panels SET station_id=0,view='static' WHERE station_id=?",[$chat]);
+        foreach(['radio.progress.','radio.mode.','radio.paused.'] as $prefix) $this->store->query('DELETE FROM settings WHERE key=?',[$prefix.$chat]);
     }
 
     // ---- Stations ----------------------------------------------------------------------------------------------------
@@ -175,10 +180,38 @@ final class Radio
     {
         return (int)$this->store->query("SELECT COUNT(*) FROM radio_queue WHERE chat_id=? AND status IN ('pending','preparing','ready','playing')",[$chat])->fetchColumn();
     }
-    /** A command for the player of this chat: "skip" (the song playing) or "stop" (end the session; the queue stays). */
+    /** A command for this chat's player: skip, previous, or stop (end the session; the waiting queue stays). */
     public function command(int $chat,string $command): void
     {
-        if(in_array($command,['skip','stop'],true)) $this->store->query('UPDATE radio_stations SET command=? WHERE chat_id=?',[$command,$chat]);
+        if(in_array($command,['skip','stop','previous'],true)) $this->store->query('UPDATE radio_stations SET command=? WHERE chat_id=?',[$command,$chat]);
+    }
+    public function paused(int $chat): bool { return $this->store->get('radio.paused.'.$chat,'0')==='1'; }
+    public function togglePause(int $chat): void
+    {
+        $stopped=($this->station($chat)['command']??'')==='stop';
+        $pause=!$stopped&&!$this->paused($chat)&&!empty($this->progress($chat)['id']);
+        $this->store->set('radio.paused.'.$chat,$pause?'1':'0');
+        if($stopped) $this->store->query("UPDATE radio_stations SET command='' WHERE chat_id=?",[$chat]);
+    }
+    public function mode(int $chat): string
+    {
+        $mode=$this->store->get('radio.mode.'.$chat,'off'); return in_array($mode,['off','all','one'],true)?$mode:'off';
+    }
+    public function cycleMode(int $chat): string
+    {
+        $next=match($this->mode($chat)) {'off'=>'all','all'=>'one',default=>'off'};
+        $this->store->set('radio.mode.'.$chat,$next); return $next;
+    }
+    public function progress(int $chat): array
+    {
+        $data=json_decode($this->store->get('radio.progress.'.$chat,'{}'),true);
+        return is_array($data)?$data:[];
+    }
+    public function previous(int $chat,int $user): void
+    {
+        if($this->queued($chat)>0) { $this->command($chat,'previous'); return; }
+        $last=$this->store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='done' ORDER BY id DESC LIMIT 1",[$chat])->fetch();
+        if($last) $this->enqueue($chat,$user,json_decode($last['source'],true),$last['title'],$last['artists'],(int)$last['duration']);
     }
     /** Empty the queue except the song playing now ($all also removes that one). */
     public function clear(int $chat,bool $all=false): void
@@ -189,10 +222,12 @@ final class Radio
     /** Old finished rows and files go away; audio left behind by a crash too. */
     public function tidy(): void
     {
+        $this->store->query('DELETE FROM radio_panels WHERE expires<?',[time()]);
         $rows=$this->store->query("SELECT id,file FROM radio_queue WHERE status IN ('done','failed') AND created<?",[time()-86400])->fetchAll();
         foreach($rows as $row) { if($row['file']!=='') @unlink($row['file']); $this->store->query('DELETE FROM radio_queue WHERE id=?',[$row['id']]); }
         $this->store->query('DELETE FROM radio_picks WHERE created<?',[time()-self::KEEP_PICKS_DAYS*86400]);
-        $keep=array_column($this->store->query("SELECT file FROM radio_queue WHERE file<>''")->fetchAll(),'file');
+        $rows=$this->store->query("SELECT file,cover FROM radio_queue WHERE file<>''")->fetchAll();
+        $keep=array_merge(array_column($rows,'file'),array_column($rows,'cover'));
         foreach(glob($this->root().'/files/*')?:[] as $file) if(!in_array($file,$keep,true)&&filemtime($file)<time()-3600) @unlink($file);
     }
 

@@ -45,7 +45,7 @@ final class Personalization
         $ui=$this->bot->ui; $saved=$this->saved();
         $this->bot->store->set('custom.section.'.$chat,'home');
         $rows=[];
-        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),...adultServices()],'music'=>[...musicServices(),'menu','batch','search','radio'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
+        foreach(['youtube'=>['cover','video','audio'],'social'=>[...galleryServices(),...adultServices()],'music'=>[...musicServices(),'menu','batch','search','radio','radio_player'],'general'=>['help','group','access'],'status'=>['progress','errors']] as $id=>$sections) {
             $rows[]=[$this->heading($ui->label('home_'.$id),'home_'.$id)];
             foreach($sections as $section) {
                 $button=$ui->button('section_'.$section,'custom:section:'.$section);
@@ -256,6 +256,12 @@ final class Personalization
                 'radio_key_prompt','radio_key_invalid','radio_key_saved','radio_remove_confirm','radio_removed','radio_group_none','radio_not_admin','radio_no_station','radio_added','radio_added_idle','radio_added_many','radio_full','radio_long','radio_expired','radio_failed','radio_done','radio_output_failed','radio_disabled','radio_bot_only','radio_already']),
             array_map(fn($key)=>['button',$key],['radio_play','radio_play_all','radio_play_chosen','radio_mark_live','radio_mark_off','radio_skip','radio_stop','radio_clear','radio_refresh','radio_close','radio_back','radio_open','radio_setup','radio_use','radio_remove','radio_remove_yes']));
         foreach(adultServices() as $site) $screens[$site]=array_map(fn($key)=>['text',$site.'_'.$key],['caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked']);
+        $screens['radio_player']=[];
+        foreach(['text','button'] as $kind) foreach($kind==='text'?$this->entries('text','radio')+$this->entries('caption','radio'):$this->entries('button','radio') as $key=>$item) {
+            $player=str_starts_with($key,'radio_player_')||str_starts_with($key,'radio_repeat_')||in_array($key,['radio_previous','radio_resume','radio_pause','radio_next','radio_menu'],true);
+            if($player) $screens['radio_player'][]=[$kind,$key];
+            elseif(!in_array([$kind,$key],$screens['radio'],true)) $screens['radio'][]=[$kind,$key];
+        }
         array_unshift($screens['beeg'],['text','beeg_quality_prompt']);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
@@ -441,7 +447,7 @@ final class Personalization
     {
         return ['description'=>'متن نمونهٔ پست اینستاگرام','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
-            'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p'];
+            'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
     }
     /** Whether the value on screen differs from the default; uses a pending preview when there is one. */
     private function itemChanged(string $kind,string $key): bool
