@@ -71,4 +71,14 @@ try {
     $log=json_decode((string)file_get_contents(dirname(__DIR__).'/CHANGELOG.json'),true,512,JSON_THROW_ON_ERROR);
     updCheck(count($log)===1&&$log[0]['version']===Zero\Updates::version(),'the changelog keeps only the latest version');
     updCheck(!array_filter($log[0]['changes'],fn($c)=>!is_array($c)||empty($c['title'])||empty($c['what'])),'every entry of the latest version has a title and an explanation');
+    // Only what this release added: no title may be repeated from the previous release (the updater announces every item of the entry).
+    $root=dirname(__DIR__); $releases=[]; exec('git -C '.escapeshellarg($root).' log --format=%H -n 2 -- VERSION 2>/dev/null',$releases,$gitCode);
+    if($gitCode===0&&count($releases)===2) {
+        $current=trim((string)@file_get_contents($root.'/VERSION')); $committed=trim((string)shell_exec('git -C '.escapeshellarg($root).' show HEAD:VERSION 2>/dev/null'));
+        $reference=$current===$committed?$releases[1]:$releases[0];
+        $old=json_decode((string)shell_exec('git -C '.escapeshellarg($root).' show '.escapeshellarg($reference).':CHANGELOG.json 2>/dev/null'),true);
+        $titles=is_array($old)?array_map(fn($c)=>mb_strtolower(trim(is_array($c)?(string)($c['title']??''):(string)$c)),array_merge(...array_column($old,'changes'))):[];
+        $repeated=array_filter($log[0]['changes'],fn($c)=>in_array(mb_strtolower(trim((string)($c['title']??''))),$titles,true));
+        updCheck(!$repeated,'the latest entry lists only what this release added: nothing carried over from the previous release');
+    } else echo "PASS (skipped) the repeat check needs the git history of VERSION\n";
 } finally { Zero\Download::clean($temp); }
