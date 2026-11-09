@@ -144,7 +144,7 @@ final class Worker
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
             if($adult) {
                 // Its own caption (title, people, categories, tags, views) and no link back to the site.
-                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio);
+                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$bot->adultDeleteAfter((int)$job['chat_id']));
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
             } else {
                 $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
@@ -155,10 +155,13 @@ final class Worker
             }
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             $uploadStarted=hrtime(true);
-            if($audio) $api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
+            if($audio) $sent=$api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
-            else $api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
+            else $sent=$api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
+            // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
+            // so a restart in between does not leave it in the chat).
+            if($adult&&($after=$bot->adultDeleteAfter((int)$job['chat_id']))>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$after);
             $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
             try { $bot->finishJob($job); }
@@ -305,7 +308,7 @@ final class Worker
      * The caption of a Pornhub video: its title in bold, who is in it (the page's pornstars, else the channel), the length
      * and quality, and its categories and tags in a collapsed quote, cut to Telegram's limit.
      */
-    private function adultCaption(Bot $bot,array $media,array $meta,bool $audio): string
+    private function adultCaption(Bot $bot,array $media,array $meta,bool $audio,int $deleteAfter=0): string
     {
         $ui=$bot->ui; $plain=fn(string $html)=>html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
         $people=array_filter((array)($meta['people']??[]),'is_string'); $channel=(string)($meta['channel']??'');
@@ -315,7 +318,8 @@ final class Worker
         $views=(int)($meta['views']??0);
         $render=fn(string $tags)=>$ui->text('pornhub_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
             'people'=>$who!==''?"\n".$ui->text('pornhub_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith('pornhub_views',['n'=>number_format($views)]):'',
-            'tags'=>$tags!==''?"\n".$ui->text('pornhub_tags',['tags'=>$tags],['tags']):''],['people','views','tags']);
+            'tags'=>$tags!==''?"\n".$ui->text('pornhub_tags',['tags'=>$tags],['tags']):'',
+            'notice'=>$deleteAfter>0?"\n".$ui->text('pornhub_notice',['seconds'=>(string)$deleteAfter]):''],['people','views','tags','notice']);
         $room=1000-TextFormat::length($plain($render('')));
         $kept=[]; $used=0;
         foreach($label as $name) {

@@ -19,6 +19,7 @@ require_once __DIR__.'/CookieHealth.php';
 require_once __DIR__.'/Reports.php';
 require_once __DIR__.'/AdminCommands.php';
 require_once __DIR__.'/Shares.php';
+require_once __DIR__.'/TimedDeletes.php';
 
 final class Bot
 {
@@ -32,13 +33,31 @@ final class Bot
     public function admin(int $id): bool { return $this->store->isAdmin($id,$this->config->admins); }
     public function allowed(int $id,?int $chat=null): bool { return !($chat<0&&!$this->store->groupsEnabled())&&($this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1')); }
     /**
-     * Pornhub links: off unless the administrator turns them on, only in a private chat with the bot, and by default only
-     * for administrators. Everyone else gets the usual "send a supported link" answer, so the site is never advertised.
+     * Pornhub links: off unless the administrator turns them on, and by default only for administrators. They work in a
+     * private chat with the bot and in groups (when group use is on); the video is deleted again a few seconds after it
+     * is sent unless that filter is switched off for that kind of chat. Everyone else gets the usual "send a supported
+     * link" answer, so the site is never advertised.
      */
     public function adultAllowed(int $user,int $chat): bool
     {
-        return $chat>0&&$chat===$user&&$this->store->get('adult.pornhub','0')==='1'&&($this->store->get('adult.admins_only','1')!=='1'||$this->admin($user));
+        if($this->store->get('adult.pornhub','0')!=='1') return false;
+        if($chat<0) { if(!$this->store->groupsEnabled()) return false; }
+        elseif($chat<1||$chat!==$user) return false;
+        return $this->store->get('adult.admins_only','1')!=='1'||$this->admin($user);
     }
+    /** Seconds until the video of this chat is deleted, or 0 when the filter for this kind of chat is off. */
+    public function adultDeleteAfter(int $chat): int
+    {
+        if($this->store->get($chat<0?'adult.delete_group':'adult.delete_private','1')!=='1') return 0;
+        return self::adultDelays($this->store);
+    }
+    /** The chosen delay, one of 10, 30, 60 or 180 seconds. */
+    public static function adultDelays(Store $store): int
+    {
+        $seconds=(int)$store->get('adult.delete_seconds','10');
+        return in_array($seconds,self::ADULT_DELAYS,true)?$seconds:10;
+    }
+    public const ADULT_DELAYS=[10,30,60,180];
     public function denial(?int $chat=null): string { return $this->text($chat<0&&!$this->store->groupsEnabled()?'groups_disabled':($this->store->get('admins_only','0')==='1'?'admin_only_notice':'offline')); }
     public function button(string $key,string $data): array { return $this->ui->button($key,$data); }
     public function replyButton(string $key): array { return $this->ui->button($key); }

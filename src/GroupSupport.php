@@ -92,6 +92,7 @@ final class GroupSupport
             return;
         }
         $url=mediaUrl($command==='download'?$argument:$text);
+        if(!$url&&($adult=pornhubUrl($command==='download'?$argument:$text))!==null&&$this->bot->adultAllowed($user,$chat)) $url=$adult;
         if(!$url) {
             if($command==='download') $this->bot->send($chat,$this->bot->text('invalid'),[],0,$thread);
             return;

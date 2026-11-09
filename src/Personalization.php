@@ -56,6 +56,9 @@ final class Personalization
             [$this->heading($ui->label('feat_adult'),'feat_adult')],
             [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
             [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
+            [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
+            [$this->switchButton('adult_delete_group','custom:adultdelg',$store->get('adult.delete_group','1')==='1')],
+            [$ui->button('adult_delete_seconds','custom:adultsec',['n'=>(string)Bot::adultDelays($store)])],
             [$this->heading($ui->label('feat_reaction'),'feat_reaction')],
             [$ui->button('reaction_settings','custom:reaction')],
             [$this->heading($ui->label('feat_limits'),'feat_limits')],
@@ -213,7 +216,7 @@ final class Personalization
         $screens['batch']=array_merge(array_map(fn($key)=>['text','batch_'.$key],['queued','progress','working','sending','caption','zip_caption','more','failed','stopping',
                 'source_youtube','source_soundcloud','source_original','reason_blocked','reason_format','reason_network','reason_cookies','reason_size','reason_storage','reason_restricted','reason_duration','reason_process']),
             [['text','menu_pick_info'],['text','menu_picked'],['text','menu_pick_empty'],['text','menu_pick_full'],['button','menu_pick'],['button','menu_pick_send'],['button','menu_pick_cancel'],['button','batch_stop'],['button','batch_resume'],['button','batch_back'],['button','music_share']]);
-        $screens['pornhub']=[['text','pornhub_caption'],['text','pornhub_people'],['text','pornhub_views'],['text','pornhub_tags'],['text','pornhub_error_size'],['text','pornhub_error_restricted'],['text','pornhub_error_format'],['text','pornhub_error_network'],['text','pornhub_error_blocked']];
+        $screens['pornhub']=[['text','pornhub_caption'],['text','pornhub_notice'],['text','pornhub_people'],['text','pornhub_views'],['text','pornhub_tags'],['text','pornhub_error_size'],['text','pornhub_error_restricted'],['text','pornhub_error_format'],['text','pornhub_error_network'],['text','pornhub_error_blocked']];
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
@@ -713,6 +716,16 @@ final class Personalization
             $this->features($chat,$message);
         } elseif($op==='adult') {
             $this->bot->store->set('adult.pornhub',$this->bot->store->get('adult.pornhub','0')==='1'?'0':'1');
+            $this->features($chat,$message);
+        } elseif($op==='adultdelp') {
+            $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');
+            $this->features($chat,$message);
+        } elseif($op==='adultdelg') {
+            $this->bot->store->set('adult.delete_group',$this->bot->store->get('adult.delete_group','1')==='1'?'0':'1');
+            $this->features($chat,$message);
+        } elseif($op==='adultsec') {
+            $all=Bot::ADULT_DELAYS; $now=Bot::adultDelays($this->bot->store);
+            $this->bot->store->set('adult.delete_seconds',(string)$all[(array_search($now,$all,true)+1)%count($all)]);
             $this->features($chat,$message);
         } elseif($op==='adultadmins') {
             $this->bot->store->set('adult.admins_only',$this->bot->store->get('adult.admins_only','1')==='1'?'0':'1');

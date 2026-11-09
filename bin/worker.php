@@ -32,6 +32,19 @@ try {
                     unset($children[$pid]);
                 }
             }
+            // Videos that were to disappear after a few seconds (the 18+ filters): a short-lived process deletes what is due,
+            // so a slow Telegram call never delays a download.
+            if(isset($deletePid)&&pcntl_waitpid($deletePid,$deleteStatus,WNOHANG)!==0) unset($deletePid);
+            if(!isset($deletePid)&&time()!==($lastDeleteCheck??0)) {
+                $lastDeleteCheck=time();
+                if(Zero\TimedDeletes::due($store)) {
+                    $pid=pcntl_fork();
+                    if($pid===0) {
+                        try { Zero\TimedDeletes::run(new Zero\Store($config->storage),new Zero\Telegram($config)); exit(0); }
+                        catch(Throwable $e) { error_log('Timed deletion failed: '.get_class($e)); exit(1); }
+                    } elseif($pid>0) $deletePid=$pid;
+                }
+            }
             if(time()-$lastHeartbeat>=10) {
                 if(!isset($lastPageCleanup)||time()-$lastPageCleanup>=60) {
                     foreach(Zero\galleryServices() as $service) (new Zero\GalleryPages($config,$store,new Zero\Telegram($config),$service))->prune(); $lastPageCleanup=time();

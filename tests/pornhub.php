@@ -79,10 +79,18 @@ try {
     $job=$store->query('SELECT * FROM jobs ORDER BY id DESC LIMIT 1')->fetch();
     phCheck($job&&$job['url']===$link&&$job['phase']==='inspect'&&(int)$job['user_id']===42,'an administrator\'s link is queued for the quality choice, like YouTube');
     $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0');
-    $before=count($api->calls); $send($link,42,-100555);
-    phCheck($jobs()===0,'never in a group');
+    // Groups: an administrator's link works (the video is deleted again, see below); others and a disabled group do not.
+    $send($link,42,-100555);
+    $groupJob=$store->query('SELECT * FROM jobs ORDER BY id DESC LIMIT 1')->fetch();
+    phCheck($groupJob&&$groupJob['url']===$link&&(int)$groupJob['chat_id']===-100555&&(int)$groupJob['user_id']===42,'in a group an administrator\'s link is queued for the quality choice too');
+    $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0');
+    $send($link,7,-100555); phCheck($jobs()===0,'in a group an ordinary user is refused while "administrators only" is on');
+    $store->set('groups_enabled','0'); $send($link,42,-100555); phCheck($jobs()===0,'and nothing works in a group while group use is switched off');
+    $store->set('groups_enabled','1'); $store->set('adult.pornhub','0'); $send($link,42,-100555); phCheck($jobs()===0,'nor with the Pornhub switch off'); $store->set('adult.pornhub','1');
     $store->set('adult.admins_only','0'); $send($link,7);
     phCheck($jobs()===1,'with "administrators only" off, anyone may use it in a private chat');
+    $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0'); $send($link,7,-100555);
+    phCheck($jobs()===1,'and in a group');
     $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0'); $store->set('adult.admins_only','1');
 
     // 4. The switches on the features page, administrators only.
@@ -97,6 +105,17 @@ try {
     $click('custom:adult',7); $click('custom:adultadmins',7);
     phCheck($store->get('adult.pornhub')==='1'&&$store->get('adult.admins_only')==='0','an ordinary user cannot flip either');
     $store->set('adult.admins_only','1');
+    // The two deletion filters are green by default, flip with one tap, and the delay cycles.
+    $click('custom:features',42); $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
+    $by=fn($data)=>array_values(array_filter($buttons,fn($b)=>($b['callback_data']??'')===$data))[0]??null;
+    phCheck(($by('custom:adultdelp')['style']??'')==='success'&&($by('custom:adultdelg')['style']??'')==='success'&&str_contains($by('custom:adultsec')['text'],'10 ثانیه'),'the private and group filters are on by default (green) and the delay shows ten seconds');
+    $click('custom:adultdelp',42); $click('custom:adultdelg',42);
+    phCheck($store->get('adult.delete_private')==='0'&&$store->get('adult.delete_group')==='0','one tap turns each filter off');
+    $click('custom:adultdelp',7); $click('custom:adultdelg',7); $click('custom:adultsec',7);
+    phCheck($store->get('adult.delete_private')==='0'&&$store->get('adult.delete_group')==='0'&&$store->get('adult.delete_seconds')==='','an ordinary user cannot change them');
+    $seen=[]; for($i=0;$i<5;$i++) { $click('custom:adultsec',42); $seen[]=$store->get('adult.delete_seconds'); }
+    phCheck($seen===['30','60','180','10','30'],'the delay cycles 10, 30, 60 and 180 seconds');
+    $store->set('adult.delete_seconds','10'); $store->set('adult.delete_private','1'); $store->set('adult.delete_group','1');
 
     // 5. The whole flow with a stand-in downloader: quality menu with the poster, a choice, then the video.
     $runner=new Zero\Download($config); $source=$temp.'/fixture.mp4';
@@ -123,10 +142,44 @@ try {
     $download=$store->claim('media'); phCheck($download!==null&&(int)$download['quality']===480,'choosing 480p queues the download');
     $worker->process($download);
     $video=$api->called('sendVideo'); $params=end($video)[1]??[];
-    phCheck(count($video)===1&&$params['caption']==="<b>🔞 Fixture Video</b>\n👤 <b>Alice، Bob</b>\n<blockquote>⏱ 00:02 · 🎞 480p · 👁 1,234,567</blockquote>\n<blockquote expandable>🏷 #amateur #pov #homemade</blockquote>"&&!isset($params['reply_markup'])&&(int)$params['width']===854&&(int)$params['height']===480,'the video arrives with its title, the people in it, length, quality, views and the page\'s categories and tags, and no link back to the site');
+    phCheck(count($video)===1&&$params['caption']==="<b>🔞 Fixture Video</b>\n👤 <b>Alice، Bob</b>\n<blockquote>⏱ 00:02 · 🎞 480p · 👁 1,234,567</blockquote>\n<blockquote expandable>🏷 #amateur #pov #homemade</blockquote>\n🗑 این پیام 10 ثانیه بعد پاک می‌شود."&&!isset($params['reply_markup'])&&(int)$params['width']===854&&(int)$params['height']===480,'the video arrives with its title, the people in it, length, quality, views and the page\'s categories and tags, and no link back to the site');
     $args=array_map(fn($line)=>json_decode($line,true),file($trace,FILE_IGNORE_NEW_LINES)); $downloadArgs=end($args);
     phCheck($downloadArgs[array_search('-f',$downloadArgs,true)+1]==='hls-1815/480p'&&$downloadArgs[array_search('--concurrent-fragments',$downloadArgs,true)+1]==='8'&&!in_array('--cookies',$downloadArgs,true),'the HLS stream is tried first, with eight pieces at once, without cookies');
     phCheck((int)$store->query("SELECT ok FROM stats WHERE service='pornhub'")->fetchColumn()===1,'the status report counts it as Pornhub');
+
+    // The two filters (private chats and groups, both on by default): the video is deleted again after ten seconds.
+    $videoId=(int)($api->called('sendVideo')[0][1]['_id']??0);
+    $rows=$store->query('SELECT * FROM timed_deletes')->fetchAll();
+    phCheck(count($rows)===1&&(int)$rows[0]['chat_id']===42&&$rows[0]['at']>=time()+8&&$rows[0]['at']<=time()+11,'the sent video is scheduled for deletion ten seconds later in a private chat');
+    $store->query('UPDATE timed_deletes SET at=?',[time()-1]); $api->calls=[]; $deleted=Zero\TimedDeletes::run($store,$api);
+    $gone=$api->called('deleteMessage');
+    phCheck($deleted===1&&count($gone)===1&&(int)$gone[0][1]['chat_id']===42&&(int)$gone[0][1]['message_id']===(int)$rows[0]['message_id']&&!$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn(),'when the time comes the video message is deleted and forgotten (also after a restart, since it is kept in the database)');
+    $store->query('DELETE FROM timed_deletes');
+    foreach([[ 'adult.delete_private',42,42,0],['adult.delete_group',42,-100555,-100555]] as [$key,$user,$chat,$groupChat]) {
+        $store->set($key,'0'); $store->query('UPDATE users SET last_request=0'); $api->calls=[];
+        $send($link,$user,$chat); $job=$store->claim('inspect'); $worker->process($job); $menu=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn(); $update++;
+        $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'qf','from'=>['id'=>$user,'is_bot'=>false],'message'=>['message_id'=>$menu,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private']]+($chat<0?['message_thread_id'=>0]:[]),'data'=>'quality:'.$job['id'].':480']]);
+        $download=$store->claim('media'); $worker->process($download); $video=$api->called('sendVideo');
+        phCheck($video&&!str_contains($video[0][1]['caption'],'🗑')&&!$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn(),'with the '.($chat<0?'group':'private').' filter off the video stays and the caption does not promise a deletion');
+        $store->set($key,'1');
+    }
+    // In a group the filter is on too: the video is scheduled and the caption says so.
+    $store->query('UPDATE users SET last_request=0'); $api->calls=[]; $send($link,42,-100555); $job=$store->claim('inspect'); $worker->process($job); $menu=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn(); $update++;
+    $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'qg','from'=>['id'=>42,'is_bot'=>false],'message'=>['message_id'=>$menu,'chat'=>['id'=>-100555,'type'=>'supergroup'],'message_thread_id'=>0],'data'=>'quality:'.$job['id'].':480']]);
+    $download=$store->claim('media'); $worker->process($download); $video=$api->called('sendVideo'); $row=$store->query('SELECT * FROM timed_deletes')->fetch();
+    phCheck($video&&(int)$video[0][1]['chat_id']===-100555&&str_contains($video[0][1]['caption'],'🗑 این پیام 10 ثانیه بعد پاک می‌شود.')&&$row&&(int)$row['chat_id']===-100555,'in a group the video is deleted after ten seconds too, and the caption says so');
+    $store->query('DELETE FROM timed_deletes'); $store->set('adult.delete_seconds','30');
+    $store->query('UPDATE users SET last_request=0'); $send($link,42); $job=$store->claim('inspect'); $worker->process($job); $menu=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn(); $update++;
+    $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'qh','from'=>['id'=>42,'is_bot'=>false],'message'=>['message_id'=>$menu,'chat'=>['id'=>42,'type'=>'private']],'data'=>'quality:'.$job['id'].':480']]);
+    $download=$store->claim('media'); $worker->process($download); $row=$store->query('SELECT * FROM timed_deletes')->fetch(); $video=$api->called('sendVideo');
+    phCheck($row&&$row['at']>=time()+28&&str_contains(end($video)[1]['caption'],'30 ثانیه'),'the delay can be 30 seconds and the caption follows it');
+    $store->set('adult.delete_seconds','10'); $store->query('DELETE FROM timed_deletes');
+    // A message that is already gone is forgotten; a passing failure is retried a few times, then given up.
+    Zero\TimedDeletes::schedule($store,42,777,time()-1); $failing=new class implements Zero\Api { public int $code=400; public function call(string $method,array $params=[]): mixed { throw new RuntimeException('x',$this->code); } };
+    Zero\TimedDeletes::run($store,$failing); phCheck(!$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn(),'a message Telegram says is gone is forgotten');
+    Zero\TimedDeletes::schedule($store,42,778,time()-1); $failing->code=500;
+    for($i=0;$i<Zero\TimedDeletes::MAX_TRIES;$i++) { $store->query('UPDATE timed_deletes SET at=?',[time()-1]); Zero\TimedDeletes::run($store,$failing); }
+    phCheck(!$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn(),'a passing failure is retried and then given up');
 
     // The audio choice: the smallest stream is downloaded and its sound becomes an MP3 with the same caption.
     $store->query('UPDATE users SET last_request=0'); $send($link,42); $job=$store->claim('inspect'); $worker->process($job);
