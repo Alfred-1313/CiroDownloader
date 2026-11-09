@@ -322,7 +322,7 @@ final class Worker
         $render=fn(string $tags)=>$ui->text('pornhub_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
             'people'=>$who!==''?"\n".$ui->text('pornhub_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith('pornhub_views',['n'=>number_format($views)]):'',
             'tags'=>$tags!==''?"\n".$ui->text('pornhub_tags',['tags'=>$tags],['tags']):'',
-            'notice'=>$deleteAfter>0?"\n".$ui->text('pornhub_notice',['seconds'=>(string)$deleteAfter]):''],['people','views','tags','notice']);
+            'notice'=>$deleteAfter>0?$ui->text('pornhub_notice',['seconds'=>(string)$deleteAfter])."\n\n":''],['people','views','tags','notice']);
         $room=1000-TextFormat::length($plain($render('')));
         $kept=[]; $used=0;
         foreach($label as $name) {

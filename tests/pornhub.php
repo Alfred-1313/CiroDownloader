@@ -153,7 +153,7 @@ try {
     $download=$store->claim('media'); phCheck($download!==null&&(int)$download['quality']===480,'choosing 480p queues the download');
     $worker->process($download);
     $video=$api->called('sendVideo'); $params=end($video)[1]??[];
-    phCheck(count($video)===1&&$params['caption']==="<b>🔞 Fixture Video</b>\n👤 <b>Alice، Bob</b>\n<blockquote>⏱ 00:02 · 🎞 480p · 👁 1,234,567</blockquote>\n<blockquote expandable>🏷 #amateur #pov #homemade</blockquote>\n🗑 این پیام 10 ثانیه بعد پاک می‌شود."&&!isset($params['reply_markup'])&&(int)$params['width']===854&&(int)$params['height']===480,'the video arrives with its title, the people in it, length, quality, views and the page\'s categories and tags, and no link back to the site');
+    phCheck(count($video)===1&&$params['caption']==="<blockquote>🗑 این پیام 10 ثانیه بعد پاک می‌شود.\n💾 برای نگه‌داشتن، آن را در «پیام‌های ذخیره‌شده» (Saved Messages) خودت ذخیره کن.</blockquote>\n\n<b>🔞 Fixture Video</b>\n👤 <b>Alice، Bob</b>\n<blockquote>⏱ 00:02 · 🎞 480p · 👁 1,234,567</blockquote>\n<blockquote expandable>🏷 #amateur #pov #homemade</blockquote>"&&!isset($params['reply_markup'])&&(int)$params['width']===854&&(int)$params['height']===480,'the video arrives with the deletion notice as a quote first, a blank line, then its title, the people in it, length, quality, views and the page\'s categories and tags, and no link back to the site');
     $args=array_map(fn($line)=>json_decode($line,true),file($trace,FILE_IGNORE_NEW_LINES)); $downloadArgs=end($args);
     phCheck($downloadArgs[array_search('-f',$downloadArgs,true)+1]==='hls-1815/480p'&&$downloadArgs[array_search('--concurrent-fragments',$downloadArgs,true)+1]==='8'&&!in_array('--cookies',$downloadArgs,true),'the HLS stream is tried first, with eight pieces at once, without cookies');
     phCheck((int)$store->query("SELECT ok FROM stats WHERE service='pornhub'")->fetchColumn()===1,'the status report counts it as Pornhub');
@@ -219,4 +219,23 @@ try {
     $store->query('UPDATE users SET last_request=0'); $send($link,42); $store->set('adult.pornhub','0'); $lines=count(file($trace));
     $job=$store->claim('inspect'); $worker->process($job);
     phCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed'&&count(file($trace))===$lines,'switching it off stops a queued link before anything is downloaded');
+
+    // The notice stays inside the 1024 characters Telegram allows, however many tags the page has; audio gets the same layout.
+    $store->set('adult.delete_seconds','10');
+    $method=new ReflectionMethod($worker,'adultCaption'); $method->setAccessible(true);
+    $many=[]; for($i=0;$i<120;$i++) $many[]='category'.$i.'x';
+    $long=$method->invoke($worker,$bot,['title'=>str_repeat('T',300),'duration'=>125,'quality'=>'480p'],['people'=>['Alice'],'categories'=>$many,'tags'=>$many,'views'=>5],false,10);
+    phCheck(str_starts_with($long,'<blockquote>🗑 این پیام 10 ثانیه بعد پاک می‌شود.')&&str_contains($long,"</blockquote>\n\n<b>🔞 ")&&Zero\TextFormat::length(html_entity_decode(strip_tags($long),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=1024,'a page with many tags keeps the quote first and the whole caption within the limit');
+    $audio=$method->invoke($worker,$bot,['title'=>'Song','duration'=>5,'quality'=>'MP3'],[],true,10);
+    phCheck(str_starts_with($audio,'<blockquote>🗑')&&str_contains($audio,'🎞 MP3')&&str_contains($audio,'Saved Messages'),'audio uses the same structure');
+    $none=$method->invoke($worker,$bot,['title'=>'Song','duration'=>5,'quality'=>'480p'],[],false,0);
+    phCheck(!str_contains($none,'🗑')&&str_starts_with($none,'<b>🔞 Song</b>'),'with the filter off there is no notice and no empty line before the title');
+
+    // A saved copy of the earlier defaults follows the new layout; a real customisation stays.
+    $store->set('text.pornhub_caption',"<b>🔞 {title}</b>{people}\n<blockquote>⏱ {duration} · 🎞 {quality}{views}</blockquote>{tags}{notice}");
+    $store->set('text.pornhub_notice','🗑 این پیام {seconds} ثانیه بعد پاک می‌شود.'); $store->set('ui_adult_notice_v1','0');
+    $reopened=new Zero\Store($storage);
+    phCheck($reopened->query("SELECT COUNT(*) FROM settings WHERE key IN ('text.pornhub_caption','text.pornhub_notice')")->fetchColumn()==0&&$reopened->get('ui_adult_notice_v1')==='1','saved earlier defaults are dropped so the new layout applies');
+    $reopened->set('text.pornhub_notice','My own words {seconds}'); $reopened->set('ui_adult_notice_v1','0'); $again=new Zero\Store($storage);
+    phCheck($again->get('text.pornhub_notice')==='My own words {seconds}','a customised notice is kept');
 } finally { exec('rm -rf '.escapeshellarg($temp)); }
