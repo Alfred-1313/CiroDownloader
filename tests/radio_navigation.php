@@ -20,8 +20,10 @@ try {
     $store=new Zero\Store($root); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store);
     $radio->save(-1001,'Navigation','group',55,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $radio->setLive(-1001,true);
     $source=['service'=>'spotify','m'=>['title'=>'Work','artists'=>['Artist'],'duration'=>194]]; $token=$radio->pick($source,'Work','Artist',194);
-    $click=function(int $user=55,int $chat=-1001,int $message=501) use($bot,$token): void {
-        $bot->handle(['callback_query'=>['id'=>'navigation'.random_int(1,99999),'from'=>['id'=>$user],'message'=>['message_id'=>$message,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'message_thread_id'=>$chat<0?321:0,'audio'=>['file_id'=>'AUDIO','duration'=>194,'thumbnail'=>['file_id'=>'THUMBNAIL','file_size'=>1600]]],'data'=>'rd:p:'.$token]]);
+    $click=function(int $user=55,int $chat=-1001,int $message=501,bool $senderChat=false) use($bot,$token): void {
+        $original=['message_id'=>$message,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'message_thread_id'=>$chat<0?321:0,'audio'=>['file_id'=>'AUDIO','duration'=>194,'thumbnail'=>['file_id'=>'THUMBNAIL','file_size'=>1600]]];
+        if($senderChat) $original['sender_chat']=['id'=>$chat,'type'=>'supergroup'];
+        $bot->handle(['callback_query'=>['id'=>'navigation'.random_int(1,99999),'from'=>['id'=>$user],'message'=>$original,'data'=>'rd:p:'.$token]]);
     };
     $calls=fn()=>array_map(fn($line)=>json_decode($line,true),file($temp.'/calls.jsonl',FILE_IGNORE_NEW_LINES));
     $method=fn(string $name)=>array_values(array_filter($calls(),fn($entry)=>$entry['method']===$name));
@@ -33,7 +35,27 @@ try {
     $all=$calls(); $opened=array_search('sendPhoto',array_column($all,'method'),true); $deleted=array_search('deleteMessage',array_column($all,'method'),true);
     navigationCheck($deleted>$opened&&(int)$all[$deleted]['params']['message_id']===501,'the delivered audio is deleted only after the photo player is confirmed');
     navigationCheck(!glob($root.'/radio/files/*'),'preview artwork creates no retained local media files');
-    $click(); navigationCheck($radio->queued(-1001)===1&&count($method('sendPhoto'))===1,'repeated Play reuses the station player without duplicating the song or panel');
+    file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[(int)$panel['message_id']]])); $before=count($method('sendPhoto')); $click();
+    navigationCheck($radio->queued(-1001)===1&&count($method('sendPhoto'))===$before+1,'Play opens a visible replacement when its old panel message was deleted, without duplicating the song');
+    file_put_contents($temp.'/mode.json','{}'); $before=count($method('sendPhoto'));
+    $bot->handle(['update_id'=>60001,'message'=>['message_id'=>601,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321,'text'=>'/radio']]);
+    navigationCheck(count($method('sendPhoto'))===$before+1,'an explicit /radio command posts its player visibly instead of silently editing an older message');
+    navigationCheck((int)$store->query("SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn()===1,'reopening retires the old station panel instead of leaving multiple live subscriptions');
+    $before=count($method('sendPhoto')); $click(55,-1001,503,true);
+    navigationCheck(count($method('sendPhoto'))===$before+1&&$radio->queued(-1001)===1,'a human administrator can use controls on a bot message sent on behalf of the group');
+    $before=count($method('sendPhoto')); $click(66,-1001,504,true);
+    navigationCheck(count($method('sendPhoto'))===$before&&$radio->queued(-1001)===1,'sender_chat metadata never grants a member administrator access');
+    $before=count($method('sendPhoto'));
+    $bot->handle(['update_id'=>60002,'message'=>['message_id'=>602,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321,'text'=>'/radio@RadioFixtureBot']]);
+    navigationCheck(count($method('sendPhoto'))===$before+1,'the bot-addressed /radio command opens controls in the original group topic');
+    $live=(int)$store->query("SELECT message_id FROM radio_panels WHERE chat_id=-1001 AND view='player'")->fetchColumn(); file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$live]])); $before=count($method('sendPhoto'));
+    $bot->handle(['callback_query'=>['id'=>'missing-menu','from'=>['id'=>55],'message'=>['message_id'=>$live,'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321],'data'=>'rd:m:-1001']]);
+    navigationCheck(count($method('sendPhoto'))===$before+1&&(int)$store->query("SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn()===1,'an explicit control click recovers a deleted panel instead of silently failing');
+    $live=(int)$store->query("SELECT message_id FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn(); file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$live]])); $before=count($method('sendPhoto'));
+    $store->query("UPDATE radio_panels SET updated=0,hash='' WHERE chat_id=-1001"); (new Zero\RadioPlayerPanel($bot))->refresh();
+    navigationCheck(count($method('sendPhoto'))===$before&&(int)$store->query('SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001')->fetchColumn()===0,'automatic refresh forgets deleted messages without recreating unsolicited panels');
+    file_put_contents($temp.'/mode.json','{}'); $click();
+    $photoCount=count($method('sendPhoto')); $mediaCount=count($method('editMessageMedia'));
     $row=$radio->queue(-1001,1)[0]; $snapshot=['id'=>(int)$row['id'],'title'=>'Work','artists'=>'Artist','duration'=>194,'elapsed'=>4,'at'=>microtime(true),'cover'=>''];
     $save=function() use($store,&$snapshot): void { $snapshot['at']=microtime(true); $store->set('radio.progress.-1001',json_encode($snapshot)); }; $save();
     $store->set('cookies.keepalive','0'); $store->set('cookies.alerts','0');
@@ -47,7 +69,14 @@ try {
     navigationCheck($first['params']['message_id']===$second['params']['message_id']&&$first['params']['caption']!==$second['params']['caption']&&preg_match('/01:0[56]/',$second['params']['caption'])===1,'elapsed minutes and the bar move in the existing panel message');
     preg_match('/<code>([━●─]+)/u',$first['params']['caption'],$firstBar); preg_match('/<code>([━●─]+)/u',$second['params']['caption'],$secondBar);
     navigationCheck(!empty($firstBar[1])&&!empty($secondBar[1])&&$firstBar[1]!==$secondBar[1]&&str_contains($second['params']['caption'],'03:14'),'the progress marker advances while the total duration stays correct');
-    navigationCheck(count($method('sendPhoto'))===1&&!$method('editMessageMedia'),'periodic updates keep the Telegram preview cover without uploading it again');
+    navigationCheck(count($method('sendPhoto'))===$photoCount&&count($method('editMessageMedia'))===$mediaCount,'periodic updates keep the Telegram preview cover without uploading it again');
+    file_put_contents($temp.'/mode.json','{"reject_photo":true,"photo_error_code":403}'); $before=count($method('sendMessage'));
+    $bot->handle(['update_id'=>60003,'message'=>['message_id'=>603,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321,'text'=>'/radio']]);
+    $texts=$method('sendMessage'); $fallback=end($texts);
+    navigationCheck(count($texts)===$before+1&&(int)$fallback['params']['chat_id']===-1001&&str_contains($fallback['params']['reply_markup'],'rd:t:-1001'),'a group that refuses photos still gets usable text controls instead of silence');
+    $photoCount=count($method('sendPhoto')); $mediaCount=count($method('editMessageMedia')); $store->query("UPDATE radio_panels SET updated=0,hash='' WHERE chat_id=-1001"); (new Zero\RadioPlayerPanel($bot))->refresh();
+    navigationCheck(count($method('sendPhoto'))===$photoCount&&count($method('editMessageMedia'))===$mediaCount,'text controls do not keep retrying a rejected group photo on each timer tick');
+    file_put_contents($temp.'/mode.json','{}'); $click();
     $radio->save(-1002,'Rejected photo','group',42,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $radio->choose(42,-1002); file_put_contents($temp.'/mode.json','{"reject_photo":true}'); $before=count($method('deleteMessage'));
     $click(42,42,502); navigationCheck(count($method('deleteMessage'))===$before,'a rejected photo keeps the original audio available');
     navigationCheck((new Zero\Ui($store))->customizable('text','radio_player_preparing'),'the preparation state belongs to user Personalization');

@@ -490,6 +490,7 @@
     "radio_player_unknown":{"audience":"user","label":"مدت نامشخص رادیو","group":"radio","value":"--:--","inline":true},
     "radio_player_paused":{"audience":"user","label":"نمایش مکث رادیو","group":"radio","value":"⏸ پخش موقتاً متوقف است.","inline":true},
     "radio_player_preparing":{"audience":"user","label":"آماده‌سازی آهنگ در پخش‌کنندهٔ رادیو","group":"radio","value":"⏳ در حال آماده‌سازی پخش آهنگ…","inline":true},
+    "radio_player_expired":{"audience":"user","label":"اعلان پایان اعتبار پنل استریم قبلی","group":"radio","value":"این پنل برای استریم قبلی است. از پنل تازهٔ همین استریم استفاده کن.","inline":true},
     "radio_player_restarted":{"audience":"user","label":"اعلان پخش آهنگ از ابتدا","group":"radio","value":"🔄 آهنگ از ابتدا پخش می‌شود.","inline":true},
     "radio_player_mode_selected":{"audience":"user","label":"نشانهٔ حالت فعال پخش رادیو","group":"radio","value":"✅ {label}","variables":["label"],"inline":true},
     "radio_player_queue_row":{"audience":"user","label":"نام آهنگ بعدی رادیو","group":"radio","value":"{artist} — {title}","variables":["artist","title"],"inline":true},

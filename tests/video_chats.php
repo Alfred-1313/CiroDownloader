@@ -15,8 +15,8 @@ $log=$temp.'/php-errors.log'; ini_set('log_errors','1'); ini_set('error_log',$lo
 try {
     $config=new Zero\Config('123:fake',[42],$temp); $store=new Zero\Store($temp); $api=new VideoApi(); $bot=new Zero\Bot($config,$store,$api);
     $store->query('INSERT INTO users(id) VALUES(42),(77),(9)'); $store->addAdministrator(77,42,[42]);
-    $channelPost=fn(array $extra)=>['update_id'=>1,'channel_post'=>['message_id'=>5,'chat'=>['id'=>-1001,'type'=>'channel','title'=>'Radio <Test>'],'date'=>time()]+$extra];
-    $groupMessage=fn(int $from,array $extra)=>['update_id'=>2,'message'=>['message_id'=>6,'from'=>['id'=>$from,'is_bot'=>false],'chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'date'=>time()]+$extra];
+    $serial=0; $channelPost=function(array $extra) use (&$serial) { return ['update_id'=>++$serial,'channel_post'=>['message_id'=>$serial,'chat'=>['id'=>-1001,'type'=>'channel','title'=>'Radio <Test>'],'date'=>time()]+$extra]; };
+    $groupMessage=function(int $from,array $extra) use (&$serial) { return ['update_id'=>++$serial,'message'=>['message_id'=>$serial,'from'=>['id'=>$from,'is_bot'=>false],'chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'date'=>time()]+$extra]; };
 
     // A channel's live stream starts: every administrator hears about it, the title can never become markup.
     $bot->handle($channelPost(['video_chat_started'=>[]])); $sent=$api->sent();
@@ -32,7 +32,7 @@ try {
     $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_started'=>[]])); vcCheck(!$api->sent(),'a stranger starting one in a group is not');
     $api->calls=[]; $bot->handle($groupMessage(9,['video_chat_ended'=>['duration'=>5]])); vcCheck(!$api->sent(),'nor is its end');
     // An administrator who stays anonymous starts it "as the group": the group may be set up as a radio, and once it is one the administrators hear about it.
-    $anonymous=fn(array $extra)=>['update_id'=>9,'message'=>['message_id'=>9,'from'=>['id'=>1087968824,'is_bot'=>true,'first_name'=>'Group'],'sender_chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'date'=>time()]+$extra];
+    $anonymous=function(array $extra) use (&$serial) { return ['update_id'=>++$serial,'message'=>['message_id'=>$serial,'from'=>['id'=>1087968824,'is_bot'=>true,'first_name'=>'Group'],'sender_chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'chat'=>['id'=>-1002,'type'=>'supergroup','title'=>'Party'],'date'=>time()]+$extra]; };
     $api->calls=[]; $bot->handle($anonymous(['video_chat_started'=>[]])); $radio=new Zero\Radio($config,$store);
     vcCheck(in_array(-1002,array_map('intval',array_column($radio->candidates(),'chat_id')),true)&&count($api->sent())===2,'a stream started anonymously is reported to the administrators and makes the group a radio candidate');
     $radio->save(-1002,'Party','group',42,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $api->calls=[];

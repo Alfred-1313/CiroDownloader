@@ -10,7 +10,8 @@ file_put_contents($root.'/calls.jsonl',json_encode($entry,JSON_UNESCAPED_UNICODE
 $mode=json_decode((string)file_get_contents($root.'/mode.json'),true)??[];
 if($method==='editMessageCaption'&&!empty($mode['delay_edit'])) usleep((int)$mode['delay_edit']*1000000);
 header('Content-Type: application/json');
-if(!empty($mode['reject_photo'])&&in_array($method,['sendPhoto','editMessageMedia'],true)) { echo json_encode(['ok'=>false,'error_code'=>400,'description'=>'Rejected fixture photo']); return; }
+if(str_starts_with($method,'editMessage')&&in_array((int)($params['message_id']??0),$mode['missing_messages']??[],true)) { echo json_encode(['ok'=>false,'error_code'=>400,'description'=>'Bad Request: message to edit not found']); return; }
+if(!empty($mode['reject_photo'])&&in_array($method,['sendPhoto','editMessageMedia'],true)) { echo json_encode(['ok'=>false,'error_code'=>(int)($mode['photo_error_code']??400),'description'=>'Rejected fixture photo']); return; }
 if($method==='getFile') $result=['file_path'=>'photos/preview.jpg','file_size'=>filesize($root.'/preview.jpg')];
 elseif($method==='getChatMember') $result=['status'=>(int)$params['user_id']===55?'administrator':'member'];
 elseif(str_starts_with($method,'send')||str_starts_with($method,'edit')) {

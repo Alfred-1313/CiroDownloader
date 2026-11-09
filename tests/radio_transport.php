@@ -43,6 +43,14 @@ try {
     transportWait(fn()=>($radio->progress(-1001)['elapsed']??0)>$elapsed+0.7,'resume continues from the same track position');
     $stop($process,$radio,$root);
 
+    [$root,$store,$radio,$ids,$paths]=$make('stream-restart',[12,4]); $radio->streamEvent(-1001,true,'started:10',10); $session=$radio->session(-1001); $process=$start($root);
+    transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[0],'the first stream starts playing its own audio');
+    $radio->streamEvent(-1001,false,'ended:11',11); $radio->streamEvent(-1001,true,'started:12',12); $nextSession=$radio->session(-1001);
+    $until=microtime(true)+4; do { $status=proc_get_status($process); if($status['running']) usleep(50000); } while($status['running']&&microtime(true)<$until);
+    transportCheck(!$status['running']&&$nextSession!==$session,'a rapid end/restart stops the old decoder even though the new stream is already live'); proc_close($process);
+    transportCheck(!is_file($paths[0])&&is_file($paths[1])&&$store->query('SELECT status FROM radio_queue WHERE id=?',[$ids[1]])->fetchColumn()==='ready','the old playing file is released and the next prepared song survives the stream change');
+    $process=$start($root); transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[1]&&($radio->progress(-1001)['session']??'')===$nextSession,'the next player publishes progress for the new stream session'); $stop($process,$radio,$root);
+
     [$root,$store,$radio,$ids]=$make('pause-before-start',[5]); $radio->togglePause(-1001); $process=$start($root); usleep(2300000);
     transportCheck($radio->paused(-1001)&&empty($radio->progress(-1001)['id'])&&$store->query('SELECT status FROM radio_queue WHERE id=?',[$ids[0]])->fetchColumn()==='ready','pause while preparing prevents a ready song from starting or advancing');
     $radio->togglePause(-1001); transportWait(fn()=>(int)($radio->progress(-1001)['id']??0)===$ids[0],'resume starts the held song'); $stop($process,$radio,$root);

@@ -8,6 +8,7 @@ umask(0077);
 if(!function_exists('pcntl_fork')||!function_exists('posix_kill')) throw new RuntimeException('Worker requires the pcntl and posix PHP extensions; rebuild the application image.');
 $config=Zero\Config::load(); $store=new Zero\Store($config->storage);
 $lock=Zero\lockProcess($config->storage.'/worker.lock');
+new Zero\Radio($config,$store);
 $processor=new Zero\Worker($config,$store,new Zero\Telegram($config));
 $downloads=$config->storage.'/downloads';
 if(!is_dir($downloads)) mkdir($downloads,0700,true);

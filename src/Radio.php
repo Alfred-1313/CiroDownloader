@@ -51,6 +51,7 @@ final class Radio
             } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
         }
         $store->db->exec('CREATE TABLE IF NOT EXISTS radio_seen (chat_id INTEGER PRIMARY KEY,title TEXT NOT NULL DEFAULT \'\',type TEXT NOT NULL DEFAULT \'\',seen INTEGER NOT NULL)');
+        $store->db->exec("CREATE TABLE IF NOT EXISTS radio_sessions (chat_id INTEGER PRIMARY KEY,token TEXT NOT NULL,event TEXT NOT NULL DEFAULT '',event_id INTEGER NOT NULL DEFAULT 0,pending INTEGER NOT NULL DEFAULT 0,thread_id INTEGER NOT NULL DEFAULT 0,due INTEGER NOT NULL DEFAULT 0,tries INTEGER NOT NULL DEFAULT 0)");
     }
 
     // ---- The stream address: one file per chat -------------------------------------------------------------------
@@ -84,6 +85,7 @@ final class Radio
         // The stream may have started before the address was given: then the radio is live at once (a start within the last 12 hours, no end since).
         $since=(int)$this->store->get('radio.live.'.$chat,'0');
         if($since>time()-43200) $this->store->query('UPDATE radio_stations SET live=1,live_since=? WHERE chat_id=? AND live=0',[$since,$chat]);
+        if($since>time()-43200) $this->store->query('UPDATE radio_sessions SET pending=1,due=0,tries=0 WHERE chat_id=?',[$chat]);
     }
     /** Forget a station: its address, its queue and its prepared audio. */
     public function remove(int $chat): void
@@ -91,6 +93,7 @@ final class Radio
         @unlink($this->keyFile($chat)); $this->clear($chat,true);
         $this->store->query('DELETE FROM radio_queue WHERE chat_id=?',[$chat]);
         $this->store->query('DELETE FROM radio_stations WHERE chat_id=?',[$chat]);
+        $this->store->query('DELETE FROM radio_sessions WHERE chat_id=?',[$chat]);
         $this->store->query("UPDATE radio_panels SET station_id=0,view='static' WHERE station_id=?",[$chat]);
         foreach(['radio.progress.','radio.mode.','radio.paused.'] as $prefix) $this->store->query('DELETE FROM settings WHERE key=?',[$prefix.$chat]);
     }
@@ -124,6 +127,33 @@ final class Radio
         $this->store->query('UPDATE radio_stations SET live=?,live_since=?,command=\'\',now=\'\' WHERE chat_id=?',[$live?1:0,$live?time():0,$chat]);
         // Remembered for chats that are not a radio yet: a radio set up while its stream is already running starts live.
         $this->store->set('radio.live.'.$chat,$live?(string)time():'0');
+    }
+    public function session(int $chat): string
+    {
+        return (string)($this->store->query('SELECT token FROM radio_sessions WHERE chat_id=?',[$chat])->fetchColumn()?:'0');
+    }
+    public function callback(string $op,int $chat): string { return 'rd:'.$op.':'.$chat.':'.$this->session($chat); }
+    /** A real start/end rotates the controls, even when end and restart arrive within the same second. */
+    public function streamEvent(int $chat,bool $live,string $event,int $messageId=0,int $thread=0): bool
+    {
+        if($chat>=0) return false;
+        $files=[]; $this->store->db->exec('BEGIN IMMEDIATE');
+        try {
+            $old=$this->store->query('SELECT * FROM radio_sessions WHERE chat_id=?',[$chat])->fetch();
+            if($old&&($old['event']===$event||($messageId>0&&$messageId<=(int)$old['event_id']))) { $this->store->db->exec('COMMIT'); return false; }
+            $pending=$live&&$this->station($chat)!==null?1:0;
+            $this->store->query('INSERT INTO radio_sessions(chat_id,token,event,event_id,pending,thread_id,due,tries) VALUES(?,?,?,?,?,?,0,0) ON CONFLICT(chat_id) DO UPDATE SET token=excluded.token,event=excluded.event,event_id=excluded.event_id,pending=excluded.pending,thread_id=excluded.thread_id,due=0,tries=0',
+                [$chat,bin2hex(random_bytes(8)),$event,max($messageId,(int)($old['event_id']??0)),$pending,max(0,$thread)]);
+            $this->setLive($chat,$live);
+            $this->store->set('radio.paused.'.$chat,'0');
+            $this->store->query('DELETE FROM settings WHERE key=?',['radio.progress.'.$chat]);
+            $files=$this->store->query("SELECT file,cover FROM radio_queue WHERE chat_id=? AND status='playing'",[$chat])->fetchAll();
+            $this->store->query("UPDATE radio_queue SET status='done',file='',cover='' WHERE chat_id=? AND status='playing'",[$chat]);
+            $this->store->query("UPDATE radio_panels SET view='expired',updated=0 WHERE station_id=? AND view IN ('player','menu','static')",[$chat]);
+            $this->store->db->exec('COMMIT');
+        } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
+        foreach($files as $file) foreach(['file','cover'] as $key) if($file[$key]!=='') @unlink($file[$key]);
+        return true;
     }
 
     // ---- Who may use it: the administrators of the chat (and of the bot) -----------------------------------------------
@@ -260,6 +290,7 @@ final class Radio
     /** Old finished rows and files go away; audio left behind by a crash too. */
     public function tidy(): void
     {
+        $this->store->query('DELETE FROM radio_sessions WHERE chat_id NOT IN (SELECT chat_id FROM radio_stations) AND chat_id NOT IN (SELECT chat_id FROM radio_seen)');
         $this->store->query('DELETE FROM radio_panels WHERE expires<?',[time()]);
         $rows=$this->store->query("SELECT id,file FROM radio_queue WHERE status IN ('done','failed') AND created<?",[time()-86400])->fetchAll();
         foreach($rows as $row) { if($row['file']!=='') @unlink($row['file']); $this->store->query('DELETE FROM radio_queue WHERE id=?',[$row['id']]); }

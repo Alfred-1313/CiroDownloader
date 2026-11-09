@@ -7,7 +7,7 @@ final class RadioPlayback
 {
     private array $tracks=[], $silences=[];
     private float $written=0;
-    public function __construct(private Store $store,private int $chat) {}
+    public function __construct(private Store $store,private int $chat,private string $session='0') {}
     public function start(array $item,float $at): void { $this->tracks[]=['item'=>$item,'start'=>$at,'end'=>null]; }
     public function finish(int $id,float $at): void
     {
@@ -24,7 +24,7 @@ final class RadioPlayback
         if(microtime(true)-$this->written<1) return;
         $this->written=microtime(true); $track=null;
         foreach($this->tracks as $entry) if($entry['start']<=$clock&&($entry['end']===null||$entry['end']>$clock)) $track=$entry;
-        $snapshot=['id'=>0,'title'=>'','artists'=>'','elapsed'=>0,'duration'=>0,'cover'=>'','paused'=>$paused,'at'=>microtime(true)];
+        $snapshot=['id'=>0,'title'=>'','artists'=>'','elapsed'=>0,'duration'=>0,'cover'=>'','paused'=>$paused,'at'=>microtime(true),'session'=>$this->session];
         if($track!==null) {
             $elapsed=max(0,$clock-$track['start']);
             foreach($this->silences as [$at,$seconds]) $elapsed-=max(0,min($clock,$at+$seconds)-max($track['start'],$at));

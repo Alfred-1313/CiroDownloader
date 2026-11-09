@@ -383,13 +383,20 @@ final class Bot
         if(VideoChats::handle($this,$update)) return;
         $cb=$update['callback_query']??null; $message=$cb['message']??$update['message']??null;
         $user=(int)($cb['from']['id']??$message['from']['id']??0);
-        $type=$message['chat']['type']??''; $group=in_array($type,['group','supergroup'],true);
-        if(!$message||(!$group&&$type!=='private')||!$user||!empty(($cb['from']??$message['from'])['is_bot'])||($group&&!empty($message['sender_chat']))) return;
+        $type=$message['chat']['type']??'';
+        $radioCallback=$cb&&preg_match('/^rd:[A-Za-z]:(?:-?\d{1,14}|[A-Za-z0-9_-]{16})(?::(?:0|[a-f0-9]{16}))?$/D',(string)($cb['data']??''))===1;
+        $group=in_array($type,['group','supergroup'],true)||($type==='channel'&&$radioCallback);
+        if(!$message||(!$group&&$type!=='private')||!$user||!empty(($cb['from']??$message['from'])['is_bot'])||(!$cb&&$group&&!empty($message['sender_chat']))) return;
         $chat=(int)$message['chat']['id'];
         if(($group&&$chat>=0)||(!$group&&$chat!==$user)) return;
         $thread=$group?max(0,(int)($message['message_thread_id']??0)):0;
         if($group&&!$this->store->groupsEnabled()) {
             if($cb) $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('groups_disabled'),'show_alert'=>true]);
+            elseif($this->admin($user)&&preg_match('~^/radio(?:@([A-Za-z0-9_]+))?$~iD',trim((string)($message['text']??'')),$radioCommand)
+                &&(empty($radioCommand[1])||strcasecmp($radioCommand[1],$this->store->get('bot_username'))===0)) {
+                // An explicit management request should explain the disabled group setting privately.
+                try { $this->send($user,$this->text('groups_disabled')); } catch(\Throwable) {}
+            }
             elseif(($site=adultService(trim((string)($message['text']??''))))!==null&&($hint=$this->adultHint($user,$chat,$site))!==null) {
                 // Group use is off, so nothing is said in the group; an administrator is told privately why the link was not taken.
                 try { $this->send($user,$this->text($hint)); } catch(\Throwable) { /* The administrator never started the bot. */ }
@@ -405,7 +412,7 @@ final class Bot
             $pageCounter=$action==='igpage:noop';
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back','update:close'],true);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
-            $isRadio=preg_match('/^rd:[A-Za-z]:(?:-?\d{1,14}|[A-Za-z0-9_-]{16})$/D',$action)===1;
+            $isRadio=$radioCallback;
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;

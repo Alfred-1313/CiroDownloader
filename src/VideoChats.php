@@ -36,12 +36,12 @@ final class VideoChats
         // The radio of this chat: its stream is live or not, and a chat where an administrator started one can be set up.
         try {
             $radio=new Radio($bot->config,$bot->store);
-            if($event[1]==='ended') $radio->setLive($chatId,false);
-            else {
-                $radio->setLive($chatId,true);
+            $messageId=max(0,(int)($post['message_id']??0));
+            if(!$radio->streamEvent($chatId,$event[1]==='started',$event[1].':'.$messageId,$messageId,max(0,(int)($post['message_thread_id']??0)))) return true;
+            if($event[1]==='started') {
                 if($chatId!==0&&($channel||$asGroup||($starter>0&&Radio::chatAdmin($bot->api,$bot->store,$chatId,$starter)))) $radio->seen($chatId,$title,$channel?'channel':'group');
             }
-        } catch(\Throwable) { /* The news to the administrators does not depend on the radio. */ }
+        } catch(\Throwable $e) { error_log('Radio stream event failed: '.get_class($e).' (code '.(int)$e->getCode().')'); }
         // In a group the administrators hear about it when one of them started it, or when one of the group's administrators
         // did so anonymously ("as the group"); only administrators can, so this is no stranger's news.
         if(!$channel&&!($starter>0&&$bot->admin($starter))&&!$asGroup) return true;

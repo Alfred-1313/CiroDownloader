@@ -19,12 +19,14 @@ final class RadioApi implements Zero\Api {
 }
 function rdCheck(bool $ok,string $label): void { if(!$ok) throw new RuntimeException($label); echo "PASS $label\n"; }
 function rdClick(string $data,int $user,int $chat,int $message=800): array {
+    global $radio;
+    if($radio instanceof Zero\Radio&&preg_match('/^rd:([A-Za-z]):(-?\d{1,14})$/D',$data,$parts)&&$parts[1]!=='u') $data=$radio->callback($parts[1],(int)$parts[2]);
     return ['update_id'=>random_int(1,1000000),'callback_query'=>['id'=>'q'.random_int(1,99999),'from'=>['id'=>$user,'is_bot'=>false],'message'=>['message_id'=>$message,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private']]+($chat<0?['message_thread_id'=>0]:[]),'data'=>$data]];
 }
 function rdText(string $text,int $user,int $chat=0): array {
     $chat=$chat?:$user; return ['update_id'=>random_int(1,1000000),'message'=>['message_id'=>random_int(1,99999),'from'=>['id'=>$user,'is_bot'=>false],'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'text'=>$text]];
 }
-function rdActions(?array $params): array { return array_values(array_filter(array_column(array_merge(...($params['reply_markup']['inline_keyboard']??[[]])),'callback_data'))); }
+function rdActions(?array $params): array { return array_map(fn($data)=>preg_replace('/^(rd:[A-Za-z]:-?\d+):(?:0|[a-f0-9]{16})$/D','$1',$data),array_values(array_filter(array_column(array_merge(...($params['reply_markup']['inline_keyboard']??[[]])),'callback_data')))); }
 function rdAnswer(RadioApi $api): string { return (string)($api->last('answerCallbackQuery')['text']??''); }
 
 // A made-up address and key: real ones are secrets and never belong in a test.
@@ -61,7 +63,7 @@ try {
     $radio->clear(-1001); rdCheck($radio->queued(-1001)===0,'clearing empties the queue');
 
     // 4. Live state and seen chats, from the service messages.
-    $post=fn(string $kind,array $extra=[])=>['update_id'=>1,'channel_post'=>['message_id'=>5,'chat'=>['id'=>-1001,'type'=>'channel','title'=>'Test Channel'],'date'=>time(),$kind=>$extra]];
+    $serial=4; $post=function(string $kind,array $extra=[]) use (&$serial) { return ['update_id'=>++$serial,'channel_post'=>['message_id'=>$serial,'chat'=>['id'=>-1001,'type'=>'channel','title'=>'Test Channel'],'date'=>time(),$kind=>$extra]]; };
     $bot->handle($post('video_chat_started')); rdCheck((int)$radio->station(-1001)['live']===1,'a started stream makes the station live');
     $bot->handle($post('video_chat_ended',['duration'=>5])); rdCheck((int)$radio->station(-1001)['live']===0,'an ended stream makes it idle');
     $bot->handle(['update_id'=>2,'channel_post'=>['message_id'=>6,'chat'=>['id'=>-1005,'type'=>'channel','title'=>'New Channel'],'date'=>time(),'video_chat_started'=>[]]]);
@@ -158,6 +160,10 @@ try {
     rdCheck($store->get('radio.enabled')==='0'&&$store->get('radio.access')==='bot','the switches flip the settings');
     $bot->handle(rdClick('custom:radio',55,55)); rdCheck($store->get('radio.enabled')==='0','somebody who is not a bot administrator cannot flip them');
     $store->set('radio.enabled','1'); $store->set('radio.access','chat');
+
+    $store->set('groups_enabled','0'); $api->calls=[]; $bot->handle(rdText('/radio',42,-1100));
+    rdCheck(($api->last('sendMessage')['chat_id']??0)===42&&str_contains($api->last('sendMessage')['text']??'','گروه')&&!$api->last('sendPhoto'),'a bot administrator gets a private explanation when group use blocks /radio');
+    $store->set('groups_enabled','1');
 
     // 9. Every text is the user's to reword; the controls obey the colour rule.
     foreach(['radio_panel','radio_player_caption','radio_key_prompt','radio_added','radio_full'] as $key) rdCheck($bot->ui->customizable('text',$key)&&($bot->ui->definition('text',$key)['audience']??'')==='user',"editable text: $key");

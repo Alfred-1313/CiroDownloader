@@ -55,11 +55,11 @@ try {
     groupCheck($job&&(int)$job['user_id']===11&&(int)$job['chat_id']===-100123&&(int)$job['thread_id']===17&&end($api->calls)[1]['message_thread_id']===17,'a group link queues inspection and status in its original chat and topic');
     $claimed=$store->claim(); $bot->qualityMenu($claimed,['title'=>'Group video','options'=>[360=>[['id'=>'18','audio'=>true]],'audio'=>[['id'=>'18']]]]);
     $message=(int)$job['message_id']; $action='quality:'.$job['id'].':360';
-    $bot->handle(groupCallback($action,12,-100123,$message));
+    $callback=groupCallback($action,12,-100123,$message); $callback['callback_query']['message']['sender_chat']=['id'=>-100123,'type'=>'supergroup']; $bot->handle($callback);
     groupCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='waiting_quality','another group member cannot select someone else’s video');
     $bot->handle(groupCallback($action,11,-200123,$message));
     groupCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='waiting_quality','a copied callback from another group cannot select the job');
-    $bot->handle(groupCallback($action,11,-100123,$message));
+    $callback=groupCallback($action,11,-100123,$message); $callback['callback_query']['message']['sender_chat']=['id'=>-100123,'type'=>'supergroup']; $bot->handle($callback);
     groupCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='queued','the original sender can select the group video');
     $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
     $command=groupMessage('/download@cirodownloaderbot '.$url,13,-100123); $bot->handle($command);

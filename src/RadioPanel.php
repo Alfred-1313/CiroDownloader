@@ -82,15 +82,14 @@ final class RadioPanel
     public function callback(array $update,int $chat,int $user,int $thread,int $message): void
     {
         $cb=$update['callback_query'];
-        if(preg_match('/^rd:([A-Za-z]):(-?\d{1,14}|[A-Za-z0-9_-]{16})$/D',(string)($cb['data']??''),$match)!==1) { $this->answer($cb); return; }
+        if(preg_match('/^rd:([A-Za-z]):(-?\d{1,14}|[A-Za-z0-9_-]{16})(?::(0|[a-f0-9]{16}))?$/D',(string)($cb['data']??''),$match)!==1) { $this->answer($cb); return; }
         [, $op, $arg]=$match; $botAdmin=$this->bot->admin($user);
         try {
             if($op==='p') { $this->play($cb,$chat,$user,$arg,$thread); return; }
             if(!preg_match('/^-?\d+$/D',$arg)) { $this->answer($cb); return; }
             $target=(int)$arg;
             // Closing a message: in a private chat it is the person's own; in a group only the radio's administrators may.
-            if($op==='z'&&$chat>0) { (new RadioPlayerPanel($this->bot))->forget($chat,$message); $this->answer($cb); try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return; }
-            if($op==='r'&&$chat>0) { $this->answer($cb); $this->panel($chat,$user,$message); return; }
+            if($op==='z'&&$chat>0&&$target===$chat) { (new RadioPlayerPanel($this->bot))->forget($chat,$message); $this->answer($cb); try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return; }
             // Setting up and the private panel belong to a private chat; the controls to the chat of the station or the panel.
             $station=$this->radio->station($target);
             if($op==='u') {
@@ -101,6 +100,8 @@ final class RadioPanel
             if(!Radio::enabled($this->bot->store)) { $this->answer($cb,'radio_disabled',[],true); return; }
             if($station===null||!$this->radio->mayControl($this->bot->api,$target,$user,$botAdmin)) { $this->answer($cb,$station===null?'radio_no_station':$this->refusal(),[],true); return; }
             if($chat<0&&$target!==$chat) { $this->answer($cb,$this->refusal(),[],true); return; }
+            if(($match[3]??'0')!==$this->radio->session($target)) { $this->answer($cb,'radio_player_expired',[],true); return; }
+            if($op==='r'&&$chat>0) { $this->answer($cb); $this->panel($chat,$user,$message); return; }
             switch($op) {
                 case 't': $this->radio->togglePause($target); $this->answer($cb,'radio_done'); break;
                 case 'o': $mode=$this->radio->cycleMode($target); $this->answer($cb,'radio_repeat_notice_'.$mode); break;
@@ -116,7 +117,7 @@ final class RadioPanel
                 case 'x': $this->radio->clear($target); $this->answer($cb,'radio_done'); break;
                 case 'a': $this->radio->choose($user,$target); $this->answer($cb,'radio_done'); break;
                 // When the bot missed the start (or end) of the stream, an administrator says so by hand.
-                case 'l': $this->radio->setLive($target,(int)$station['live']!==1); $this->answer($cb,'radio_done'); break;
+                case 'l': $this->radio->streamEvent($target,(int)$station['live']!==1,'manual:'.bin2hex(random_bytes(8)),0,$thread); $this->answer($cb,'radio_done'); return;
                 case 'z': (new RadioPlayerPanel($this->bot))->forget($chat,$message); $this->answer($cb); try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return;
                 case 'd': $this->answer($cb); $this->confirmRemove($chat,$message,$station); return;
                 case 'D': $this->radio->remove($target); $this->answer($cb,'radio_removed'); $this->panel($chat,$user,$message); return;
@@ -124,7 +125,7 @@ final class RadioPanel
             }
             $this->status($chat,$user,$message,$station,$thread);
         } catch(\Throwable $e) {
-            error_log('Radio callback failed: '.get_class($e));
+            error_log('Radio callback failed: '.get_class($e).' (code '.(int)$e->getCode().')');
             $this->answer($cb,'radio_failed',[],true);
         }
     }
@@ -157,7 +158,7 @@ final class RadioPanel
         $ui=$this->bot->ui; $botAdmin=$this->bot->admin($user); $rows=[]; $lines=[];
         foreach($this->radio->stationsOf($this->bot->api,$user,$botAdmin) as $station) {
             $lines[]=$ui->text('radio_panel_row',['state'=>$this->stateText($station),'chat'=>(string)$station['title'],'count'=>(string)$this->radio->queued((int)$station['chat_id'])]);
-            $rows[]=[$ui->button('radio_open','rd:v:'.$station['chat_id'],['state'=>$this->stateText($station),'chat'=>(string)$station['title']])];
+            $rows[]=[$ui->button('radio_open',$this->radio->callback('v',(int)$station['chat_id']),['state'=>$this->stateText($station),'chat'=>(string)$station['title']])];
         }
         foreach(Radio::enabled($this->bot->store)?$this->radio->candidates():[] as $seen) {
             if(!$this->mayManage((int)$seen['chat_id'],$user)) continue;
@@ -175,7 +176,7 @@ final class RadioPanel
     private function confirmRemove(int $chat,int $message,array $station): void
     {
         $ui=$this->bot->ui;
-        (new RadioPlayerPanel($this->bot))->leave($chat,$message,$ui->text('radio_remove_confirm',['chat'=>(string)$station['title']]),[[$ui->button('radio_remove_yes','rd:D:'.$station['chat_id'])],[$ui->button('radio_back','rd:v:'.$station['chat_id'])]]);
+        (new RadioPlayerPanel($this->bot))->leave($chat,$message,$ui->text('radio_remove_confirm',['chat'=>(string)$station['title']]),[[$ui->button('radio_remove_yes',$this->radio->callback('D',(int)$station['chat_id']))],[$ui->button('radio_back',$this->radio->callback('v',(int)$station['chat_id']))]],(int)$station['chat_id']);
     }
 
     // ---- Commands --------------------------------------------------------------------------------------------------------
@@ -193,7 +194,13 @@ final class RadioPanel
         $station=$this->radio->station($chat);
         if($station===null) { $this->bot->send($chat,$this->bot->text('radio_group_none'),[],0,$thread); return; }
         if(!$this->radio->mayControl($this->bot->api,$chat,$user,$this->bot->admin($user))) { $this->bot->send($chat,$this->bot->text($this->refusal()),[],0,$thread); return; }
-        $this->status($chat,$user,0,$station,$thread);
+        try { $this->status($chat,$user,0,$station,$thread); }
+        catch(\Throwable $e) {
+            error_log('Radio group panel failed: '.get_class($e).' (code '.(int)$e->getCode().')');
+            $params=['chat_id'=>$chat,'text'=>$this->bot->ui->plain('radio_failed')];
+            if($thread>0) $params['message_thread_id']=$thread;
+            try { $this->bot->api->call('sendMessage',$params); } catch(\Throwable) {}
+        }
     }
 
     // ---- Setting a station up --------------------------------------------------------------------------------------------

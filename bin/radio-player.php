@@ -18,6 +18,7 @@ $chat=(int)($argv[1]??0);
 $config=Zero\Config::load(); $store=new Zero\Store($config->storage); $radio=new Zero\Radio($config,$store);
 $station=$radio->station($chat); $target=$radio->target($chat);
 if($station===null||$target===null||$chat===0) exit(0);
+$session=$radio->session($chat);
 $testOutput=(string)getenv('RADIO_TEST_OUTPUT');
 $output=$testOutput!==''?str_replace('{chat}',(string)abs($chat),$testOutput):$target;
 $idleLimit=max(1,(int)(getenv('RADIO_IDLE_SECONDS')?:Zero\Radio::IDLE_SECONDS));
@@ -39,7 +40,7 @@ if($backgroundPath!==false) {
     @unlink($backgroundPath);
 }
 $frame=$background; $upcoming=null; $pausedState=$radio->paused($chat);
-$playback=new Zero\RadioPlayback($store,$chat);
+$playback=new Zero\RadioPlayback($store,$chat,$session);
 $backgroundFile=$radio->root().'/panel-background.jpg';
 if($background!=='') { $temporary=$backgroundFile.'.'.getmypid(); file_put_contents($temporary,$background); rename($temporary,$backgroundFile); }
 $pumpNext=static function() use (&$upcoming): void {
@@ -150,8 +151,8 @@ $remember=function(array $decoder) use (&$previous,$forget,$release): void {
     $release($decoder,'remember'); $previous=$decoder['item'];
 };
 while(!$stopping) {
-    $row=$store->query('SELECT live,command FROM radio_stations WHERE chat_id=?',[$chat])->fetch();
-    if(!$row||(int)$row['live']!==1||$row['command']==='stop') break;
+    $row=$store->query("SELECT s.live,s.command,COALESCE(r.token,'0') AS session FROM radio_stations s LEFT JOIN radio_sessions r ON r.chat_id=s.chat_id WHERE s.chat_id=?",[$chat])->fetch();
+    if(!$row||(int)$row['live']!==1||$row['command']==='stop'||$row['session']!==$session) { $stopping=true; break; }
     $mode=$radio->mode($chat);
     if($mode!==$lastMode) { $release($upcoming,'drop'); $upcoming=null; $lastMode=$mode; }
     if(in_array($row['command'],['previous','restart'],true)) {
@@ -238,7 +239,7 @@ while(!$stopping) {
     $buffer.=$data;
     if(strlen($buffer)>=$chunk) { if(!$write($buffer)) { $failed=true; break; } $buffer=''; }
 }
-if(!$failed&&$buffer!=='') $write(str_pad($buffer,$chunk,"\0"));
+if(!$failed&&!$stopping&&$buffer!=='') $write(str_pad($buffer,$chunk,"\0"));
 // The sound is ahead of the clock: the pictures go on until the clock has caught up, so the end is not cut short.
 if(!$failed&&!$stopping) { $until=microtime(true)+$lead+1.0; while(microtime(true)<$until&&$audioSent>microtime(true)-$clockStart) { $feedVideo(); usleep(20000); } }
 // A failed output must not eat the song that was playing: it goes back to the queue for the next session.
