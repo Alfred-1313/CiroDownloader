@@ -552,6 +552,8 @@
     "report_name_batch":{"audience":"admin","label":"نام سرویس در گزارش: دانلود گروهی","group":"admin","inline":true,"value":"دانلود گروهی"},
     "report_name_pornhub":{"audience":"admin","label":"نام سرویس در گزارش: Pornhub","group":"admin","inline":true,"value":"Pornhub"},
     "report_name_article":{"audience":"admin","label":"نام سرویس در گزارش: مقاله","group":"admin","inline":true,"value":"مقالهٔ تلگراف"},
+    "video_chat_started":{"audience":"admin","label":"خبر شروع گفت‌وگوی ویدیویی","group":"admin","variables":["chat"],"value":"<blockquote><b>🎙 گفت‌وگوی ویدیویی شروع شد</b></blockquote>\n{chat}"},
+    "video_chat_ended":{"audience":"admin","label":"خبر پایان گفت‌وگوی ویدیویی","group":"admin","variables":["chat","duration"],"value":"<blockquote><b>🔚 گفت‌وگوی ویدیویی تمام شد</b></blockquote>\n{chat}\n⏱ {duration}"},
     "admin_cmd_admin":{"audience":"admin","label":"توضیح دستور /admin","group":"admin","inline":true,"value":"باز کردن پنل مدیریت"},
     "admin_cmd_health":{"audience":"admin","label":"توضیح دستور /health","group":"admin","inline":true,"value":"وضعیت ربات، آمار و گزارش‌ها"},
     "admin_cmd_cookies":{"audience":"admin","label":"توضیح دستور /cookies","group":"admin","inline":true,"value":"ایمپورت و بررسی کوکی‌ها"},

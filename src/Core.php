@@ -451,6 +451,14 @@ final class Store
         $seeds=implode(',',array_fill(0,count($roots),'(CAST(? AS INTEGER))'));
         return (bool)$this->query('WITH RECURSIVE authorized(id) AS (VALUES '.$seeds.' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id) SELECT 1 FROM authorized WHERE id=CAST(? AS INTEGER)',array_merge($roots,[$user]))->fetchColumn();
     }
+    /** @return list<int> every administrator: the configured ones and everybody they (and those they added) granted, in private chats' IDs */
+    public function administratorIds(array $roots): array
+    {
+        if(!$roots) return [];
+        $seeds=implode(',',array_fill(0,count($roots),'(CAST(? AS INTEGER))'));
+        $ids=$this->query('WITH RECURSIVE authorized(id) AS (VALUES '.$seeds.' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id) SELECT id FROM authorized',array_values($roots))->fetchAll(\PDO::FETCH_COLUMN);
+        return array_values(array_unique(array_filter(array_map('intval',$ids),fn($id)=>$id>0)));
+    }
     public function addAdministrator(int $user,int $actor,array $roots): bool
     {
         $this->db->exec('BEGIN IMMEDIATE');

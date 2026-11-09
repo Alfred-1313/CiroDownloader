@@ -19,6 +19,7 @@ require_once __DIR__.'/CookieHealth.php';
 require_once __DIR__.'/Reports.php';
 require_once __DIR__.'/AdminCommands.php';
 require_once __DIR__.'/MusicSearch.php';
+require_once __DIR__.'/VideoChats.php';
 require_once __DIR__.'/Shares.php';
 require_once __DIR__.'/TimedDeletes.php';
 
@@ -371,6 +372,8 @@ final class Bot
     {
         // "Share" under a track: anyone may send that track on through the bot's inline mode.
         if(is_array($update['inline_query']??null)) { (new Shares($this))->answer($update['inline_query']); return; }
+        // A video chat or live stream started or ended in a group or channel: the administrators are told, nothing else happens.
+        if(VideoChats::handle($this,$update)) return;
         $cb=$update['callback_query']??null; $message=$cb['message']??$update['message']??null;
         $user=(int)($cb['from']['id']??$message['from']['id']??0);
         $type=$message['chat']['type']??''; $group=in_array($type,['group','supergroup'],true);
