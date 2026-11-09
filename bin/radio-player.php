@@ -31,13 +31,24 @@ $redact=static fn(string $text): string=>str_replace([$target,$output],'[address
 $out=null; $outPipes=[]; $restarts=[];
 // The picture: the cover of the song playing, fitted into 640×360 on a dark background (or the background alone).
 $fps=4.0; $videoPending='';
-$frameFor=function(string $cover): string {
-    $file=tempnam(sys_get_temp_dir(),'radio-frame-'); $jpg=$file.'.jpg';
-    $input=$cover!==''&&is_file($cover)?['-i',$cover]:['-f','lavfi','-i','color=c=0x202020:s=640x360'];
-    exec(implode(' ',array_map('escapeshellarg',array_merge(['ffmpeg','-hide_banner','-loglevel','error','-y'],$input,['-vf','scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:color=0x202020','-frames:v','1','-pix_fmt','yuvj420p','-q:v','4',$jpg]))).' 2>/dev/null',$ignored,$code);
-    $bytes=$code===0?(string)@file_get_contents($jpg):'';
-    @unlink($file); @unlink($jpg);
-    return $bytes;
+$frameFor=function(string $cover,string $audio=''): string {
+    $file=tempnam(sys_get_temp_dir(),'radio-frame-');
+    if($file===false) return '';
+    $jpg=$file.'.jpg';
+    // Older ready tracks may have only an embedded cover. A missing/broken sidecar must not hide it.
+    $inputs=[];
+    foreach(array_unique([$cover,$audio]) as $path) if($path!==''&&is_file($path)) $inputs[]=['-threads','1','-i',$path];
+    $inputs[]=['-f','lavfi','-i','color=c=0x202020:s=640x360'];
+    try {
+        foreach($inputs as $input) {
+            @unlink($jpg);
+            $command=array_merge(['timeout','--kill-after=1','5','ffmpeg','-hide_banner','-loglevel','error','-y','-filter_threads','1'],$input,
+                ['-map','0:v:0','-an','-vf','scale=640:360:force_original_aspect_ratio=decrease,pad=640:360:(ow-iw)/2:(oh-ih)/2:color=0x202020','-frames:v','1','-threads','1','-pix_fmt','yuvj420p','-q:v','4',$jpg]);
+            exec(implode(' ',array_map('escapeshellarg',$command)).' 2>/dev/null',$ignored,$code);
+            if($code===0&&is_file($jpg)&&filesize($jpg)>0) return (string)file_get_contents($jpg);
+        }
+        return '';
+    } finally { @unlink($file); @unlink($jpg); }
 };
 $background=$frameFor(''); $frame=$background;
 /**
@@ -57,16 +68,16 @@ $feedVideo=function() use (&$outPipes,&$frame,&$videoPending,&$lastFrame,&$cover
     if($count) $videoPending=(string)substr($videoPending,$count);
 };
 /** Show $bytes from the point of the sound written so far on. */
-$showCover=function(string $bytes) use (&$covers,&$audioSent): void { $covers[]=[$audioSent,$bytes]; };
+$showCover=function(string $bytes,int $pending=0) use (&$covers,&$audioSent): void { $covers[]=[$audioSent+$pending/(44100*4),$bytes]; };
 $openOutput=function() use (&$out,&$outPipes,$output,$target,&$restarts,&$frame,&$videoPending,&$feedVideo,&$clockStart,&$audioSent,&$lastFrame,&$covers): bool {
     $now=time(); $restarts=array_values(array_filter($restarts,fn($time)=>$now-$time<120));
     if(count($restarts)>=3) return false;
     $restarts[]=$now;
     // Sound comes in on stdin; the picture (the cover of the song playing) as JPEG frames on a second pipe, stamped by the
     // clock and turned into a steady 10 frames a second. The pace is set here (see $lead), not by ffmpeg.
-    $command=['ffmpeg','-hide_banner','-loglevel','error','-y','-f','s16le','-ar','44100','-ac','2','-thread_queue_size','512','-probesize','32','-analyzeduration','0','-i','pipe:0',
-        '-f','image2pipe','-c:v','mjpeg','-probesize','32','-analyzeduration','0','-use_wallclock_as_timestamps','1','-thread_queue_size','64','-i','pipe:3',
-        '-map','1:v','-map','0:a','-filter:v','fps=10,format=yuv420p','-c:v','libx264','-preset','ultrafast','-tune','stillimage','-g','20','-keyint_min','20','-b:v','300k','-maxrate','300k','-bufsize','600k',
+    $command=['ffmpeg','-hide_banner','-loglevel','error','-y','-filter_threads','1','-f','s16le','-ar','44100','-ac','2','-thread_queue_size','512','-probesize','32','-analyzeduration','0','-i','pipe:0',
+        '-f','image2pipe','-c:v','mjpeg','-threads','1','-probesize','32','-analyzeduration','0','-use_wallclock_as_timestamps','1','-thread_queue_size','64','-i','pipe:3',
+        '-map','1:v','-map','0:a','-filter:v','fps=10,format=yuv420p','-c:v','libx264','-threads','2','-preset','ultrafast','-tune','stillimage','-g','20','-keyint_min','20','-b:v','300k','-maxrate','300k','-bufsize','600k',
         '-c:a','aac','-b:a','128k','-ar','44100','-f','flv',$output];
     $out=proc_open($command,[0=>['pipe','r'],1=>['file','/dev/null','w'],2=>['pipe','w'],3=>['pipe','r']],$outPipes,null,['PATH'=>getenv('PATH')?:'/usr/bin:/bin']);
     if(!is_resource($out)) return false;
@@ -110,7 +121,7 @@ $silence=str_repeat("\0",$chunk); $idle=0.0; $failed=false;
 $store->query("UPDATE radio_stations SET now='',command=CASE command WHEN 'skip' THEN '' ELSE command END WHERE chat_id=?",[$chat]);
 /** The raw-audio decoder of one queued song; started ahead of time so the next song follows the last without a gap. */
 $decode=function(array $item): ?array {
-    $process=proc_open(['ffmpeg','-v','error','-i',(string)$item['file'],'-vn','-f','s16le','-ar','44100','-ac','2','pipe:1'],[0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$pipes,null,['PATH'=>getenv('PATH')?:'/usr/bin:/bin']);
+    $process=proc_open(['ffmpeg','-v','error','-threads','1','-i',(string)$item['file'],'-vn','-threads','1','-f','s16le','-ar','44100','-ac','2','pipe:1'],[0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['file','/dev/null','w']],$pipes,null,['PATH'=>getenv('PATH')?:'/usr/bin:/bin']);
     return is_resource($process)?['item'=>$item,'process'=>$process,'pipe'=>$pipes[1]]:null;
 };
 $release=function(?array $decoder,string $status) use ($store): void {
@@ -144,7 +155,7 @@ while(!$stopping) {
         }
         if($current===null) {
             // Nothing ready: silence keeps the stream alive while the next song is prepared, until nothing is waiting any more.
-            if($radio->queued($chat)===0) { if($idle===0.0) $showCover($background); $idle+=$seconds; if($idle>=$idleLimit) break; } else $idle=0.0;
+            if($radio->queued($chat)===0) { if($idle===0.0) $showCover($background,strlen($buffer)); $idle+=$seconds; if($idle>=$idleLimit) break; } else $idle=0.0;
             if(!$write($buffer!==''?str_pad($buffer,$chunk,"\0"):$silence)) { $failed=true; break; }
             $buffer='';
             continue;
@@ -153,11 +164,11 @@ while(!$stopping) {
         $store->query("UPDATE radio_queue SET status='playing' WHERE id=?",[$current['item']['id']]);
         $label=trim(($current['item']['artists']!==''?$current['item']['artists'].' – ':'').$current['item']['title']);
         $store->query('UPDATE radio_stations SET now=? WHERE chat_id=?',[$label,$chat]);
-        $showCover($current['frame']??($frameFor((string)($current['item']['cover']??''))?:$background));
+        $showCover($current['frame']??($frameFor((string)($current['item']['cover']??''),(string)$current['item']['file'])?:$background),strlen($buffer));
     }
     if($upcoming===null) {
         $item=$store->query("SELECT * FROM radio_queue WHERE chat_id=? AND status='ready' ORDER BY id LIMIT 1",[$chat])->fetch();
-        if($item&&is_file((string)$item['file'])) { $upcoming=$decode($item); if($upcoming!==null) $upcoming['frame']=$frameFor((string)($item['cover']??''))?:$background; }
+        if($item&&is_file((string)$item['file'])) { $upcoming=$decode($item); if($upcoming!==null) $upcoming['frame']=$frameFor((string)($item['cover']??''),(string)$item['file'])?:$background; }
     }
     $data=(string)fread($current['pipe'],$chunk-strlen($buffer));
     if($data===''&&feof($current['pipe'])) { $release($current,'done'); $current=null; continue; }   // the leftover joins the next song

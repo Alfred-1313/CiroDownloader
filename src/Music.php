@@ -10,6 +10,19 @@ final class Music
 {
     public const MAX_PAGE=2097152, MAX_COVER=3145728;
 
+    /** Artwork hosts shared by catalogue menus, prepared tracks and radio playback. */
+    public static function imageUrl(string $url): string
+    {
+        $parts=parse_url($url);
+        if(!$parts||($parts['scheme']??'')!=='https'||strlen($url)>500||preg_match('/[\s\x00-\x1F]/u',$url)
+            ||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])) return '';
+        $host=strtolower($parts['host']??'');
+        foreach(['scdn.co','spotifycdn.com','dzcdn.net','deezer.com','mzstatic.com','sndcdn.com'] as $suffix) {
+            if($host===$suffix||str_ends_with($host,'.'.$suffix)) return $url;
+        }
+        return '';
+    }
+
     /** One GET without redirects, never larger than $limit bytes. Cover and page hosts are checked by the caller. $agent names the program to a service that wants that (MusicBrainz). */
     public static function get(Config $config,string $url,int $limit,string $label,?string $agent=null): string
     {
@@ -33,9 +46,12 @@ final class Music
         try {
             $raw=$folder.'/cover-source'; $jpg=$folder.'/cover.jpg';
             file_put_contents($raw,self::get($config,$url,self::MAX_COVER,'Cover'));
-            (new Download($config))->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$raw,'-vf',"scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease",'-frames:v','1','-q:v','5',$jpg],$folder,60);
+            (new Download($config))->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-filter_threads','1','-threads','1','-i',$raw,'-vf',"scale='min(320,iw)':'min(320,ih)':force_original_aspect_ratio=decrease",'-frames:v','1','-threads','1','-q:v','5',$jpg],$folder,60);
             return is_file($jpg)&&filesize($jpg)>0&&filesize($jpg)<=204800?$jpg:null;
-        } catch(\Throwable) { return null; }
+        } catch(\Throwable $e) {
+            if($e instanceof WorkerStopped) throw $e;
+            return null;
+        }
     }
 
     /**

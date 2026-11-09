@@ -36,8 +36,12 @@ final class Spotify
         $duration=(int)round(((int)($entity['duration']??0))/1000);
         if($title===''||!$artists||$duration<1||$duration>14400) throw new MediaFailure('format','Spotify track data is incomplete');
         $cover=''; $best=0;
-        foreach(is_array($entity['visualIdentity']['image']??null)?$entity['visualIdentity']['image']:[] as $image) {
-            $url=(string)($image['url']??''); $size=(int)($image['maxHeight']??0);
+        // Track embeds use coverArt.sources; older/artist-style payloads use visualIdentity.image.
+        $images=array_merge(is_array($entity['coverArt']['sources']??null)?$entity['coverArt']['sources']:[],
+            is_array($entity['visualIdentity']['image']??null)?$entity['visualIdentity']['image']:[]);
+        foreach($images as $image) {
+            if(!is_array($image)) continue;
+            $url=(string)($image['url']??''); $size=(int)($image['height']??$image['maxHeight']??0);
             $host=strtolower((string)parse_url($url,PHP_URL_HOST));
             $trusted=str_starts_with($url,'https://')&&($host==='scdn.co'||str_ends_with($host,'.scdn.co')||str_ends_with($host,'.spotifycdn.com'));
             if(($trusted||($this->base!==self::DEFAULT_BASE&&str_starts_with($url,rtrim($this->base,'/').'/')))&&$size>=$best) { $cover=$url; $best=$size; }
@@ -187,8 +191,7 @@ final class Spotify
         $duration=(int)($meta['duration']??0);
         if($title===''||!$artists||$duration<1||$duration>14400) throw new MediaFailure('format','Track details are incomplete');
         $cover=(string)($meta['cover']??'');
-        $host=strtolower((string)parse_url($cover,PHP_URL_HOST));
-        $trusted=str_starts_with($cover,'https://')&&($host==='scdn.co'||str_ends_with($host,'.scdn.co')||str_ends_with($host,'.spotifycdn.com')||$host==='dzcdn.net'||str_ends_with($host,'.dzcdn.net')||str_ends_with($host,'.deezer.com'));
+        $trusted=Music::imageUrl($cover)!=='';
         $meta=['title'=>mb_substr($title,0,200),'artists'=>array_slice(array_map(fn($name)=>mb_substr(trim($name),0,100),$artists),0,5),'duration'=>$duration,
             'year'=>preg_match('/^\d{4}$/D',(string)($meta['year']??''))?(string)$meta['year']:'','cover'=>$trusted||($this->base!==self::DEFAULT_BASE&&str_starts_with($cover,rtrim($this->base,'/').'/'))?$cover:''];
         $runner=new Download($this->config);

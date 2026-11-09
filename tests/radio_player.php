@@ -12,6 +12,10 @@ $children=[];
 try {
     $config=new Zero\Config('123:fake',[42],$temp); $store=new Zero\Store($temp); $radio=new Zero\Radio($config,$store);
     $env=['PATH'=>getenv('PATH')?:'/usr/bin:/bin','HOME'=>$temp,'BOT_TOKEN'=>'123:fake','ADMIN_IDS'=>'42','STORAGE_DIR'=>$temp,'RADIO_TEST_OUTPUT'=>$temp.'/out.flv','RADIO_IDLE_SECONDS'=>'2'];
+    // Recovery must exercise a running download without contacting YouTube or any external service.
+    $downloader=$temp.'/yt-dlp-fixture';
+    file_put_contents($downloader,"#!/usr/bin/env php\n<?php file_put_contents(".var_export($temp.'/preparing.pid',true).",(string)getmypid()); sleep(60); exit(1);\n");
+    chmod($downloader,0700); $env['YT_DLP_BIN']=$downloader;
     $spawn=function(string $script,array $args=[],array $extra=[]) use($env,$temp,&$children) {
         $log=$temp.'/'.basename($script,'.php').'-'.count($children).'.log';
         $process=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/'.$script,...$args],[0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file',$log,'w']],$pipes,dirname(__DIR__),array_replace($env,$extra));
@@ -44,7 +48,16 @@ try {
     $first=$ready(-1001,'One',$tone('a.m4a',3,440)); $second=$ready(-1001,'Two',$tone('b.mp3',3,880));
     // Each song brings its cover: red for the first, a tall blue one for the second.
     foreach([[$first,'red','300x300'],[$second,'blue','200x400']] as [$id,$colour,$size]) { $cover=$temp.'/radio/files/'.$id.'.jpg'; exec('ffmpeg -loglevel error -y -f lavfi -i color=c='.$colour.':s='.$size.' -frames:v 1 '.escapeshellarg($cover)); $store->query('UPDATE radio_queue SET cover=? WHERE id=?',[$cover,$id]); }
-    [$player]=$spawn('radio-player.php',['-1001']); $code=$finish($player);
+    $stream=[]; $receiver=null;
+    if(in_array('--rtmp',$argv,true)) {
+        $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
+        $rtmp='rtmp://'.$address.'/live/fixture';
+        $receiver=proc_open(['timeout','30','ffmpeg','-nostdin','-v','error','-y','-listen','1','-i',$rtmp,'-map','0','-c','copy',$temp.'/out.flv'],
+            [0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file',$temp.'/receiver.log','w']],$pipes);
+        $children[]=$receiver; usleep(400000); $stream=['RADIO_TEST_OUTPUT'=>$rtmp];
+    }
+    [$player]=$spawn('radio-player.php',['-1001'],$stream); $code=$finish($player);
+    if($receiver!==null) plCheck($finish($receiver,5)!==-1,'the local RTMP receiver finishes after the publisher closes');
     $info=$probe($temp.'/out.flv');
     plCheck($code===0&&$info['duration']>7.0&&$info['duration']<9.6&&in_array('video',$info['streams'],true)&&in_array('audio',$info['streams'],true),'two songs and the idle wait make one stream of the sum of their lengths, with picture and sound');
     plCheck(count($info['silences'])===1&&$info['silences'][0]>5.5,'there is no gap between the songs: silence starts only after the last one');
@@ -54,6 +67,29 @@ try {
     plCheck(abs($r3-32)<20&&abs($g3-32)<20&&abs($b3-32)<20,'a cover that does not fill the picture sits on the dark background');
     $states=array_column($store->query('SELECT id,status,file FROM radio_queue WHERE id IN ('.$first.','.$second.') ORDER BY id')->fetchAll(),'status');
     plCheck($states===['done','done']&&!is_file($temp.'/radio/files/a.m4a')&&!is_file($temp.'/radio/files/b.mp3')&&$store->query('SELECT now FROM radio_stations WHERE chat_id=-1001')->fetchColumn()==='','played songs are marked done, their files removed and the title cleared');
+
+    // Covers embedded in old prepared audio remain usable when the separate JPEG is missing or damaged.
+    $runner=new Zero\Download($config);
+    foreach(['red','blue'] as $colour) {
+        $picture=$temp.'/'.$colour.'.jpg';
+        $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-filter_threads','1','-f','lavfi','-i','color=c='.$colour.':s=300x300','-frames:v','1','-threads','1',$picture],$temp,30);
+        $extension=$colour==='red'?'m4a':'mp3';
+        $audio=$tone('embedded-'.$colour.'-source.'.$extension,2,$colour==='red'?440:880);
+        $tagged=$temp.'/radio/files/embedded-'.$colour.'.'.$extension;
+        $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$audio,'-i',$picture,'-map','0:a','-map','1:v','-c','copy','-disposition:v:0','attached_pic',$tagged],$temp,30);
+        $id=$ready(-1001,'Embedded '.$colour,$tagged);
+        if($colour==='blue') {
+            $broken=$temp.'/broken.jpg'; file_put_contents($broken,'not an image');
+            $store->query('UPDATE radio_queue SET cover=? WHERE id=?',[$broken,$id]);
+        }
+    }
+    $ready(-1001,'No artwork',$tone('no-artwork.m4a',2,660));
+    [$player]=$spawn('radio-player.php',['-1001']); $code=$finish($player);
+    [$r,,$b]=$pixel(1.0,320,180); [$r2,,$b2]=$pixel(3.0,320,180); [$r3,$g3,$b3]=$pixel(5.0,320,180);
+    plCheck($code===0&&$r>180&&$b<80&&$b2>180&&$r2<80,'missing and invalid sidecar images fall back to each song\'s actual embedded cover');
+    plCheck(abs($r3-32)<20&&abs($g3-32)<20&&abs($b3-32)<20,'a song with no artwork clears the previous cover to the neutral background');
+    $info=$probe($temp.'/out.flv');
+    plCheck(count($info['silences'])===1&&$info['silences'][0]>5.5,'reading embedded covers does not introduce an audio gap between tracks');
 
     // 2. Skip: the song playing stops and the next one starts at once.
     @unlink($temp.'/out.flv');
@@ -96,15 +132,19 @@ try {
     plCheck($store->query('SELECT status FROM radio_queue WHERE id=?',[$song])->fetchColumn()==='done'&&is_file($temp.'/out.flv'),'the service starts a player for a live station and the song is played');
     plCheck($store->query('SELECT status FROM radio_queue WHERE id=?',[$old])->fetchColumn()==='done'&&in_array($store->query('SELECT status FROM radio_queue WHERE id=?',[$crashed])->fetchColumn(),['pending','preparing','failed'],true),'after a crash a song that was playing is closed and one that was being prepared is taken again');
     plCheck((int)$store->get('radio_heartbeat','0')>time()-30,'the service reports that it is alive');
+    for($i=0;$i<30&&!is_file($temp.'/preparing.pid');$i++) usleep(100000);
+    plCheck(is_file($temp.'/preparing.pid'),'a local download fixture is running before the supervisor is stopped');
+    $downloadPid=(int)file_get_contents($temp.'/preparing.pid');
     proc_terminate($service); $stopped=$finish($service,10); plCheck($stopped!==-1,'the service stops when asked');
+    plCheck(!@posix_kill($downloadPid,0),'stopping the radio reaps the downloader group before releasing the supervisor lock');
 
     // 6b. Several groups at once: up to RADIO_STATIONS players; switching the radio off stops them all.
     $store->query('DELETE FROM radio_queue'); foreach([-1001,-1002,-1003] as $chat) { $radio->save($chat,'Radio '.abs($chat),'channel',42,$KEY); $radio->setLive($chat,true); }
     $playing=fn()=>(int)$store->query("SELECT COUNT(*) FROM radio_queue WHERE status='playing'")->fetchColumn();
     foreach([-1001=>'p',-1002=>'q',-1003=>'r'] as $chat=>$letter) $ready($chat,'Song '.$letter,$tone($letter.'.m4a',8,300+abs($chat)));
-    [$service]=$spawn('radio.php',[],['RADIO_STATIONS'=>'2','RADIO_TEST_OUTPUT'=>$temp.'/out-{chat}.flv']);
+    [$service,$multiLog]=$spawn('radio.php',[],['RADIO_STATIONS'=>'2','RADIO_TEST_OUTPUT'=>$temp.'/out-{chat}.flv']);
     for($i=0;$i<120&&$playing()<2;$i++) usleep(100000); usleep(1500000);
-    plCheck($playing()===2&&count(glob($temp.'/out-100?.flv'))===2,'two groups play at the same time and a third waits because the limit is two');
+    plCheck($playing()===2&&count(glob($temp.'/out-100?.flv'))===2,'two groups play at the same time and a third waits because the limit is two; '.json_encode(['playing'=>$playing(),'files'=>array_map('basename',glob($temp.'/out-100?.flv')),'log'=>substr((string)file_get_contents($multiLog),-2000)]));
     $store->set('radio.enabled','0');
     for($i=0;$i<100&&$playing()>0;$i++) usleep(100000);
     plCheck($playing()===0,'switching the radio off stops every player');

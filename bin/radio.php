@@ -64,5 +64,14 @@ while(!$stopping) {
     } catch(Throwable $e) { error_log('Radio supervisor: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage())); sleep(2); }
     usleep(500000);
 }
-foreach($players as $player) { proc_terminate($player); }
-foreach($preparing as $job) proc_terminate($job['process']);
+// Keep the supervisor lock until helpers have closed their decoders and download groups.
+// Otherwise a restart races the old children still holding the inherited lock.
+$closing=array_merge(array_values($players),array_column($preparing,'process'));
+foreach($closing as $process) if(is_resource($process)) proc_terminate($process);
+$deadline=microtime(true)+8;
+while($closing&&microtime(true)<$deadline) {
+    foreach($closing as $i=>$process) if(!(proc_get_status($process)['running']??false)) { proc_close($process); unset($closing[$i]); }
+    if($closing) usleep(50000);
+}
+foreach($closing as $process) { proc_terminate($process,9); proc_close($process); }
+$store->set('radio_heartbeat','0');

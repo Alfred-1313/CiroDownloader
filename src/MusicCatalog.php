@@ -20,7 +20,6 @@ require_once __DIR__.'/Music.php';
 final class MusicCatalog
 {
     public const PAGE_LIMIT=300, MAX_ARTISTS=20;
-    private const IMAGE_HOSTS=['scdn.co','spotifycdn.com','dzcdn.net','deezer.com','mzstatic.com','sndcdn.com'];
     public function __construct(private Config $config,private string $spotifyBase='https://open.spotify.com',private string $deezerBase='https://api.deezer.com',
         private string $itunesBase='https://itunes.apple.com',private string $soundcloudBase='https://soundcloud.com',private string $musicbrainzBase='https://musicbrainz.org') {}
     /** Microseconds between two MusicBrainz requests (its rule is one a second); tests set 0. */
@@ -39,10 +38,7 @@ final class MusicCatalog
     /** A picture Telegram may fetch itself: HTTPS on the music services' own image hosts only. */
     public static function image(string $url): string
     {
-        $host=strtolower((string)parse_url($url,PHP_URL_HOST));
-        if(!str_starts_with($url,'https://')||strlen($url)>500) return '';
-        foreach(self::IMAGE_HOSTS as $suffix) if($host===$suffix||str_ends_with($host,'.'.$suffix)) return $url;
-        return '';
+        return Music::imageUrl($url);
     }
     private static function firstArtist(string $artists): string { return trim(explode(',',$artists)[0]); }
 

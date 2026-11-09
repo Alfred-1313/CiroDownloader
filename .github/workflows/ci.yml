@@ -122,6 +122,12 @@ jobs:
           chmod -R go-rwx src bin resources
           docker build --tag ciro-downloader:ci .
 
+      - name: Verify radio covers and restart under production limits
+        run: |
+          docker run --rm --cpus=0.75 --memory=512m --pids-limit=128 \
+            --user "$(id -u):$(id -g)" --mount "type=bind,src=$PWD,dst=/app,readonly" \
+            -w /app ciro-downloader:ci php tests/radio_player.php --rtmp
+
       - name: Verify runtime can read code from a restrictive checkout
         run: |
           test "$(docker run --rm --entrypoint id ciro-downloader:ci -u)" = 10001

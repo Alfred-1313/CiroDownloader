@@ -15,6 +15,12 @@ $item=$store->query("SELECT * FROM radio_queue WHERE id=? AND status='preparing'
 if(!$item) exit(0);
 $downloads=$config->storage.'/downloads'; if(!is_dir($downloads)) mkdir($downloads,0700,true);
 $folder=$downloads.'/radio-'.$id.'-'.bin2hex(random_bytes(3)); mkdir($folder,0700);
+pcntl_async_signals(true);
+foreach([SIGTERM,SIGINT] as $signal) pcntl_signal($signal,static function(): void {
+    pcntl_signal(SIGTERM,SIG_IGN); pcntl_signal(SIGINT,SIG_IGN);
+    // Unwind Download::run so its timeout process terminates the whole downloader group.
+    throw new Zero\WorkerStopped('Radio preparation stopping');
+});
 try {
     $source=json_decode((string)$item['source'],true);
     if(!is_array($source)) throw new RuntimeException('Invalid song source');
@@ -30,6 +36,9 @@ try {
     $store->query("UPDATE radio_queue SET cover=? WHERE id=?",[$cover,$id]);
     $store->query("UPDATE radio_queue SET status='ready',file=?,duration=?,title=?,artists=? WHERE id=?",[$destination,$length,mb_substr((string)($media['title']??$item['title']),0,150),
         mb_substr((string)($media['performer']??$item['artists']),0,150),$id]);
+} catch(Zero\WorkerStopped) {
+    $changed=$store->query("UPDATE radio_queue SET status='pending' WHERE id=? AND status='preparing'",[$id])->rowCount();
+    if($changed&&isset($destination)) { @unlink($destination); @unlink($radio->root().'/files/'.$id.'.jpg'); }
 } catch(Throwable $e) {
     // A passing failure (network, a busy source) gets one more try; then the song is skipped.
     error_log('Radio song '.$id.' not prepared: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage()));

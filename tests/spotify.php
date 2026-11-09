@@ -46,6 +46,7 @@ try {
     $log=$temp.'/http.jsonl'; $ytLog=$temp.'/yt.jsonl'; $mode=$temp.'/mode.json'; file_put_contents($log,''); file_put_contents($ytLog,''); file_put_contents($mode,'{}');
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php $root='.var_export($temp,true).';$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH);$mode=json_decode((string)file_get_contents('.var_export($mode,true).'),true)?:[];'.
+        'if($_SERVER["REQUEST_METHOD"]==="CONNECT") { file_put_contents('.var_export($log,true).',json_encode(["method"=>"cover_connect","params"=>["host"=>$_SERVER["REQUEST_URI"]]]).PHP_EOL,FILE_APPEND);http_response_code(502);echo "Fixture cover unavailable";return; }'.
         'if(str_starts_with($path,"/image/")) { header("Content-Type: image/jpeg");readfile($root."/cover.jpg");return; }'.
         'if(str_starts_with($path,"/embed/track/")) { file_put_contents('.var_export($log,true).',json_encode(["method"=>"page","params"=>["id"=>basename($path)]]).PHP_EOL,FILE_APPEND);'.
         'if(($mode["page"]??"ok")==="missing") { http_response_code(404);echo "not found";return; }'.
@@ -53,6 +54,7 @@ try {
         '$base="http://".$_SERVER["HTTP_HOST"];$entity=["type"=>"track","id"=>(($mode["page"]??"ok")==="wrong"?"0000000000000000000000":basename($path)),"name"=>"Fixture Song","title"=>"Fixture Song",'.
         '"artists"=>[["name"=>"Fixture Artist"],["name"=>"Guest Singer"]],"duration"=>12000,"releaseDate"=>["isoString"=>"2019-05-03T00:00:00Z"],'.
         '"visualIdentity"=>["image"=>[["url"=>$base."/image/small.jpg","maxHeight"=>64],["url"=>$base."/image/cover.jpg","maxHeight"=>640],["url"=>"https://evil.example/image/huge.jpg","maxHeight"=>2000]]]];'.
+        'if(($mode["page"]??"")==="cover-art") { unset($entity["visualIdentity"]);$entity["coverArt"]=["sources"=>[["url"=>$base."/image/small.jpg","height"=>64],["url"=>$base."/image/cover.jpg","height"=>640],["url"=>"https://evil.example/cover.jpg","height"=>2000]]]; }'.
         'echo "<html><script id=\"__NEXT_DATA__\" type=\"application/json\">".json_encode(["props"=>["pageProps"=>["state"=>["data"=>["entity"=>$entity]]]]])."</script></html>";return; }'.
         '$method=basename($path);$uploads=[];foreach($_FILES as $key=>$file) { $uploads[$key]=["hash"=>hash_file("sha256",$file["tmp_name"]),"mime"=>$file["type"],"name"=>$file["name"],"size"=>filesize($file["tmp_name"])];'.
         'if($method==="sendAudio") copy($file["tmp_name"],$root."/delivered-".$key); }'.
@@ -218,6 +220,26 @@ try {
     $report=(string)end($health->calls)[1]['text'];
     spotifyCheck(str_contains($report,'youtube=blocked, soundcloud=format')&&str_contains($report,'ساوندکلاود هم نسخهٔ مطمئنی'),'the administrator\'s health report shows the reason and what the user was told');
     file_put_contents($mode,'{}');
+    // The radio prepares regular track links from Spotify's current coverArt.sources payload too.
+    file_put_contents($mode,json_encode(['page'=>'cover-art']));
+    $work=$temp.'/radio-artwork'; mkdir($work,0700);
+    $media=$worker->radioAudio(['service'=>'spotify','u'=>$canonical],$work);
+    spotifyCheck(is_string($media['thumbnail'])&&is_file($media['thumbnail'])&&getimagesize($media['thumbnail'])[2]===IMAGETYPE_JPEG,'radio audio retains a real JPEG cover from the Spotify track embed coverArt.sources field');
+    $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$media['path']],$work,30),true);
+    spotifyCheck(in_array('mjpeg',array_column($probe['streams'],'codec_name'),true),'the prepared radio audio also contains the embedded artwork for sidecar recovery');
+    file_put_contents($mode,'{}');
+
+    // An iTunes catalogue cover must survive the same preparation path that the radio uses.
+    $work=$temp.'/apple-cover'; mkdir($work,0700); $config->galleryProxy=$base;
+    $apple=['title'=>'Fixture Song','artists'=>['Fixture Artist'],'duration'=>12,'year'=>'2020','cover'=>'https://is1-ssl.mzstatic.com/image/thumb/fixture/600x600bb.jpg'];
+    $result=(new Zero\Spotify($config))->fromDetails($apple,$work,['youtube']);
+    $attempts=array_values(array_filter($calls(),fn($call)=>$call['method']==='cover_connect'));
+    spotifyCheck(count($attempts)===1&&$attempts[0]['params']['host']==='is1-ssl.mzstatic.com:443'&&is_file($result['path']),'an Apple catalogue cover reaches the downloader instead of being silently discarded; an unavailable cover keeps the audio usable');
+    $before=count($attempts); $apple['cover']='https://is1-ssl.mzstatic.com.evil.example/cover.jpg';
+    $work=$temp.'/foreign-cover'; mkdir($work,0700); (new Zero\Spotify($config))->fromDetails($apple,$work,['youtube']);
+    spotifyCheck(count(array_filter($calls(),fn($call)=>$call['method']==='cover_connect'))===$before,'foreign lookalike cover hosts are never requested');
+    $config->galleryProxy='';
+
     // Strict matching and the social-media proxy.
     // Persian names are written in many ways: the same consonants match across spellings and scripts.
     $persian=['title'=>'Ahle Naa Ahli','artists'=>['Shayea'],'duration'=>200,'year'=>'','cover'=>''];
