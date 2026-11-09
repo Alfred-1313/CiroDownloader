@@ -55,6 +55,9 @@ final class Radio
         @chmod($file,0600);
         $this->store->query('INSERT INTO radio_stations(chat_id,title,type,owner,created) VALUES(?,?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title,type=excluded.type,owner=excluded.owner',
             [$chat,mb_substr($title,0,100),$type==='channel'?'channel':'group',$owner,time()]);
+        // The stream may have started before the address was given: then the radio is live at once (a start within the last 12 hours, no end since).
+        $since=(int)$this->store->get('radio.live.'.$chat,'0');
+        if($since>time()-43200) $this->store->query('UPDATE radio_stations SET live=1,live_since=? WHERE chat_id=? AND live=0',[$since,$chat]);
     }
     /** Forget a station: its address, its queue and its prepared audio. */
     public function remove(int $chat): void
@@ -91,6 +94,8 @@ final class Radio
     public function setLive(int $chat,bool $live): void
     {
         $this->store->query('UPDATE radio_stations SET live=?,live_since=?,command=\'\',now=\'\' WHERE chat_id=?',[$live?1:0,$live?time():0,$chat]);
+        // Remembered for chats that are not a radio yet: a radio set up while its stream is already running starts live.
+        $this->store->set('radio.live.'.$chat,$live?(string)time():'0');
     }
 
     // ---- Who may use it: the administrators of the chat (and of the bot) -----------------------------------------------

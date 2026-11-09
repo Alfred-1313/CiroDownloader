@@ -70,6 +70,11 @@ try {
     $bot->handle(['update_id'=>4,'message'=>['message_id'=>8,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1007,'type'=>'supergroup','title'=>'Admins Group'],'date'=>time(),'video_chat_started'=>[]]]);
     rdCheck(array_column($radio->candidates(),'title')===['Admins Group','New Channel'],'in a group only a chat administrator starting a stream makes it a candidate');
 
+    // 4b. A stream that started before the address was given: the new radio is live at once; after an end it is not.
+    $radio->setLive(-1301,true); $radio->save(-1301,'Early','group',55,$KEY); rdCheck((int)$radio->station(-1301)['live']===1,'a radio set up while its stream is running starts live');
+    $radio->setLive(-1302,true); $radio->setLive(-1302,false); $radio->save(-1302,'Ended','group',55,$KEY); rdCheck((int)$radio->station(-1302)['live']===0,'a radio whose stream already ended starts idle');
+    $radio->remove(-1301); $radio->remove(-1302);
+
     // 5. Setting a radio up in the private chat: pick the chat, send the address, it is deleted and kept privately.
     $api->calls=[]; $bot->handle(rdText('/radio',55)); $panel=$api->last('sendMessage');
     rdCheck(str_contains($panel['text'],'📻 رادیو')&&in_array('rd:u:-1005',rdActions($panel),true)&&in_array('rd:u:-1007',rdActions($panel),true)&&in_array('rd:v:-1001',rdActions($panel),true),'/radio lists the radios a person runs and the chats they could set up');
