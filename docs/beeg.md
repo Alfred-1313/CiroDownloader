@@ -2,6 +2,8 @@
 
 Beeg uses the existing Pornhub/YouTube quality-selection flow through the installed `yt-dlp`. This addition stays on `main` without changing the version or creating a release.
 
+The pinned upstream Beeg extractor still sends leading-zero IDs to the facts API and expects formats in `hls_resources`. The bundled Beeg-only compatibility plugin sends a numeric API ID with the site's Origin/Referer headers, reads `/video/play_url/ID`, and parses the returned master playlist. Headers also accompany playlist and segment requests. The public link and saved job URL retain their original ID. This addresses the HTTP 400 reported in [yt-dlp #14037](https://github.com/yt-dlp/yt-dlp/issues/14037) and [#17680](https://github.com/yt-dlp/yt-dlp/issues/17680); YouTube and Pornhub use their existing extractors.
+
 ## Enable and test
 
 1. Open **🎨 شخصی‌سازی ← ⚙️ قابلیت‌ها و محدودیت‌ها ← 🔞 تنظیمات سایت بزرگسال**.
@@ -28,4 +30,4 @@ Reports count Beeg separately, including download/upload speed when a sample mee
 
 ## Verification
 
-`tests/beeg.php` runs the actual pinned Beeg extractor, HLS parser/downloader and FFmpeg against neutral local fixtures, with real multipart uploads to a local Telegram endpoint. It covers URL rules, independent switches, access restrictions, quality ownership, MP4/MP3 delivery, captions, deletion and reports. This validates the integration without contacting Beeg or Telegram; real access from a deployment's IP is tested by sending a video link after updating.
+`tests/beeg.php` runs the pinned yt-dlp with the bundled Beeg plugin, real HTTP metadata/playback requests, HLS parser/downloader and FFmpeg against neutral local fixtures, with real multipart uploads to a local Telegram endpoint. The API fixture returns HTTP 400 for a leading-zero ID or missing site headers and supplies formats only through the new playback endpoint. It covers URL rules, independent switches, access restrictions, quality ownership, MP4/MP3 delivery, captions, deletion and reports. This validates the integration without contacting Beeg or Telegram; real access from a deployment's IP is tested by sending a video link after updating.

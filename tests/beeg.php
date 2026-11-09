@@ -17,10 +17,29 @@ try {
         mkdir($temp.'/'.$height,0700);
         $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.$width.'x'.$pixels.':r=5:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest','-hls_time','2','-hls_list_size','0',$temp.'/'.$height.'/stream.m3u8'],$temp,60);
     }
+    file_put_contents($temp.'/master.m3u8',"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=150000,RESOLUTION=426x240,CODECS=\"avc1.640015,mp4a.40.2\"\n/240/stream.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=854x480,CODECS=\"avc1.64001f,mp4a.40.2\"\n/480/stream.m3u8\n");
     $log=$temp.'/http.jsonl'; $trace=$temp.'/backend.jsonl'; $mode=$temp.'/mode.json'; file_put_contents($log,''); file_put_contents($trace,''); file_put_contents($mode,'{}');
     $router=$temp.'/router.php';
-    file_put_contents($router,'<?php $root='.var_export($temp,true).';$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH);'.
-        'if(preg_match("~^/(240|480)/stream[0-9]*\\.(m3u8|ts)$~D",$path)) {header("Content-Type: ".(str_ends_with($path,".m3u8")?"application/vnd.apple.mpegurl":"video/mp2t"));readfile($root.$path);return;}'.
+    file_put_contents($router,'<?php $root='.var_export($temp,true).';$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH);'. <<<'PHP'
+        if(str_starts_with($path,'/facts/file/')||str_starts_with($path,'/video/play_url/')) {
+            $id=basename($path);
+            if($id!=='123456789012345'||($_SERVER['HTTP_ORIGIN']??'')!=='https://beeg.com'||($_SERVER['HTTP_REFERER']??'')!=='https://beeg.com/') {
+                http_response_code(400);header('Content-Type: application/json');echo '{"error":"Bad Request"}';return;
+            }
+            $mode=json_decode(file_get_contents($root.'/mode.json'),true);
+            if(str_starts_with($path,'/video/play_url/')) { header('Content-Type: text/plain');echo $mode['playback']??'master.m3u8';return; }
+            header('Content-Type: application/json');
+            $data=['file'=>['fl_duration'=>2,'stuff'=>['sf_name'=>'Neutral Fixture Video','sf_story'=>'Local test']],
+                'fc_facts'=>[['id'=>1,'fc_created'=>'2026-11-09T00:00:00Z']], 'tags'=>[['tg_name'=>'Topic One'],['tg_name'=>'Tag Two']]];
+            if(!empty($mode['sparse'])) {unset($data['file']['stuff']);$data['fc_facts']=null;if(($_GET['tag']??'')==='27173') $data['file']['data']=[['cd_column'=>'sf_name','cd_value'=>'Neutral detail title']];}
+            echo json_encode($data);return;
+        }
+        if($path==='/master.m3u8'||preg_match('~^/(240|480)/stream[0-9]*\.(m3u8|ts)$~D',$path)) {
+            if(($_SERVER['HTTP_ORIGIN']??'')!=='https://beeg.com'||($_SERVER['HTTP_REFERER']??'')!=='https://beeg.com/') {http_response_code(403);return;}
+            header('Content-Type: '.(str_ends_with($path,'.m3u8')?'application/vnd.apple.mpegurl':'video/mp2t'));readfile($root.$path);return;
+        }
+PHP
+        .
         '$method=basename($path);$uploads=[];foreach($_FILES as $key=>$file) $uploads[$key]=["bytes"=>filesize($file["tmp_name"]),"mime"=>$file["type"]];'.
         '$counter=$root."/counter";$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
@@ -52,7 +71,7 @@ try {
     Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_SESSION\n");
     $send(42,-100123,'/download@FixtureBot '.$link); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     if($saved['status']!=='waiting_quality') throw new RuntimeException($store->get('last_job_error'));
-    $options=json_decode($saved['options'],true); beegCheck(isset($options[240],$options[480],$options['audio'],$options['meta'])&&$options['meta']['tags']===['Topic One','Tag Two'],'the actual Beeg extractor and HLS parser offer saved qualities and audio');
+    $options=json_decode($saved['options'],true); beegCheck(isset($options[240],$options[480],$options['audio'],$options['meta'])&&$options['meta']['tags']===['Topic One','Tag Two'],'the Beeg API accepts the numeric ID and site headers; the new playback endpoint supplies real HLS qualities and audio');
     $args=json_decode(file($trace)[0],true); beegCheck(!in_array('--cookies',$args,true)&&$store->get('youtube_probe_url')==='','Beeg receives no YouTube cookies and never replaces its probe address');
     $click('quality:'.$job['id'].':480',7,-100123,(int)$saved['message_id']); beegCheck($store->claim('media')===null,'another member cannot choose this request quality');
     $click('quality:'.$job['id'].':480',42,-100123,(int)$saved['message_id']); $work=$store->claim('media'); $worker->process($work); $videos=$calls('sendVideo');
@@ -63,6 +82,12 @@ try {
     beegCheck((int)$store->query("SELECT ok FROM stats WHERE service='beeg'")->fetchColumn()===1,'successful Beeg delivery is counted as its own service');
     $scheduled=(int)$deletion['message_id']; Zero\TimedDeletes::run($store,$api,time()+20); $removed=$calls('deleteMessage'); beegCheck((bool)array_filter($removed,fn($call)=>(int)$call['params']['message_id']===$scheduled&&(int)$call['params']['chat_id']===-100123),'scheduled deletion targets the delivered message in its original chat');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); beegCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','the audio choice produces an actual MP3 through the same Beeg path');
+    file_put_contents($mode,json_encode(['sparse'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    beegCheck($saved['status']==='waiting_quality'&&$saved['title']==='Neutral detail title','missing legacy facts and HLS resources do not crash; the optional detail response supplies the title');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
+    file_put_contents($mode,json_encode(['playback'=>'https://foreign.example/private-value'])); $send(); $worker->process($store->claim('inspect'));
+    beegCheck(str_contains($store->get('last_job_error'),'unsupported playback address')&&!str_contains($store->get('last_job_error'),'foreign.example'),'a foreign playback destination is rejected without exposing its address');
+    file_put_contents($mode,'{}');
     $send(); $store->set('adult.beeg','0'); $before=count(file($trace)); $worker->process($store->claim('inspect')); beegCheck(count(file($trace))===$before,'disabling Beeg stops queued work before any downloader request'); $store->set('adult.beeg','1');
     file_put_contents($mode,json_encode(['disable'=>'inspect'])); $send(); $job=$store->claim('inspect'); $worker->process($job);
     beegCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed','turning Beeg off during inspection prevents offering a new quality menu'); $store->set('adult.beeg','1');
