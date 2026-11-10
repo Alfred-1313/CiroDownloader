@@ -607,7 +607,7 @@ final class Download
         foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
         if(!$video||min((int)$video['width'],(int)$video['height'])>$target||($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality)) throw new MediaFailure('format','Prepared resolution does not match the selected quality');
         // The selected file, not an estimated playlist label, supplies the final caption's resolution.
-        $thumbnail=$site==='beeg'?$this->videoThumbnail($ready,$folder):null;
+        $thumbnail=in_array($site,['beeg','xvideos'],true)?$this->videoThumbnail($ready,$folder):null;
         @unlink($file); // The validated MP4 is the only full video needed during upload.
         return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube','thumbnail'=>$thumbnail,
             'height'=>(int)$video['height'],'width'=>(int)$video['width'],
