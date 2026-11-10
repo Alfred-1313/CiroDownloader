@@ -34,6 +34,7 @@ PHP
         '$counter=$root."/counter";$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$result=str_starts_with($method,"send")||str_starts_with($method,"edit")?["message_id"=>(int)($_POST["message_id"]??900+$next)]:true;'.
+        'if($method==="sendVideo"&&isset($uploads["cover"])) $result["video"]=["cover"=>[["file_id"=>"FIXTURE_VIDEO_COVER","width"=>$uploads["cover"]["width"],"height"=>$uploads["cover"]["height"]]]];'.
         'header("Content-Type: application/json");echo json_encode(["ok"=>true,"result"=>$result]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
     $server=proc_open([PHP_BINARY,'-S',$address,$router],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-errors.log','w']],$pipes);
@@ -70,8 +71,10 @@ PHP
     $video=end($videos); xvCheck($video['uploads']['video']['bytes']>0&&(int)$video['params']['message_thread_id']===321&&str_contains($video['params']['caption'],'🎞 480p')&&str_starts_with($video['params']['caption'],'<blockquote>🗑')&&!isset($video['params']['reply_markup']),'the chosen video is delivered with quality and automatic deletion notice in the original topic');
     xvCheck(($video['uploads']['thumbnail']['mime']??'')==='image/jpeg'&&($video['uploads']['thumbnail']['bytes']??0)>0&&$video['uploads']['thumbnail']['bytes']<200000,'the delivered video has its own Telegram-compatible JPEG cover');
     xvCheck(($video['uploads']['thumbnail']['width']??0)===320&&($video['uploads']['thumbnail']['height']??0)===320,'the delivered video uses the actual square site cover, not a frame from the widescreen video');
+    xvCheck(($video['uploads']['cover']['mime']??'')==='image/jpeg'&&($video['uploads']['cover']['width']??0)===320&&($video['uploads']['cover']['height']??0)===320,'sendVideo includes the explicit Telegram video cover, independently of the thumbnail');
     xvCheck((int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()===1&&(int)$store->query("SELECT ok FROM stats WHERE service='xvideos'")->fetchColumn()===1,'the video is scheduled for deletion and counted for XVideos');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); xvCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','audio is delivered as MP3');
+    xvCheck(!isset(end($audio)['uploads']['cover']),'the video cover parameter is not added to audio deliveries');
     file_put_contents($mode,json_encode(['og_only'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     $posters=$calls('editMessageMedia'); $cover=json_decode(end($posters)['params']['media'],true)['caption'];
     xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo'&&$cover===$bot->ui->coverCaption('Neutral Fixture Video',(string)round($config->maxBytes/1000000,1)),'an OpenGraph-only XVideos cover produces the same photo and caption as Pornhub');
@@ -83,6 +86,7 @@ PHP
     xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','an untrusted OpenGraph image is ignored while quality selection remains available');
     $click('quality:'.$job['id'].':240',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $videos=$calls('sendVideo'); $video=end($videos);
     xvCheck(($video['uploads']['thumbnail']['width']??0)>($video['uploads']['thumbnail']['height']??0),'when the site cover is unavailable the video is still delivered with a frame as fallback');
+    xvCheck(($video['uploads']['cover']['bytes']??0)>0&&($video['uploads']['cover']['width']??0)>($video['uploads']['cover']['height']??0),'the fallback frame is also sent as the explicit video cover');
     file_put_contents($mode,'{}');
     $worker->xvideosSearchFetch=fn(string $url): string=>'<a href="/video.abc123def4/fixture_video" title="Neutral Fixture Video">Video</a>';
     $send(42,42,'https://www.xvideos.com/?k=fixture'); $search=$store->claim('inspect'); $worker->process($search); $menu=$store->query('SELECT * FROM jobs WHERE id=?',[$search['id']])->fetch();
@@ -91,4 +95,5 @@ PHP
     $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$selected['id']]);
     $send(); $job=$store->claim('inspect'); $before=count(file($trace)); $store->set('adult.xvideos','0'); $worker->process($job);
     xvCheck(count(file($trace))===$before&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed','disabling XVideos stops queued work before any downloader request');
+    xvCheck(!glob($config->storage.'/downloads/job-*'),'video covers and all other temporary files are removed after processing');
 } finally { if(is_resource($server)) { proc_terminate($server); proc_close($server); } Zero\Download::clean($temp); }

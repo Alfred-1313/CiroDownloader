@@ -45,8 +45,8 @@ try {
     $config->api='http://ciro-telegram-api:8081'; $config->localApiSharedStorage=false;
     storageCheck($api->localFiles(['video'=>$upload])['video'] instanceof CURLFile,'older local API installations keep multipart until their shared mount is enabled');
     $config->localApiSharedStorage=true;
-    $params=$api->localFiles(['media'=>['type'=>'video','media'=>'attach://slide'],'slide'=>$upload,'thumbnail'=>$upload]);
-    storageCheck($params['media']['media']==='file:///app/storage/ready.mp4'&&!isset($params['slide'])&&$params['thumbnail']==='file:///app/storage/ready.mp4','local uploads and attached media use the shared file with no second upload copy');
+    $params=$api->localFiles(['media'=>['type'=>'video','media'=>'attach://slide'],'slide'=>$upload,'thumbnail'=>$upload,'cover'=>$upload]);
+    storageCheck($params['media']['media']==='file:///app/storage/ready.mp4'&&!isset($params['slide'])&&$params['thumbnail']==='file:///app/storage/ready.mp4'&&$params['cover']==='file:///app/storage/ready.mp4','local uploads, video covers and attached media use the shared file with no second upload copy');
     file_put_contents($temp.'/outside.mp4','outside'); symlink($temp.'/outside.mp4',$config->storage.'/escape.mp4');
     storageCheck($api->localFiles(['video'=>new CURLFile($config->storage.'/escape.mp4')])['video'] instanceof CURLFile,'files outside shared storage, including symlink escapes, never become local API paths');
 } finally { Zero\Download::clean($temp); }
