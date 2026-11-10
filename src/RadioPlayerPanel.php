@@ -73,15 +73,18 @@ final class RadioPlayerPanel
         if(!$preparing&&!$paused&&!empty($data['id'])) $elapsed=min($duration,$elapsed+max(0,min(1.5,microtime(true)-(float)($data['at']??microtime(true)))));
         $track=!empty($data['id'])?$ui->text('radio_player_track',['artist'=>mb_substr((string)$data['artists'],0,80),'title'=>mb_substr((string)$data['title'],0,100)]):$ui->text('radio_player_idle');
         $left=Ui::duration((int)$elapsed); $right=$duration>0?Ui::duration($duration):$ui->plain('radio_player_unknown');
-        $done=$duration>0?max(0,min(20,(int)floor(20*$elapsed/$duration))):0;
-        $bar=str_repeat('━',$done).'●'.str_repeat('─',20-$done);
+        $done=$duration>0?max(0,min(14,(int)floor(14*$elapsed/$duration))):0;
+        $bar=str_repeat('━',$done).'●'.str_repeat('─',14-$done);
         $lines=[]; $queue=array_values(array_filter($queue,fn($entry)=>(int)$entry['id']!==(int)($data['id']??0)));
         foreach(array_slice($queue,0,8) as $entry) $lines[]=$ui->text('radio_player_queue_row',['artist'=>mb_substr($entry['artists'],0,25),'title'=>mb_substr($entry['title'],0,35)]);
         if(count($queue)>8) $lines[]=$ui->text('radio_player_more',['count'=>count($queue)-8]);
         $queueText=$lines?$ui->text(count($queue)>3?'radio_player_queue_collapsed':'radio_player_queue',['tracks'=>implode("\n",$lines)],['tracks']):$ui->text('radio_player_empty');
-        $state=$paused?$ui->text('radio_player_paused'):((int)$station['live']===0?$ui->text('radio_status_off'):($preparing?$ui->text('radio_player_preparing'):''));
+        $state=$paused?$ui->text('radio_player_paused'):((int)$station['live']===0?$ui->text('radio_player_off'):($preparing?$ui->text('radio_player_preparing'):$ui->text(!empty($data['id'])?'radio_player_playing':'radio_player_waiting')));
         $mode=$this->radio->mode($id);
-        $text=Ui::fitCaption($ui->text('radio_player_mode_'.$mode)."\n\n".$ui->text('radio_player_caption',['track'=>$track,'bar'=>$bar,'times'=>$left.str_repeat(' ',max(1,21-strlen($left)-strlen($right))).$right,'queue'=>$queueText,'state'=>$state],['track','queue','state']));
+        // Frame values are plain text inside <pre>; custom track/status HTML must never become nested entities.
+        $plain=fn(string $html): string=>html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        $frame=$ui->text('radio_player_frame',['track'=>$plain($track),'elapsed'=>$left,'bar'=>$bar,'duration'=>$right,'state'=>$plain($state)]);
+        $text=Ui::fitCaption($ui->text('radio_player_mode_'.$mode)."\n\n".$ui->text('radio_player_caption',['frame'=>$frame,'track'=>$track,'bar'=>$bar,'elapsed'=>$left,'duration'=>$right,'times'=>$left.str_repeat(' ',max(1,21-strlen($left)-strlen($right))).$right,'queue'=>$queueText,'state'=>$state],['frame','track','queue','state']));
         $row=[$this->button('radio_repeat_'.$mode,$rd('o')),$this->button('radio_previous',$rd('b')),$this->button($paused?'radio_resume':'radio_pause',$rd('t')),$this->button('radio_next',$rd('k')),$this->button('radio_menu',$rd('m'))];
         $rows=[$row];
         if($view==='menu') {

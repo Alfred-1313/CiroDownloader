@@ -34,7 +34,8 @@ try {
     $photo=$api->last('sendPhoto'); $message=(int)$store->query('SELECT message_id FROM radio_panels')->fetchColumn();
     panelCheck($photo!==null&&$photo['photo'] instanceof CURLFile&&(int)$photo['message_thread_id']===321,'the station opens as a cover photo with its caption in the original forum topic');
     $caption=$photo['caption']; $row=$photo['reply_markup']['inline_keyboard'][0];
-    panelCheck(str_contains($caption,'<blockquote><b>خواننده &amp; نام')&&str_contains($caption,'اثر &lt;جدید&gt;')&&str_contains($caption,'<blockquote expandable>'),'artist/work and a long upcoming queue use safe native blockquotes');
+    panelCheck(str_contains($caption,'<pre>╭── 🎵 اثر &lt;جدید&gt; ── 👤 خواننده &amp; نام ──╮')&&str_contains($caption,'╰──────────────────────────────────╯</pre>')&&str_contains($caption,'<blockquote expandable>'),'the framed title escapes artist/work safely while a long upcoming queue remains collapsible');
+    panelCheck(preg_match('/│ ⏱ 03:10 [━●─]+ 03:14   │/u',$caption)===1&&str_contains($caption,'│ 🎶 در حال پخش آهنگ   │'),'elapsed, progress and duration share one frame row and playback status has its own row');
     panelCheck(str_contains($caption,'03:10')&&str_contains($caption,'03:14')&&str_contains($caption,'●'),'elapsed, total duration and the moving progress bar are present');
     panelCheck(array_column($row,'text')===['🔄','⏮','▶️','⏭','☰']&&!array_filter($row,fn($button)=>isset($button['style'])),'the five transport controls have neutral inline styling and show the playing state');
     $actions=array_column(array_merge(...$photo['reply_markup']['inline_keyboard']),'callback_data');
@@ -93,7 +94,7 @@ try {
     panelCheck($api->last('editMessageCaption')!==null&&$store->query('SELECT view FROM radio_panels WHERE chat_id=42')->fetchColumn()==='static','Back renders the private station list as a photo caption and stops timer edits');
     $view->show(-1001,55,0,$radio->station(-1001),321); $api->admins=[]; $store->query('DELETE FROM settings WHERE key=?',['radio.admin.-1001.55']); $store->query('UPDATE radio_panels SET updated=0'); $view->refresh();
     panelCheck((int)$store->query("SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001")->fetchColumn()===0,'background refresh rechecks authorization and removes revoked panels');
-    foreach(['radio_player_caption','radio_player_track','radio_player_queue_collapsed','radio_player_mode_off','radio_player_mode_all','radio_player_mode_one','radio_player_mode_shuffle'] as $key) panelCheck($bot->ui->customizable('text',$key),'the public caption and mode display are editable: '.$key);
+    foreach(['radio_player_caption','radio_player_frame','radio_player_track','radio_player_playing','radio_player_waiting','radio_player_off','radio_player_queue_collapsed','radio_player_mode_off','radio_player_mode_all','radio_player_mode_one','radio_player_mode_shuffle'] as $key) panelCheck($bot->ui->customizable('text',$key),'the public caption and mode display are editable: '.$key);
     panelCheck(!$bot->ui->customizable('text','radio_player_mode_selected'),'the obsolete separate-button selection marker is hidden from Personalization');
     foreach(['radio_pause','radio_resume','radio_previous','radio_next','radio_menu','radio_repeat_all','radio_repeat_one','radio_repeat_off','radio_repeat_shuffle','radio_player_restart'] as $key) panelCheck($bot->ui->customizable('button',$key),'the public transport button is editable: '.$key);
     $clock=new Zero\RadioPlayback($store,-1001); $item=$store->query('SELECT * FROM radio_queue WHERE id=?',[$ids[0]])->fetch(); $clock->start($item,0); $clock->silence(3,2); $clock->tick(6,false);

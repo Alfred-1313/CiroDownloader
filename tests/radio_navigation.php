@@ -31,7 +31,7 @@ try {
     $click(); $panel=$store->query('SELECT * FROM radio_panels WHERE chat_id=-1001')->fetch(); $photo=$method('sendPhoto')[0];
     navigationCheck($panel&&$panel['kind']==='photo'&&(int)$panel['thread_id']===321&&(int)$photo['params']['message_thread_id']===321,'Play opens the photo player directly in the audio message forum topic');
     navigationCheck(($photo['files']['photo']??'')===hash_file('sha256',$temp.'/preview.jpg'),'the real audio thumbnail is downloaded and uploaded above the caption before radio preparation');
-    navigationCheck(str_contains($photo['params']['caption'],'Artist')&&str_contains($photo['params']['caption'],'Work')&&str_contains($photo['params']['caption'],'03:14')&&str_contains($photo['params']['caption'],'آماده‌سازی'),'the queued song has its title, known duration and honest preparation state instead of an empty player');
+    navigationCheck(str_contains($photo['params']['caption'],'<pre>╭── 🎵 Work ── 👤 Artist ──╮')&&str_contains($photo['params']['caption'],'│ ⏱ 00:00 ●────────────── 03:14   │')&&str_contains($photo['params']['caption'],'│ ⏳ در حال آماده‌سازی پخش آهنگ…   │')&&str_ends_with($photo['params']['caption'],'└ ▫️ صف خالی است.'),'the queued song uses the framed caption with honest preparation status, inline times and an empty upcoming playlist');
     $all=$calls(); $opened=array_search('sendPhoto',array_column($all,'method'),true); $deleted=array_search('deleteMessage',array_column($all,'method'),true);
     navigationCheck($deleted>$opened&&(int)$all[$deleted]['params']['message_id']===501,'the delivered audio is deleted only after the photo player is confirmed');
     navigationCheck(!glob($root.'/radio/files/*'),'preview artwork creates no retained local media files');
@@ -69,7 +69,7 @@ try {
     navigationWait(fn()=>count($method('editMessageCaption'))>$count,'the same message receives the next periodic progress update');
     $edits=$method('editMessageCaption'); $second=end($edits);
     navigationCheck($first['params']['message_id']===$second['params']['message_id']&&$first['params']['caption']!==$second['params']['caption']&&preg_match('/01:0[56]/',$second['params']['caption'])===1,'elapsed minutes and the bar move in the existing panel message');
-    preg_match('/<code>([━●─]+)/u',$first['params']['caption'],$firstBar); preg_match('/<code>([━●─]+)/u',$second['params']['caption'],$secondBar);
+    preg_match('/⏱ \d{2}:\d{2} ([━●─]+)/u',$first['params']['caption'],$firstBar); preg_match('/⏱ \d{2}:\d{2} ([━●─]+)/u',$second['params']['caption'],$secondBar);
     navigationCheck(!empty($firstBar[1])&&!empty($secondBar[1])&&$firstBar[1]!==$secondBar[1]&&str_contains($second['params']['caption'],'03:14'),'the progress marker advances while the total duration stays correct');
     navigationCheck(count($method('sendPhoto'))===$photoCount&&count($method('editMessageMedia'))===$mediaCount,'periodic updates keep the Telegram preview cover without uploading it again');
     file_put_contents($temp.'/mode.json','{"reject_photo":true,"photo_error_code":403}'); $before=count($method('sendMessage'));
