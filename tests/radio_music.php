@@ -25,7 +25,7 @@ try {
     $catalog=new Zero\MusicCatalog($config,$base,$base.'/deezer',$base.'/itunes',$base.'/sc',$base.'/mb'); $catalog->pause=0; $soundcloud=new Zero\SoundCloud($config,$base);
     $bot->musicCatalog=$catalog; $bot->musicSoundCloud=$soundcloud;
     $worker=new Zero\Worker($config,$store,$api,null,new Zero\Spotify($config,$base),$soundcloud,$catalog);
-    $radio=new Zero\Radio($config,$store);
+    $radio=new Zero\Radio($config,$store); $store->set('radio.access','chat');
     $records=fn(string $file)=>array_map(fn($line)=>json_decode($line,true),file($file,FILE_IGNORE_NEW_LINES));
     $calls=fn()=>$records($log); $called=fn(string $method)=>array_values(array_filter($calls(),fn($call)=>$call['method']===$method));
     $update=0; $group=-100123; $store->query('INSERT INTO users(id) VALUES(55),(66),(42)');
@@ -69,6 +69,13 @@ try {
     $send('https://open.spotify.com/track/'.$trackId,66,66); $job=$store->claim('media'); $worker->process($job);
     $audio=$called('sendAudio'); $stranger=json_decode((string)(end($audio)['params']['reply_markup']??'[]'),true)['inline_keyboard']??[];
     rmCheck(!array_filter(array_merge(...($stranger?:[[]])),fn($button)=>str_starts_with((string)($button['callback_data']??''),'rd:p:')),'and not for somebody who runs none');
+
+    $store->set('radio.access','all'); $send('https://open.spotify.com/track/'.$trackId,66,$group); $job=$store->claim('media'); $worker->process($job);
+    $audio=$called('sendAudio'); $public=json_decode((string)end($audio)['params']['reply_markup'],true)['inline_keyboard']??[];
+    $publicButtons=array_values(array_filter(array_column(array_merge(...($public?:[[]])),'callback_data'),fn($data)=>str_starts_with((string)$data,'rd:p:')));
+    rmCheck(count($publicButtons)===1,'when public access is enabled an ordinary user receives the radio play button');
+    $update++; $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'public-play','from'=>['id'=>66,'is_bot'=>false],'message'=>['message_id'=>5,'chat'=>['id'=>$group,'type'=>'supergroup'],'message_thread_id'=>321],'data'=>$publicButtons[0]]]);
+    rmCheck($radio->queued($group)===1,'the ordinary user can use the delivered play button to queue the song'); $radio->clear($group); $store->set('radio.access','chat');
 
     // 2. "Play all" in an album: every song, first to last, for the administrator who owns the menu.
     $send('https://open.spotify.com/album/'.$albumId,55,$group); $job=$store->claim('inspect'); $worker->process($job);

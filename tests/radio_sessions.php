@@ -17,7 +17,7 @@ try {
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket); $config->api='http://'.$address;
     $server=proc_open([PHP_BINARY,'-S',$address,__DIR__.'/fixtures/radio_panel_server.php'],[0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file',$temp.'/server.log','w']],$pipes,null,array_merge(getenv(),['RADIO_PANEL_FIXTURE'=>$temp]));
     for($n=0;$n<50;$n++) { $connection=@stream_socket_client('tcp://'.$address,$errno,$error,0.1); if($connection) { fclose($connection); break; } usleep(50000); }
-    $store=new Zero\Store($root); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store);
+    $store=new Zero\Store($root); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store); $store->set('radio.access','chat');
     foreach([-1001,-1002,-1003] as $chat) $radio->save($chat,'Session '.$chat,$chat===-1003?'channel':'group',42,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf');
     $store->set('cookies.keepalive','0'); $store->set('cookies.alerts','0');
     $calls=fn()=>array_map(fn($line)=>json_decode($line,true),file($temp.'/calls.jsonl',FILE_IGNORE_NEW_LINES));

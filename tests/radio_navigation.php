@@ -17,7 +17,7 @@ try {
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket); $config->api='http://'.$address;
     $server=proc_open([PHP_BINARY,'-S',$address,__DIR__.'/fixtures/radio_panel_server.php'],[0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file',$temp.'/server.log','w']],$pipes,null,array_merge(getenv(),['RADIO_PANEL_FIXTURE'=>$temp]));
     for($n=0;$n<50;$n++) { $connection=@stream_socket_client('tcp://'.$address,$errno,$error,0.1); if($connection) { fclose($connection); break; } usleep(50000); }
-    $store=new Zero\Store($root); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store);
+    $store=new Zero\Store($root); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store); $store->set('radio.access','chat');
     $radio->save(-1001,'Navigation','group',55,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $radio->setLive(-1001,true);
     $source=['service'=>'spotify','m'=>['title'=>'Work','artists'=>['Artist'],'duration'=>194]]; $token=$radio->pick($source,'Work','Artist',194);
     $click=function(int $user=55,int $chat=-1001,int $message=501,bool $senderChat=false) use($bot,$token): void {

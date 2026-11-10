@@ -89,10 +89,11 @@ final class RadioPlayerPanel
         $rows=[$row];
         if($view==='menu') {
             $rows[]=[$this->button('radio_player_restart',$rd('j'))];
-            $rows[]=[$this->button((int)$station['live']===1?'radio_mark_off':'radio_mark_live',$rd('l'))];
+            $manager=$this->radio->mayManage($this->bot->api,$id,$user,$this->bot->admin($user));
+            if($manager) $rows[]=[$this->button((int)$station['live']===1?'radio_mark_off':'radio_mark_live',$rd('l'))];
             $rows[]=[$this->button('radio_stop',$rd('s')),$this->button('radio_clear',$rd('x'))];
             $rows[]=[$this->button('radio_close',$rd('z')),$this->button('radio_refresh',$rd('v'))];
-            if($chat>0) { $rows[]=[$this->button('radio_use',$rd('a')),$this->button('radio_remove',$rd('d'))]; $rows[]=[$this->button('radio_back',$rd('r'))]; }
+            if($chat>0) { $private=[$this->button('radio_use',$rd('a'))]; if($manager) $private[]=$this->button('radio_remove',$rd('d')); $rows[]=$private; $rows[]=[$this->button('radio_back',$rd('r'))]; }
         }
         $cover=(string)($data['cover']??''); $root=realpath($this->radio->root()); $path=$cover!==''?realpath($cover):false; $artworkId=(int)($reference['artwork_id']??0); $artwork=(string)($reference['artwork']??'');
         $display=(int)($data['id']??0);

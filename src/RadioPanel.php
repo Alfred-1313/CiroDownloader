@@ -25,8 +25,7 @@ final class RadioPanel
     /** May this person set the radio of $target up (and see it)? */
     private function mayManage(int $target,int $user): bool
     {
-        if(!Radio::enabled($this->bot->store)) return false;
-        return $this->bot->admin($user)||(!Radio::botOnly($this->bot->store)&&Radio::chatAdmin($this->bot->api,$this->bot->store,$target,$user));
+        return $this->radio->mayManage($this->bot->api,$target,$user,$this->bot->admin($user));
     }
     private function stationFor(int $chat,int $user): ?array
     {
@@ -36,8 +35,7 @@ final class RadioPanel
     /** Whether a song sent here gets a ▶️: this group has a radio, or this person runs one. */
     public function available(int $chat,int $user): bool
     {
-        if($this->radio->stations()===[]) return false;
-        return $this->stationFor($chat,$user)!==null;
+        return $this->allowed($chat,$user);
     }
     /** Whether this person may queue songs here right now (administrator of that radio's chat). */
     public function allowed(int $chat,int $user): bool
@@ -101,6 +99,7 @@ final class RadioPanel
             if($station===null||!$this->radio->mayControl($this->bot->api,$target,$user,$botAdmin)) { $this->answer($cb,$station===null?'radio_no_station':$this->refusal(),[],true); return; }
             if($chat<0&&$target!==$chat) { $this->answer($cb,$this->refusal(),[],true); return; }
             if(($match[3]??'0')!==$this->radio->session($target)) { $this->answer($cb,'radio_player_expired',[],true); return; }
+            if(in_array($op,['l','d','D'],true)&&!$this->mayManage($target,$user)) { $this->answer($cb,'radio_not_admin',[],true); return; }
             if($op==='r'&&$chat>0) { $this->answer($cb); $this->panel($chat,$user,$message); return; }
             switch($op) {
                 case 't': $this->radio->togglePause($target); $this->answer($cb,'radio_done'); break;
@@ -185,6 +184,7 @@ final class RadioPanel
     public function commandPrivate(int $chat,int $user): void
     {
         if(!Radio::enabled($this->bot->store)) { $this->bot->send($chat,$this->bot->text('radio_disabled')); return; }
+        if(Radio::botOnly($this->bot->store)&&!$this->bot->admin($user)) { $this->bot->send($chat,$this->bot->text('radio_bot_only')); return; }
         $this->panel($chat,$user,0);
     }
     /** /radio always posts a fresh full management menu in the requesting group/topic. */

@@ -21,7 +21,7 @@ final class PlayerPanelApi implements Zero\Api {
 function panelCheck(bool $ok,string $label): void { if(!$ok) throw new RuntimeException($label); echo "PASS $label\n"; }
 $temp=sys_get_temp_dir().'/ciro-radio-panel-'.bin2hex(random_bytes(6)); mkdir($temp,0700);
 try {
-    $config=new Zero\Config('123:fixture',[42],$temp); $store=new Zero\Store($temp); $api=new PlayerPanelApi(); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store);
+    $config=new Zero\Config('123:fixture',[42],$temp); $store=new Zero\Store($temp); $api=new PlayerPanelApi(); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store); $store->set('radio.access','chat');
     $radio->save(-1001,'Radio','group',55,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); $radio->setLive(-1001,true);
     mkdir($temp.'/radio/files',0700); $cover=$temp.'/radio/files/1.jpg'; $second=$temp.'/radio/files/2.jpg';
     foreach([$cover=>'red',$second=>'blue'] as $path=>$colour) (new Zero\Download($config))->run(['ffmpeg','-v','error','-y','-filter_threads','1','-f','lavfi','-i','color=c='.$colour.':s=640x360','-frames:v','1','-threads','1',$path],$temp,30);

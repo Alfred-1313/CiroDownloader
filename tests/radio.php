@@ -37,7 +37,7 @@ try {
     foreach([$KEY,"rtmps://dc4-1.rtmp.t.me/s/\n1234567890:FakeKeyForTestsOnly_AbCdEf","  rtmp://a-2.rtmp.t.me:443/s/12345678:abcdefghij_KL-mn  "] as $ok) rdCheck(Zero\Radio::parseTarget($ok)!==null,'a stream address is accepted: '.preg_replace('/:[A-Za-z0-9_-]{10,}/',':…',trim($ok)));
     foreach(['','hello','https://example.com/s/12345678:abcdefghij','rtmps://evil.example/s/12345678:abcdefghij','rtmps://dc4-1.rtmp.t.me.evil.example/s/12345678:abcdefghij','rtmps://dc4-1.rtmp.t.me/s/12:short',"rtmps://dc4-1.rtmp.t.me/s/12345678:abcdefghij; rm -rf /"] as $bad) rdCheck(Zero\Radio::parseTarget($bad)===null,'not a stream address: '.mb_substr($bad,0,40));
 
-    $config=new Zero\Config('123:fake',[42],$temp); $store=new Zero\Store($temp); $api=new RadioApi(); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store);
+    $config=new Zero\Config('123:fake',[42],$temp); $store=new Zero\Store($temp); $api=new RadioApi(); $bot=new Zero\Bot($config,$store,$api); $radio=new Zero\Radio($config,$store); $store->set('radio.access','chat');
     $store->query('INSERT INTO users(id) VALUES(42),(55),(66),(7)');
     $radio->save(-1001,'Test Channel','channel',55,$KEY);
     $file=$temp.'/radio/keys/-1001';
@@ -105,7 +105,7 @@ try {
     $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,55,55)); rdCheck(str_contains(rdAnswer($api),'«New Channel»')&&$radio->queued(-1005)===1,'in a private chat the song goes to the person\'s active radio');
     $api->calls=[]; $bot->handle(rdClick('rd:p:'.$token,66,66)); rdCheck(str_contains(rdAnswer($api),'راه‌اندازی نشده'),'in a private chat somebody without a radio is told so');
     $panelBot=new Zero\RadioPanel($bot);
-    rdCheck($panelBot->available(-1100,66)&&!$panelBot->available(-2222,66)&&$panelBot->available(55,55)&&!$panelBot->available(66,66),'the play button shows in a group with a radio (to everybody) and in a private chat only for a person who runs one');
+    rdCheck(!$panelBot->available(-1100,66)&&!$panelBot->available(-2222,66)&&$panelBot->available(-1100,55)&&$panelBot->available(55,55)&&!$panelBot->available(66,66),'the play button is offered only on requests by people allowed to use that radio');
     rdCheck($panelBot->allowed(-1100,55)&&!$panelBot->allowed(-1100,66),'"play all" is for the group\'s administrators only');
 
     // 6b. One song once: while it waits it cannot be queued again; after it played it can.
@@ -160,9 +160,9 @@ try {
     $store->set('radio.access','chat'); rdCheck($panelBot->allowed(-1100,55),'switching back gives the chat administrators their radio again');
     // The switches are on the features page, for bot administrators only.
     $api->calls=[]; $bot->handle(rdClick('custom:features',42,42)); $features=$api->last('editMessageText')??$api->last('sendMessage'); $labels=implode(' ',array_column(array_merge(...$features['reply_markup']['inline_keyboard']),'text'));
-    rdCheck(str_contains($labels,'📻 رادیو: ✅')&&str_contains($labels,'فقط ادمین‌های ربات: ❌'),'the features page shows both switches with their state');
+    rdCheck(str_contains($labels,'📻 رادیو: ✅')&&str_contains($labels,'دسترسی همهٔ کاربران به رادیو: ❌'),'the features page shows both switches with their state');
     $bot->handle(rdClick('custom:radio',42,42)); $bot->handle(rdClick('custom:radioaccess',42,42));
-    rdCheck($store->get('radio.enabled')==='0'&&$store->get('radio.access')==='bot','the switches flip the settings');
+    rdCheck($store->get('radio.enabled')==='0'&&$store->get('radio.access')==='all','the switches flip the settings');
     $bot->handle(rdClick('custom:radio',55,55)); rdCheck($store->get('radio.enabled')==='0','somebody who is not a bot administrator cannot flip them');
     $store->set('radio.enabled','1'); $store->set('radio.access','chat');
 

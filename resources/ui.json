@@ -875,7 +875,7 @@
     "adult_filters":{"audience":"admin","label":"تیتر فیلترها","group":"custom","value":"🗑 فیلترهای حذف خودکار"},
     "adult_pornhub":{"audience":"admin","label":"روشن و خاموش‌کردن Pornhub","group":"custom","value":"🔞 Pornhub: {state}"},
     "radio_switch":{"audience":"admin","label":"روشن و خاموش‌کردن رادیو","group":"custom","variables":["state"],"value":"📻 رادیو: {state}"},
-    "radio_access_switch":{"audience":"admin","label":"فقط ادمین‌های ربات برای رادیو","group":"custom","variables":["state"],"value":"👤 فقط ادمین‌های ربات: {state}"},
+    "radio_access_switch":{"audience":"admin","label":"دسترسی همه کاربران به رادیو","group":"custom","variables":["state"],"value":"👥 دسترسی همهٔ کاربران به رادیو: {state}"},
     "adult_admins":{"audience":"admin","label":"سایت‌های بزرگسال فقط برای مدیرها","group":"custom","value":"👮 فقط مدیرها: {state}"},
     "adult_delete_private":{"audience":"admin","label":"حذف خودکار ویدیو در پی‌وی","group":"custom","value":"🗑 حذف خودکار در پی‌وی: {state}"},
     "adult_delete_group":{"audience":"admin","label":"حذف خودکار ویدیو در گروه","group":"custom","value":"🗑 حذف خودکار در گروه: {state}"},

@@ -160,8 +160,9 @@ final class Radio
 
     /** The bot administrators switch the whole radio off and on (default on). */
     public static function enabled(Store $store): bool { return $store->get('radio.enabled','1')==='1'; }
-    /** Whether only the bot's administrators may use it, instead of the administrators of each group or channel (default). */
-    public static function botOnly(Store $store): bool { return $store->get('radio.access','chat')==='bot'; }
+    /** New installations default to bot administrators; explicitly saved legacy chat-admin access remains supported. */
+    public static function botOnly(Store $store): bool { return $store->get('radio.access','bot')==='bot'; }
+    public static function allUsers(Store $store): bool { return $store->get('radio.access','bot')==='all'; }
 
     /** Whether the user is a creator or administrator of the chat; Telegram is asked at most every two minutes per pair. */
     public static function chatAdmin(Api $api,Store $store,int $chat,int $user): bool
@@ -175,17 +176,22 @@ final class Radio
         $store->set($key,json_encode(['t'=>time(),'a'=>$admin]));
         return $admin;
     }
+    /** Station setup, live state and deletion always require an administrator. */
+    public function mayManage(Api $api,int $chat,int $user,bool $botAdmin): bool
+    {
+        return self::enabled($this->store)&&$user>0&&($botAdmin||(!self::botOnly($this->store)&&self::chatAdmin($api,$this->store,$chat,$user)));
+    }
     /** May this user queue, skip or stop the radio of the chat? Administrators of the bot always may. */
     public function mayControl(Api $api,int $chat,int $user,bool $botAdmin): bool
     {
         if(!self::enabled($this->store)||$this->station($chat)===null) return false;
-        return $botAdmin||(!self::botOnly($this->store)&&self::chatAdmin($api,$this->store,$chat,$user));
+        return $botAdmin||($user>0&&(self::allUsers($this->store)||(!self::botOnly($this->store)&&self::chatAdmin($api,$this->store,$chat,$user))));
     }
     /** @return list<array> the stations this user administers */
     public function stationsOf(Api $api,int $user,bool $botAdmin): array
     {
         if(!self::enabled($this->store)) return [];
-        return array_values(array_filter($this->stations(),fn($row)=>$botAdmin||(!self::botOnly($this->store)&&self::chatAdmin($api,$this->store,(int)$row['chat_id'],$user))));
+        return array_values(array_filter($this->stations(),fn($row)=>$this->mayControl($api,(int)$row['chat_id'],$user,$botAdmin)));
     }
     /** The station a play button pressed in a private chat goes to: the one the user chose, else the first they administer. */
     public function activeFor(Api $api,int $user,bool $botAdmin): ?array

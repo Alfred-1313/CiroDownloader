@@ -75,7 +75,7 @@ final class Personalization
             [$ui->button('reaction_settings','custom:reaction')],
             [$this->heading($ui->label('feat_radio'),'feat_radio')],
             [$this->switchButton('radio_switch','custom:radio',Radio::enabled($store))],
-            [$this->switchButton('radio_access_switch','custom:radioaccess',Radio::botOnly($store))],
+            [$this->switchButton('radio_access_switch','custom:radioaccess',Radio::allUsers($store))],
             [$this->heading($ui->label('feat_limits'),'feat_limits')],
             [$ui->button('processing_limits','custom:limits')],
             [$ui->button('back_custom','custom:home'),$ui->button('close','custom:close')],
@@ -795,7 +795,7 @@ final class Personalization
             $this->bot->store->set('radio.enabled',Radio::enabled($this->bot->store)?'0':'1');
             $this->features($chat,$message);
         } elseif($op==='radioaccess') {
-            $this->bot->store->set('radio.access',Radio::botOnly($this->bot->store)?'chat':'bot');
+            $this->bot->store->set('radio.access',Radio::allUsers($this->bot->store)?'bot':'all');
             $this->features($chat,$message);
         } elseif($op==='groups_mode') {
             $this->bot->store->set('groups_enabled',$this->bot->store->groupsEnabled()?'0':'1');
