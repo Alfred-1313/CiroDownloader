@@ -18,18 +18,19 @@ try {
         mkdir($temp.'/'.$height,0700);
         $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.$width.'x'.$pixels.':r=5:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest','-hls_time','2','-hls_list_size','0',$temp.'/'.$height.'/stream.m3u8'],$temp,60);
     }
-    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=640x360','-frames:v','1','-threads','1',$temp.'/cover.jpg'],$temp,30);
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=red:s=400x400','-frames:v','1','-threads','1',$temp.'/cover.jpg'],$temp,30);
     file_put_contents($temp.'/master.m3u8',"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=150000,RESOLUTION=426x240,CODECS=\"avc1.640015,mp4a.40.2\"\n/240/stream.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=854x480,CODECS=\"avc1.64001f,mp4a.40.2\"\n/480/stream.m3u8\n");
     $log=$temp.'/http.jsonl'; $trace=$temp.'/backend.jsonl'; $mode=$temp.'/mode.json'; file_put_contents($log,''); file_put_contents($trace,''); file_put_contents($mode,'{}');
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php $root='.var_export($temp,true).';$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH);'. <<<'PHP'
         if($path==='/cover.jpg') { header('Content-Type: image/jpeg');readfile($root.'/cover.jpg');return; }
+        if($path==='/missing-cover.jpg') { http_response_code(404);return; }
         if($path==='/master.m3u8'||preg_match('~^/(240|480)/stream[0-9]*\.(m3u8|ts)$~D',$path)) {
             header('Content-Type: '.(str_ends_with($path,'.m3u8')?'application/vnd.apple.mpegurl':'video/mp2t'));readfile($root.$path);return;
         }
 PHP
         .
-        '$method=basename($path);$uploads=[];foreach($_FILES as $key=>$file) $uploads[$key]=["bytes"=>filesize($file["tmp_name"]),"mime"=>$file["type"]];'.
+        '$method=basename($path);$uploads=[];foreach($_FILES as $key=>$file) { $size=@getimagesize($file["tmp_name"]);$uploads[$key]=["bytes"=>filesize($file["tmp_name"]),"mime"=>$file["type"],"width"=>$size[0]??null,"height"=>$size[1]??null]; }'.
         '$counter=$root."/counter";$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$result=str_starts_with($method,"send")||str_starts_with($method,"edit")?["message_id"=>(int)($_POST["message_id"]??900+$next)]:true;'.
@@ -68,15 +69,21 @@ PHP
     if(!$videos) throw new RuntimeException($store->get('last_job_error'));
     $video=end($videos); xvCheck($video['uploads']['video']['bytes']>0&&(int)$video['params']['message_thread_id']===321&&str_contains($video['params']['caption'],'🎞 480p')&&str_starts_with($video['params']['caption'],'<blockquote>🗑')&&!isset($video['params']['reply_markup']),'the chosen video is delivered with quality and automatic deletion notice in the original topic');
     xvCheck(($video['uploads']['thumbnail']['mime']??'')==='image/jpeg'&&($video['uploads']['thumbnail']['bytes']??0)>0&&$video['uploads']['thumbnail']['bytes']<200000,'the delivered video has its own Telegram-compatible JPEG cover');
+    xvCheck(($video['uploads']['thumbnail']['width']??0)===320&&($video['uploads']['thumbnail']['height']??0)===320,'the delivered video uses the actual square site cover, not a frame from the widescreen video');
     xvCheck((int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()===1&&(int)$store->query("SELECT ok FROM stats WHERE service='xvideos'")->fetchColumn()===1,'the video is scheduled for deletion and counted for XVideos');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); xvCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','audio is delivered as MP3');
     file_put_contents($mode,json_encode(['og_only'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     $posters=$calls('editMessageMedia'); $cover=json_decode(end($posters)['params']['media'],true)['caption'];
     xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo'&&$cover===$bot->ui->coverCaption('Neutral Fixture Video',(string)round($config->maxBytes/1000000,1)),'an OpenGraph-only XVideos cover produces the same photo and caption as Pornhub');
     $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
+    file_put_contents($mode,json_encode(['broken_preferred'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo','an unavailable preferred thumbnail does not hide another available site cover');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
     file_put_contents($mode,json_encode(['og_only'=>true,'cover_url'=>'https://foreign.example/cover.jpg'])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','an untrusted OpenGraph image is ignored while quality selection remains available');
-    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']); file_put_contents($mode,'{}');
+    $click('quality:'.$job['id'].':240',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $videos=$calls('sendVideo'); $video=end($videos);
+    xvCheck(($video['uploads']['thumbnail']['width']??0)>($video['uploads']['thumbnail']['height']??0),'when the site cover is unavailable the video is still delivered with a frame as fallback');
+    file_put_contents($mode,'{}');
     $worker->xvideosSearchFetch=fn(string $url): string=>'<a href="/video.abc123def4/fixture_video" title="Neutral Fixture Video">Video</a>';
     $send(42,42,'https://www.xvideos.com/?k=fixture'); $search=$store->claim('inspect'); $worker->process($search); $menu=$store->query('SELECT * FROM jobs WHERE id=?',[$search['id']])->fetch();
     $click('vs:'.$search['id'].':i:0',42,42,(int)$menu['message_id']); $selected=$store->claim('inspect'); $worker->process($selected); $quality=$store->query('SELECT * FROM jobs WHERE id=?',[$selected['id']])->fetch();

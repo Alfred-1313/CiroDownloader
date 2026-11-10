@@ -16,6 +16,8 @@ def page(self, url, video_id, *args, **kwargs):
     if isinstance(self, XVideosIE) and XVideosIE.suitable(url):
         cover = settings.get('cover_url', 'https://cdn42-pic.xvideos-cdn.com/cover.jpg')
         thumb = '' if settings.get('og_only') else 'setThumbUrl("' + BASE + '/cover.jpg");'
+        if settings.get('broken_preferred'):
+            thumb += 'setThumbUrl169("' + BASE + '/missing-cover.jpg");'
         return ('<html><head><meta property="og:title" content="Neutral Fixture Video">'
                 '<meta property="og:duration" content="2"><meta property="og:image" content="' + cover + '"></head><body><script>'
                 + thumb +

@@ -566,6 +566,7 @@ final class Download
             '--concurrent-fragments',$site==='youtube'?'4':'8',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',
+            ...($site==='xvideos'?['--write-thumbnail','-o','thumbnail:'.$folder.'/poster.%(ext)s']:[]),
             // Explicit IDs prevent silently substituting a different quality.
             '-f',$selector?implode('/',$selector):'bv*+ba/b','-S','res:'.$target.',vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
@@ -608,14 +609,15 @@ final class Download
         foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
         if(!$video||min((int)$video['width'],(int)$video['height'])>$target||($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality)) throw new MediaFailure('format','Prepared resolution does not match the selected quality');
         // The selected file, not an estimated playlist label, supplies the final caption's resolution.
-        $thumbnail=in_array($site,['beeg','xvideos'],true)?$this->videoThumbnail($ready,$folder):null;
+        $poster=$site==='xvideos'?self::posterFile($folder):null;
+        $thumbnail=in_array($site,['beeg','xvideos'],true)?(($poster?$this->videoThumbnail($poster,$folder):null)??$this->videoThumbnail($ready,$folder)):null;
         @unlink($file); // The validated MP4 is the only full video needed during upload.
         return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube','thumbnail'=>$thumbnail,
             'height'=>(int)$video['height'],'width'=>(int)$video['width'],
             'quality'=>min((int)$video['height'],(int)$video['width']).'p','duration'=>(int)ceil($duration)];
     }
 
-    /** A small JPEG from the actual video; optional, never another media download. */
+    /** A Telegram-compatible JPEG from the site poster or, as a fallback, the prepared video. */
     private function videoThumbnail(string $file,string $folder): ?string
     {
         $path=$folder.'/cover.jpg';
