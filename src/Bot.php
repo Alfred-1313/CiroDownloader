@@ -24,6 +24,7 @@ require_once __DIR__.'/RadioPanel.php';
 require_once __DIR__.'/VideoChats.php';
 require_once __DIR__.'/Shares.php';
 require_once __DIR__.'/TimedDeletes.php';
+require_once __DIR__.'/XnxxSearch.php';
 
 final class Bot
 {
@@ -413,7 +414,8 @@ final class Bot
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back','update:close'],true);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $isRadio=$radioCallback;
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio;
+            $isXnxxSearch=preg_match('/^xs:\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
@@ -437,6 +439,7 @@ final class Bot
             if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isRadio) { (new RadioPanel($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
+            if($isXnxxSearch) { (new XnxxSearch($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }
             if($isPage) {

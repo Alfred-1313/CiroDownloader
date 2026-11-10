@@ -15,6 +15,8 @@ final class WorkerStopped extends \RuntimeException {}
 
 final class Worker
 {
+    /** Fixture-only override for search-page retrieval. */
+    public ?\Closure $xnxxSearchFetch=null;
     public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) {}
 
     public function recover(array $job): void
@@ -60,6 +62,11 @@ final class Worker
             if($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 $bot->jobMessage($job,$bot->text('invalid')); return;
+            }
+            if($job['phase']==='inspect'&&xnxxSearchUrl($job['url'])!==null) {
+                $stage='inspect';
+                (new XnxxSearch($bot,$this->xnxxSearchFetch))->open($job);
+                return;
             }
             if($job['phase']==='batch') {
                 $this->musicBatch($job,$bot,$folder,$timings,$stage);

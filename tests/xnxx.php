@@ -67,6 +67,11 @@ PHP
     $video=end($videos); xnCheck($video['uploads']['video']['bytes']>0&&(int)$video['params']['message_thread_id']===321&&str_contains($video['params']['caption'],'🎞 480p')&&str_starts_with($video['params']['caption'],'<blockquote>🗑')&&!isset($video['params']['reply_markup']),'the chosen video is delivered with quality and automatic deletion notice in the original topic');
     xnCheck((int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()===1&&(int)$store->query("SELECT ok FROM stats WHERE service='xnxx'")->fetchColumn()===1,'the video is scheduled for deletion and counted for XNXX');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); xnCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','audio is delivered as MP3');
+    $worker->xnxxSearchFetch=fn(string $url): string=>'<a href="/video-55awb78/fixture_video" title="Neutral Fixture Video">Video</a>';
+    $send(42,42,'https://www.xnxx.com/search/fixture?id=77313131'); $search=$store->claim('inspect'); $worker->process($search); $menu=$store->query('SELECT * FROM jobs WHERE id=?',[$search['id']])->fetch();
+    $click('xs:'.$search['id'].':i:0',42,42,(int)$menu['message_id']); $selected=$store->claim('inspect'); $worker->process($selected); $quality=$store->query('SELECT * FROM jobs WHERE id=?',[$selected['id']])->fetch();
+    xnCheck($quality['status']==='waiting_quality'&&(int)$quality['message_id']===(int)$menu['message_id'],'selecting a search result reaches the real XNXX extractor and quality menu in the same message');
+    $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$selected['id']]);
     $send(); $job=$store->claim('inspect'); $before=count(file($trace)); $store->set('adult.xnxx','0'); $worker->process($job);
     xnCheck(count(file($trace))===$before&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed','disabling XNXX stops queued work before any downloader request');
 } finally { if(is_resource($server)) { proc_terminate($server); proc_close($server); } Zero\Download::clean($temp); }

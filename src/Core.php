@@ -667,9 +667,26 @@ function xnxxUrl(string $input): ?string
         ||!preg_match('~^/video-?([a-z0-9]{1,32})(?:/([a-z0-9_-]{0,200}))?/?$~iD',$u['path']??'',$m)) return null;
     return 'https://www.xnxx.com/video-'.$m[1].'/'.($m[2]??'');
 }
+/** A bounded XNXX search page, kept separate from individual video URLs. */
+function xnxxSearchUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:(?:www|amp|video)\.)?xnxx\.com/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!in_array(strtolower($u['host']??''),['xnxx.com','www.xnxx.com','amp.xnxx.com','video.xnxx.com'],true)
+        ||!preg_match('~^/search/([^/]{1,360})/?$~D',$u['path']??'',$m)) return null;
+    $query=trim(rawurldecode($m[1]));
+    if(mb_strlen($query)>120||!preg_match('/^[\p{L}\p{N} _.-]{1,120}$/uD',$query)) return null;
+    parse_str($u['query']??'',$args); $keep=[];
+    if(array_key_exists('top',$args)&&is_string($args['top'])&&$args['top']==='') $keep[]='top';
+    if(isset($args['id'])&&is_string($args['id'])&&preg_match('/^\d{1,20}$/D',$args['id'])) $keep[]='id='.$args['id'];
+    return 'https://www.xnxx.com/search/'.rawurlencode($query).($keep?'?'.implode('&',$keep):'');
+}
 function adultServices(): array { return ['pornhub','beeg','xnxx']; }
-function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input); }
-function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':(xnxxUrl($input)?'xnxx':null)); }
+function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input); }
+function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':((xnxxUrl($input)||xnxxSearchUrl($input))?'xnxx':null)); }
 
 function instagramUrl(string $input): ?string
 {
