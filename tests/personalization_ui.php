@@ -27,7 +27,7 @@ try {
     $bot->handle(uiInput('/customize'));
     $titles=array_values(array_filter(uiButtons($api),fn($b)=>str_starts_with($b['callback_data']??'','custom:hint:')));
     uiCheck(count($titles)===6&&!array_filter($titles,fn($b)=>isset($b['style'])),'the main screen has six white title buttons');
-    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','beeg','spotify','soundcloud','menu','batch','search','radio','radio_player','help','group','access','progress','errors'] as $section) uiCheck(uiFind($api,'custom:section:'.$section)!==null,'one entry opens each screen: '.$section);
+    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','beeg','xnxx','spotify','soundcloud','menu','batch','search','radio','radio_player','help','group','access','progress','errors'] as $section) uiCheck(uiFind($api,'custom:section:'.$section)!==null,'one entry opens each screen: '.$section);
     uiCheck(uiFind($api,'custom:features')!==null&&uiFind($api,'custom:resetall')!==null&&uiFind($api,'custom:close')!==null,'the main screen offers features, reset-all and close');
     uiCheck(str_contains(uiText($api),'🔵')&&str_contains(uiText($api),'⬜️')&&str_contains(uiText($api),'✏️')&&str_contains(uiText($api),'🔘')&&!str_contains(uiText($api),'🟢'),'a legend explains white titles, blue buttons and the markers');
     uiCheck(!uiFind($api,'custom:groups:text')&&!uiFind($api,'custom:groups:button')&&!uiFind($api,'custom:sections'),'the old parallel text, caption and button trees are gone from the main screen');

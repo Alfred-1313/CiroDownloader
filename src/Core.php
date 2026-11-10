@@ -655,9 +655,21 @@ function beegUrl(string $input): ?string
         ||!preg_match('~^/(video/)?(-?[0-9]{1,30})/?$~D',$u['path']??'',$match)) return null;
     return 'https://beeg.com/'.($match[1]??'').$match[2];
 }
-function adultServices(): array { return ['pornhub','beeg']; }
-function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input); }
-function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':null); }
+/** A single XNXX video page; AMP links are converted to the canonical host supported by yt-dlp. */
+function xnxxUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:(?:www|amp|video)\.)?xnxx\.com/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!in_array(strtolower($u['host']??''),['xnxx.com','www.xnxx.com','amp.xnxx.com','video.xnxx.com'],true)
+        ||!preg_match('~^/video-?([a-z0-9]{1,32})(?:/([a-z0-9_-]{0,200}))?/?$~iD',$u['path']??'',$m)) return null;
+    return 'https://www.xnxx.com/video-'.$m[1].'/'.($m[2]??'');
+}
+function adultServices(): array { return ['pornhub','beeg','xnxx']; }
+function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input); }
+function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':(xnxxUrl($input)?'xnxx':null)); }
 
 function instagramUrl(string $input): ?string
 {

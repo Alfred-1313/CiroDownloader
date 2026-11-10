@@ -56,7 +56,7 @@ final class Bot
     public function adultHint(int $user,int $chat,string $site='pornhub'): ?string
     {
         if(!$this->admin($user)||!in_array($site,adultServices(),true)) return null;
-        if($this->store->get('adult.'.$site,'0')!=='1') return $site==='pornhub'?'adult_hint_off':'beeg_hint_off';
+        if($this->store->get('adult.'.$site,'0')!=='1') return $site==='pornhub'?'adult_hint_off':$site.'_hint_off';
         if($chat<0&&!$this->store->groupsEnabled()) return 'adult_hint_groups';
         return null;
     }

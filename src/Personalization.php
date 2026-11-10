@@ -91,6 +91,7 @@ final class Personalization
             [$this->heading($ui->label('adult_who'),'adult_who')],
             [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
             [$this->switchButton('adult_beeg','custom:adultbeeg',$store->get('adult.beeg','0')==='1')],
+            [$this->switchButton('adult_xnxx','custom:adultxnxx',$store->get('adult.xnxx','0')==='1')],
             [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
             [$this->heading($ui->label('adult_filters'),'adult_filters')],
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
@@ -767,6 +768,9 @@ final class Personalization
             $this->adultPage($chat,$message);
         } elseif($op==='adultbeeg') {
             $this->bot->store->set('adult.beeg',$this->bot->store->get('adult.beeg','0')==='1'?'0':'1');
+            $this->adultPage($chat,$message);
+        } elseif($op==='adultxnxx') {
+            $this->bot->store->set('adult.xnxx',$this->bot->store->get('adult.xnxx','0')==='1'?'0':'1');
             $this->adultPage($chat,$message);
         } elseif($op==='adultdelp') {
             $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');
