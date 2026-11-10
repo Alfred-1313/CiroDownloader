@@ -66,7 +66,8 @@ PHP
     $store->set('adult.pornhub','0'); beegCheck($bot->adultAllowed(42,42,'beeg')&&!$bot->adultAllowed(42,42),'Beeg stays enabled independently of Pornhub');
     $send(7,7); beegCheck($jobs()===0,'administrators-only is shared and defaults on');
     $click('custom:adultbeeg',7,7); beegCheck($store->get('adult.beeg')==='1','ordinary users cannot change the Beeg switch');
-    foreach(['quality_prompt','caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked'] as $suffix) beegCheck($bot->ui->customizable('text','beeg_'.$suffix),'Beeg user text is independently customizable: '.$suffix);
+    foreach(['caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked'] as $suffix) beegCheck($bot->ui->customizable('text','beeg_'.$suffix),'Beeg user text is independently customizable: '.$suffix);
+    beegCheck(!$bot->ui->customizable('text','beeg_quality_prompt'),'the obsolete Beeg-only cover caption is hidden');
     $click('custom:section:beeg'); $edits=$calls('editMessageText'); $markup=json_decode(end($edits)['params']['reply_markup'],true)['inline_keyboard']; beegCheck((bool)$markup,'Beeg has its own Personalization screen');
     $store->set('groups_enabled','0'); file_put_contents($log,''); $send(42,-100123); $messages=$calls('sendMessage'); beegCheck($jobs()===0&&count($messages)===1&&(int)$messages[0]['params']['chat_id']===42,'disabled group use is explained privately to the administrator'); $store->set('groups_enabled','1');
     $store->set('adult.admins_only','0'); $send(7,7); beegCheck($jobs()===1,'turning administrators-only off permits ordinary users'); $store->query('DELETE FROM jobs'); $store->set('adult.admins_only','1');
@@ -75,7 +76,7 @@ PHP
     if($saved['status']!=='waiting_quality') throw new RuntimeException($store->get('last_job_error'));
     $options=json_decode($saved['options'],true); beegCheck(isset($options[240],$options[480],$options['audio'],$options['meta'])&&$options['meta']['tags']===['Topic One','Tag Two'],'the Beeg API accepts the numeric ID and site headers; the new playback endpoint supplies real HLS qualities and audio');
     $posters=$calls('editMessageMedia'); beegCheck($saved['message_kind']==='photo'&&end($posters)['uploads']['poster']['bytes']>0,'the Beeg OpenGraph cover is uploaded into the same quality-menu message');
-    $cover=json_decode(end($posters)['params']['media'],true)['caption']; beegCheck(str_contains($cover,'240p · 480p')&&str_contains($cover,'00:02')&&str_contains($cover,'<b>🎬 Neutral Fixture Video</b>'),'the cover caption lists the actual available qualities and duration with a bold title');
+    $cover=json_decode(end($posters)['params']['media'],true)['caption']; beegCheck($cover===$bot->ui->coverCaption('Neutral Fixture Video',(string)round($config->maxBytes/1000000,1)),'the Beeg cover uses the same customizable caption as Pornhub');
     $args=json_decode(file($trace)[0],true); beegCheck(!in_array('--cookies',$args,true)&&$store->get('youtube_probe_url')==='','Beeg receives no YouTube cookies and never replaces its probe address');
     $click('quality:'.$job['id'].':480',7,-100123,(int)$saved['message_id']); beegCheck($store->claim('media')===null,'another member cannot choose this request quality');
     $click('quality:'.$job['id'].':480',42,-100123,(int)$saved['message_id']); $work=$store->claim('media'); $worker->process($work); $videos=$calls('sendVideo');

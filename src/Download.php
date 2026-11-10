@@ -242,8 +242,9 @@ final class Download
     private function videoRun(string $site,string $canonical,array $options,string $folder,int $seconds,bool $forceCookies=false): string
     {
         if($site==='youtube') return $this->youtube($canonical,$options,$folder,$seconds,$forceCookies);
-        // The pinned Beeg extractor still uses the retired API shape. Load our scoped compatibility plugin.
+        // Load compatibility extractors only for the sites that need them.
         if($site==='beeg') $options=array_merge(['--plugin-dirs',__DIR__.'/ytdlp'],$options);
+        if($site==='xvideos') $options=array_merge(['--plugin-dirs',__DIR__.'/xvideos-ytdlp'],$options);
         try { return $this->plain($canonical,$options,$folder,$seconds); }
         catch(MediaFailure $e) {
             // The administrator sees WHY ("pornhub=dns", "pornhub=certificate"), never the raw downloader output.

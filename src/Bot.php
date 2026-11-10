@@ -251,11 +251,6 @@ final class Bot
         }
         if($row) $rows[]=$row;
         $caption=$this->ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));
-        if(beegUrl($job['url'])) {
-            $qualities=array_filter(array_keys($media['options']),fn($key)=>ctype_digit((string)$key));
-            $caption=$this->text('beeg_quality_prompt',['title'=>$media['title'],'duration'=>Ui::duration((int)($media['duration']??0)),
-                'qualities'=>implode(' · ',array_map(fn($height)=>$height.'p',$qualities)),'max_size'=>round($this->config->maxBytes/1000000,1)]);
-        }
         if(!empty($media['poster_file'])) $this->jobPosterFile($job,(string)$media['poster_file'],$caption,$rows);
         elseif(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);

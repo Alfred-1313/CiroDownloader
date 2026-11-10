@@ -266,7 +266,6 @@ final class Personalization
             if($player) $screens['radio_player'][]=[$kind,$key];
             elseif(!in_array([$kind,$key],$screens['radio'],true)) $screens['radio'][]=[$kind,$key];
         }
-        array_unshift($screens['beeg'],['text','beeg_quality_prompt']);
         foreach(musicServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['button','source_'.$service]];
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];

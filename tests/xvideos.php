@@ -8,6 +8,7 @@ function xvCheck(bool $ok,string $label): void { if(!$ok) throw new RuntimeExcep
 $link='https://www.xvideos.com/video.abc123def4/fixture_video'; $canonical=$link;
 foreach([$link,'xvideos.com/video.abc123def4/fixture_video','https://fr.xvideos.com/video.abc123def4/fixture_video?tracking=1'] as $url) xvCheck(Zero\xvideosUrl($url)===$canonical,'a video URL is canonicalized for the real extractor');
 xvCheck(Zero\xvideosUrl('https://www.xvideos.com/video123456/fixture')==='https://www.xvideos.com/video123456/fixture'&&Zero\xvideosUrl('https://flashservice.xvideos.com/embedframe/123456')==='https://www.xvideos.com/embedframe/123456','numeric and embedded video links are supported');
+xvCheck(Zero\xvideosUrl('https://www.xvideos.com/video.oluhbko4352/fixture_title')==='https://www.xvideos.com/video.oluhbko4352/fixture_title','the reported XVideos video ID is accepted');
 foreach(['https://www.xvideos.com/','https://xvideos.com/profiles/test','https://xvideos.com.evil.test/video.abc123/test','https://xvideos.com@evil.test/video.abc123/test','https://xvideos.com:443/video.abc123/test','ftp://xvideos.com/video.abc123/test','https://xvideos.com/video.abc123/test/extra'] as $url) xvCheck(Zero\xvideosUrl($url)===null,'non-video or unsafe address is rejected');
 xvCheck(Zero\mediaUrl($link)===null&&Zero\adultService($link)==='xvideos','XVideos uses the restricted adult route');
 $temp=sys_get_temp_dir().'/ciro-xvideos-'.bin2hex(random_bytes(6)); mkdir($temp,0700); $server=null;
@@ -69,6 +70,13 @@ PHP
     xvCheck(($video['uploads']['thumbnail']['mime']??'')==='image/jpeg'&&($video['uploads']['thumbnail']['bytes']??0)>0&&$video['uploads']['thumbnail']['bytes']<200000,'the delivered video has its own Telegram-compatible JPEG cover');
     xvCheck((int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()===1&&(int)$store->query("SELECT ok FROM stats WHERE service='xvideos'")->fetchColumn()===1,'the video is scheduled for deletion and counted for XVideos');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); xvCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','audio is delivered as MP3');
+    file_put_contents($mode,json_encode(['og_only'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    $posters=$calls('editMessageMedia'); $cover=json_decode(end($posters)['params']['media'],true)['caption'];
+    xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo'&&$cover===$bot->ui->coverCaption('Neutral Fixture Video',(string)round($config->maxBytes/1000000,1)),'an OpenGraph-only XVideos cover produces the same photo and caption as Pornhub');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
+    file_put_contents($mode,json_encode(['og_only'=>true,'cover_url'=>'https://foreign.example/cover.jpg'])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','an untrusted OpenGraph image is ignored while quality selection remains available');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']); file_put_contents($mode,'{}');
     $worker->xvideosSearchFetch=fn(string $url): string=>'<a href="/video.abc123def4/fixture_video" title="Neutral Fixture Video">Video</a>';
     $send(42,42,'https://www.xvideos.com/?k=fixture'); $search=$store->claim('inspect'); $worker->process($search); $menu=$store->query('SELECT * FROM jobs WHERE id=?',[$search['id']])->fetch();
     $click('vs:'.$search['id'].':i:0',42,42,(int)$menu['message_id']); $selected=$store->claim('inspect'); $worker->process($selected); $quality=$store->query('SELECT * FROM jobs WHERE id=?',[$selected['id']])->fetch();
