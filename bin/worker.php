@@ -78,7 +78,7 @@ try {
                     } elseif($pid>0) $healthPid=$pid;
                 }
                 $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
-                $store->query("UPDATE jobs SET options='{}' WHERE phase='xnxx_search' AND status='done' AND expires>0 AND expires<? AND options<>'{}'",[time()]);
+                $store->query("UPDATE jobs SET options='{}' WHERE phase IN ('xnxx_search','xvideos_search') AND status='done' AND expires>0 AND expires<? AND options<>'{}'",[time()]);
                 foreach($store->query("SELECT * FROM jobs WHERE status='confirming' AND expires>0 AND expires<?",[time()])->fetchAll() as $old) {
                     if($store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='confirming' AND expires<?",[$old['id'],time()])->rowCount()) {
                         try { $bot=new Zero\Bot($config,$store,new Zero\Telegram($config)); $bot->jobMessage($old,$bot->text('quality_expired')); } catch(Throwable) {}

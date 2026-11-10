@@ -10,8 +10,8 @@ namespace Zero;
 final class Reports
 {
     public const SCREENS=['stats','services','cookies','errors','server','speed'];
-    private const SPEED_SERVICES=['youtube','spotify','soundcloud','batch','instagram','pinterest','tiktok','twitter','article','pornhub','beeg','xnxx'];
-    private const SERVICES=['youtube','instagram','pinterest','tiktok','twitter','spotify','soundcloud','menu','batch','pornhub','beeg','xnxx'];
+    private const SPEED_SERVICES=['youtube','spotify','soundcloud','batch','instagram','pinterest','tiktok','twitter','article','pornhub','beeg','xnxx','xvideos'];
+    private const SERVICES=['youtube','instagram','pinterest','tiktok','twitter','spotify','soundcloud','menu','batch','pornhub','beeg','xnxx','xvideos'];
     public function __construct(private Bot $bot) {}
 
     /** The buttons under the main status message. */

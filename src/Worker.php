@@ -17,6 +17,7 @@ final class Worker
 {
     /** Fixture-only override for search-page retrieval. */
     public ?\Closure $xnxxSearchFetch=null;
+    public ?\Closure $xvideosSearchFetch=null;
     public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) {}
 
     public function recover(array $job): void
@@ -63,9 +64,9 @@ final class Worker
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 $bot->jobMessage($job,$bot->text('invalid')); return;
             }
-            if($job['phase']==='inspect'&&xnxxSearchUrl($job['url'])!==null) {
+            if($job['phase']==='inspect'&&($adultSite==='xnxx'&&xnxxSearchUrl($job['url'])!==null||$adultSite==='xvideos'&&xvideosSearchUrl($job['url'])!==null)) {
                 $stage='inspect';
-                (new XnxxSearch($bot,$this->xnxxSearchFetch))->open($job);
+                (new XnxxSearch($bot,$adultSite==='xvideos'?$this->xvideosSearchFetch:$this->xnxxSearchFetch,$adultSite))->open($job);
                 return;
             }
             if($job['phase']==='batch') {

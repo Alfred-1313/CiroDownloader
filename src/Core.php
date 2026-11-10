@@ -684,9 +684,37 @@ function xnxxSearchUrl(string $input): ?string
     if(isset($args['id'])&&is_string($args['id'])&&preg_match('/^\d{1,20}$/D',$args['id'])) $keep[]='id='.$args['id'];
     return 'https://www.xnxx.com/search/'.rawurlencode($query).($keep?'?'.implode('&',$keep):'');
 }
-function adultServices(): array { return ['pornhub','beeg','xnxx']; }
-function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input); }
-function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':((xnxxUrl($input)||xnxxSearchUrl($input))?'xnxx':null)); }
+/** One XVideos video, including modern, numeric and embed URLs. */
+function xvideosUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:(?:www|m|amp|flashservice|[a-z]{2})\.)?xvideos\.com/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!preg_match('/^(?:(?:www|m|amp|flashservice|[a-z]{2})\.)?xvideos\.com$/D',strtolower($u['host']??''))) return null;
+    $path=$u['path']??'';
+    if(preg_match('~^/embedframe/([a-z0-9]{1,32})/?$~iD',$path,$m)) return 'https://www.xvideos.com/embedframe/'.$m[1];
+    if(!preg_match('~^/video(\.?)([a-z0-9]{1,32})(?:/([a-z0-9_-]{0,200}))?/?$~iD',$path,$m)) return null;
+    return 'https://www.xvideos.com/video'.$m[1].$m[2].'/'.($m[3]??'');
+}
+/** A single XVideos search, with a bounded query and optional page. */
+function xvideosSearchUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:(?:www|m|amp|[a-z]{2})\.)?xvideos\.com(?:/|\?)~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!preg_match('/^(?:(?:www|m|amp|[a-z]{2})\.)?xvideos\.com$/D',strtolower($u['host']??''))||!in_array($u['path']??'',['','/'],true)) return null;
+    parse_str($u['query']??'',$args); $query=is_string($args['k']??null)?trim($args['k']):'';
+    if(mb_strlen($query)>120||!preg_match('/^[\p{L}\p{N} _.-]{1,120}$/uD',$query)) return null;
+    $page=isset($args['p'])&&is_string($args['p'])&&preg_match('/^\d{1,2}$/D',$args['p'])?'&p='.$args['p']:'';
+    return 'https://www.xvideos.com/?k='.rawurlencode($query).$page;
+}
+function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos']; }
+function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input); }
+function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':((xnxxUrl($input)||xnxxSearchUrl($input))?'xnxx':((xvideosUrl($input)||xvideosSearchUrl($input))?'xvideos':null))); }
 
 function instagramUrl(string $input): ?string
 {

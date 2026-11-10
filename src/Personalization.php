@@ -92,6 +92,7 @@ final class Personalization
             [$this->switchButton('adult_pornhub','custom:adult',$store->get('adult.pornhub','0')==='1')],
             [$this->switchButton('adult_beeg','custom:adultbeeg',$store->get('adult.beeg','0')==='1')],
             [$this->switchButton('adult_xnxx','custom:adultxnxx',$store->get('adult.xnxx','0')==='1')],
+            [$this->switchButton('adult_xvideos','custom:adultxvideos',$store->get('adult.xvideos','0')==='1')],
             [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
             [$this->heading($ui->label('adult_filters'),'adult_filters')],
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
@@ -258,6 +259,7 @@ final class Personalization
             array_map(fn($key)=>['button',$key],['radio_play','radio_play_all','radio_play_chosen','radio_mark_live','radio_mark_off','radio_skip','radio_stop','radio_clear','radio_refresh','radio_close','radio_back','radio_open','radio_setup','radio_use','radio_remove','radio_remove_yes']));
         foreach(adultServices() as $site) $screens[$site]=array_map(fn($key)=>['text',$site.'_'.$key],['caption','notice','people','views','tags','error_size','error_restricted','error_format','error_network','error_blocked']);
         $screens['xnxx']=array_merge($screens['xnxx'],array_map(fn($key)=>['text','xnxx_search_'.$key],['loading','results','empty','expired','owner','selected']),array_map(fn($key)=>['button','xnxx_search_'.$key],['result','previous','next','close']));
+        $screens['xvideos']=array_merge($screens['xvideos'],array_map(fn($key)=>['text','xvideos_search_'.$key],['loading','results','empty','expired','owner','selected']),array_map(fn($key)=>['button','xvideos_search_'.$key],['result','previous','next','close']));
         $screens['radio_player']=[];
         foreach(['text','button'] as $kind) foreach($kind==='text'?$this->entries('text','radio')+$this->entries('caption','radio'):$this->entries('button','radio') as $key=>$item) {
             $player=str_starts_with($key,'radio_player_')||str_starts_with($key,'radio_repeat_')||in_array($key,['radio_previous','radio_resume','radio_pause','radio_next','radio_menu'],true);
@@ -772,6 +774,9 @@ final class Personalization
             $this->adultPage($chat,$message);
         } elseif($op==='adultxnxx') {
             $this->bot->store->set('adult.xnxx',$this->bot->store->get('adult.xnxx','0')==='1'?'0':'1');
+            $this->adultPage($chat,$message);
+        } elseif($op==='adultxvideos') {
+            $this->bot->store->set('adult.xvideos',$this->bot->store->get('adult.xvideos','0')==='1'?'0':'1');
             $this->adultPage($chat,$message);
         } elseif($op==='adultdelp') {
             $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');

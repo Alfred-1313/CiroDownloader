@@ -414,7 +414,7 @@ final class Bot
             $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back','update:close'],true);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $isRadio=$radioCallback;
-            $isXnxxSearch=preg_match('/^xs:\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
+            $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
