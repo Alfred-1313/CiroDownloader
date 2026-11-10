@@ -285,7 +285,10 @@ final class Download
             // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
             $options=self::sizedOptions($info,$this->config->maxBytes);
             $options['meta']=self::siteMeta($info);
-            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>'','poster_file'=>self::posterFile($folder),'duration'=>max(0,(int)ceil((float)($info['duration']??0)))];
+            $poster=$site==='xvideos'?$this->qualityPoster($folder):self::posterFile($folder);
+            $remote=$site==='xvideos'&&$poster===null?(self::trustedPoster($info,'xvideos-cdn.com')?:self::trustedPoster($info,'xvideos.com')):'';
+            if($site==='xvideos') error_log('XVideos quality cover candidates='.count($info['thumbnails']??[]).' source='.($poster!==null?'file':($remote!==''?'remote':'none')));
+            return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>$remote,'poster_file'=>$poster,'duration'=>max(0,(int)ceil((float)($info['duration']??0)))];
         }
         $options=self::qualityOptions($info);
         $audio=self::audioOptions($info);
@@ -343,6 +346,25 @@ final class Download
             if(!is_file($file)||filesize($file)<200||filesize($file)>8388608) continue;
             $head=(string)file_get_contents($file,false,null,0,12);
             if(str_starts_with($head,"\xFF\xD8\xFF")||str_starts_with($head,"\x89PNG")||(str_starts_with($head,'RIFF')&&substr($head,8,4)==='WEBP')) return $file;
+        }
+        return null;
+    }
+    /** Decode the downloaded site image into a bounded JPEG that Telegram can display as a photo. */
+    private function qualityPoster(string $folder): ?string
+    {
+        foreach(glob($folder.'/poster.*')?:[] as $source) {
+            if(!is_file($source)||filesize($source)<200||filesize($source)>8388608) continue;
+            $size=@getimagesize($source);
+            if(!$size||$size[0]<1||$size[1]<1||$size[0]*$size[1]>40000000) continue;
+            $path=$folder.'/quality-cover.jpg';
+            try {
+                $this->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-filter_threads','1','-threads','1',
+                    '-protocol_whitelist','file,pipe','-i',$source,'-map','0:v:0','-frames:v','1',
+                    '-vf',"scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease",'-pix_fmt','yuvj420p','-q:v','3','-threads','1',$path],$folder,15);
+                clearstatcache(true,$path);
+                if(is_file($path)&&filesize($path)>=200&&filesize($path)<=8388608) return $path;
+            } catch(MediaFailure) {}
+            if(is_file($path)) @unlink($path);
         }
         return null;
     }

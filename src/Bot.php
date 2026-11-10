@@ -114,13 +114,17 @@ final class Bot
         $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
         try {
-            if($message>0) $this->api->call('editMessageMedia',$params+['message_id'=>$message,
+            if($message>0) $result=$this->api->call('editMessageMedia',$params+['message_id'=>$message,
                 'media'=>['type'=>'photo','media'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']]);
             else {
                 if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
                 $result=$this->api->call('sendPhoto',$params+['photo'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']);
                 $message=(int)($result['message_id']??0);
                 if(!$message) throw new \RuntimeException('Missing poster message ID');
+            }
+            if(adultService($job['url'])==='xvideos') {
+                $photos=is_array($result)&&is_array($result['photo']??null)?$result['photo']:[];
+                $poster=$photos?(string)(end($photos)['file_id']??''):'';
             }
             $this->store->query("UPDATE jobs SET message_id=?,message_kind='photo',poster=? WHERE id=?",[$message,$poster,$job['id']]);
         } catch(\RuntimeException $e) {
@@ -130,6 +134,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A rejected thumbnail must not prevent choosing and downloading the video.
+            if(adultService($job['url'])==='xvideos') error_log('XVideos quality cover remote=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
@@ -163,6 +168,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A refused picture must not prevent choosing and downloading the video.
+            if(adultService($job['url'])==='xvideos') error_log('XVideos quality cover upload=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }

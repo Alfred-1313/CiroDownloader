@@ -14,12 +14,16 @@ with open(MODE) as mode:
 
 def page(self, url, video_id, *args, **kwargs):
     if isinstance(self, XVideosIE) and XVideosIE.suitable(url):
-        cover = settings.get('cover_url', 'https://cdn42-pic.xvideos-cdn.com/cover.jpg')
-        thumb = '' if settings.get('og_only') else 'setThumbUrl("' + BASE + '/cover.jpg");'
+        image = '/cover.webp' if settings.get('webp') else '/cover.jpg'
+        cover = settings.get('cover_url', 'https://cdn42-pic.xvideos-cdn.com' + image)
+        cover_field = 'twitter:image' if settings.get('twitter_only') else 'og:image'
+        thumb = '' if settings.get('og_only') else 'setThumbUrl("' + BASE + image + '");'
         if settings.get('broken_preferred'):
             thumb += 'setThumbUrl169("' + BASE + '/missing-cover.jpg");'
+        if settings.get('broken_all'):
+            thumb = 'setThumbUrl("' + BASE + '/missing-cover.jpg");setThumbUrl169("' + BASE + '/missing-cover.jpg");'
         return ('<html><head><meta property="og:title" content="Neutral Fixture Video">'
-                '<meta property="og:duration" content="2"><meta property="og:image" content="' + cover + '"></head><body><script>'
+                '<meta property="og:duration" content="2"><meta property="' + cover_field + '" content="' + cover + '"></head><body><script>'
                 + thumb +
                 'setVideoHLS("' + BASE + '/master.m3u8");</script></body></html>')
     return original(self, url, video_id, *args, **kwargs)
@@ -27,8 +31,9 @@ def page(self, url, video_id, *args, **kwargs):
 InfoExtractor._download_webpage = page
 
 def open_request(self, request):
-    if request.url == 'https://cdn42-pic.xvideos-cdn.com/cover.jpg':
-        request.update(url=BASE + '/cover.jpg')
+    for image in ('/cover.jpg', '/cover.webp'):
+        if request.url == 'https://cdn42-pic.xvideos-cdn.com' + image:
+            request.update(url=BASE + ('/missing-cover.jpg' if settings.get('cover_unreachable') else image))
     return original_open(self, request)
 
 yt_dlp.YoutubeDL.urlopen = open_request

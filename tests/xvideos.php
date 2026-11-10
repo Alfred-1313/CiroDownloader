@@ -19,11 +19,13 @@ try {
         $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.$width.'x'.$pixels.':r=5:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest','-hls_time','2','-hls_list_size','0',$temp.'/'.$height.'/stream.m3u8'],$temp,60);
     }
     $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=red:s=400x400','-frames:v','1','-threads','1',$temp.'/cover.jpg'],$temp,30);
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-i',$temp.'/cover.jpg','-frames:v','1','-threads','1',$temp.'/cover.webp'],$temp,30);
     file_put_contents($temp.'/master.m3u8',"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=150000,RESOLUTION=426x240,CODECS=\"avc1.640015,mp4a.40.2\"\n/240/stream.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=854x480,CODECS=\"avc1.64001f,mp4a.40.2\"\n/480/stream.m3u8\n");
     $log=$temp.'/http.jsonl'; $trace=$temp.'/backend.jsonl'; $mode=$temp.'/mode.json'; file_put_contents($log,''); file_put_contents($trace,''); file_put_contents($mode,'{}');
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php $root='.var_export($temp,true).';$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH);'. <<<'PHP'
         if($path==='/cover.jpg') { header('Content-Type: image/jpeg');readfile($root.'/cover.jpg');return; }
+        if($path==='/cover.webp') { header('Content-Type: image/webp');readfile($root.'/cover.webp');return; }
         if($path==='/missing-cover.jpg') { http_response_code(404);return; }
         if($path==='/master.m3u8'||preg_match('~^/(240|480)/stream[0-9]*\.(m3u8|ts)$~D',$path)) {
             header('Content-Type: '.(str_ends_with($path,'.m3u8')?'application/vnd.apple.mpegurl':'video/mp2t'));readfile($root.$path);return;
@@ -34,6 +36,7 @@ PHP
         '$counter=$root."/counter";$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$result=str_starts_with($method,"send")||str_starts_with($method,"edit")?["message_id"=>(int)($_POST["message_id"]??900+$next)]:true;'.
+        'if($method==="editMessageMedia"||$method==="sendPhoto") $result["photo"]=[["file_id"=>"FIXTURE_QUALITY_COVER"]];'.
         'if($method==="sendVideo"&&isset($uploads["cover"])) $result["video"]=["cover"=>[["file_id"=>"FIXTURE_VIDEO_COVER","width"=>$uploads["cover"]["width"],"height"=>$uploads["cover"]["height"]]]];'.
         'header("Content-Type: application/json");echo json_encode(["ok"=>true,"result"=>$result]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
@@ -81,6 +84,16 @@ PHP
     $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
     file_put_contents($mode,json_encode(['broken_preferred'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo','an unavailable preferred thumbnail does not hide another available site cover');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
+    file_put_contents($mode,json_encode(['broken_all'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+    xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo','the quality menu uses the page cover when all player thumbnails are unavailable');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
+    file_put_contents($mode,json_encode(['og_only'=>true,'twitter_only'=>true,'webp'=>true,'cover_url'=>'//cdn42-pic.xvideos-cdn.com/cover.webp'])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $posters=$calls('editMessageMedia'); $photo=end($posters);
+    xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo'&&($photo['uploads']['poster']['mime']??'')==='image/jpeg'&&($photo['uploads']['poster']['width']??0)===400,'a protocol-relative Twitter-card WebP cover is decoded and uploaded as a JPEG quality-menu photo');
+    $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
+    file_put_contents($mode,json_encode(['og_only'=>true,'cover_unreachable'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $posters=$calls('editMessageMedia'); $photo=end($posters); $remote=json_decode($photo['params']['media'],true)['media']??'';
+    xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='photo'&&$remote==='https://cdn42-pic.xvideos-cdn.com/cover.jpg','Telegram can fetch the trusted page cover when the worker cannot download the image');
+    xvCheck($saved['poster']==='FIXTURE_QUALITY_COVER','only the confirmed Telegram photo ID is retained for a remotely fetched cover');
     $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
     file_put_contents($mode,json_encode(['og_only'=>true,'cover_url'=>'https://foreign.example/cover.jpg'])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     xvCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','an untrusted OpenGraph image is ignored while quality selection remains available');
