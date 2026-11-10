@@ -187,14 +187,14 @@ final class RadioPanel
         if(!Radio::enabled($this->bot->store)) { $this->bot->send($chat,$this->bot->text('radio_disabled')); return; }
         $this->panel($chat,$user,0);
     }
-    /** /radio in a group: the controls to the group's administrators, a short word to anyone else. */
+    /** /radio always posts a fresh full management menu in the requesting group/topic. */
     public function commandGroup(int $chat,int $user,int $thread): void
     {
         if(!Radio::enabled($this->bot->store)) { $this->bot->send($chat,$this->bot->text('radio_disabled'),[],0,$thread); return; }
         $station=$this->radio->station($chat);
         if($station===null) { $this->bot->send($chat,$this->bot->text('radio_group_none'),[],0,$thread); return; }
         if(!$this->radio->mayControl($this->bot->api,$chat,$user,$this->bot->admin($user))) { $this->bot->send($chat,$this->bot->text($this->refusal()),[],0,$thread); return; }
-        try { $this->status($chat,$user,0,$station,$thread); }
+        try { (new RadioPlayerPanel($this->bot))->show($chat,$user,0,$station,$thread,'menu'); }
         catch(\Throwable $e) {
             error_log('Radio group panel failed: '.get_class($e).' (code '.(int)$e->getCode().')');
             $params=['chat_id'=>$chat,'text'=>$this->bot->ui->plain('radio_failed')];

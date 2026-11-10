@@ -121,7 +121,12 @@ try {
     // 7. Controls in the group.
     $radio->setLive(-1100,true); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100)); $status=$api->last('editMessageCaption')??$api->last('editMessageMedia')??$api->last('sendPhoto');
     $caption=$status['caption']??$status['media']['caption']??'';
-    rdCheck(str_contains($caption,'پلی‌لیست بعدی')&&str_contains($caption,'●')&&rdActions($status)===['rd:j:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100','rd:h:-1100','rd:e:-1100','rd:i:-1100','rd:n:-1100'],'/radio in a group shows the photo player controls to an administrator');
+    rdCheck(str_contains($caption,'پلی‌لیست بعدی')&&str_contains($caption,'●')&&rdActions($status)===['rd:j:-1100','rd:b:-1100','rd:t:-1100','rd:k:-1100','rd:m:-1100','rd:h:-1100','rd:e:-1100','rd:i:-1100','rd:n:-1100','rd:l:-1100','rd:s:-1100','rd:x:-1100','rd:z:-1100','rd:v:-1100'],'/radio in a group shows the full photo management menu to an administrator');
+    foreach(['admins_only'=>'1','enabled'=>'0'] as $setting=>$value) {
+        $original=$store->get($setting,$setting==='enabled'?'1':'0'); $store->set($setting,$value); $api->calls=[]; $bot->handle(rdText('/radio',55,-1100));
+        $reply=$api->last('sendMessage'); rdCheck($reply!==null&&(int)$reply['chat_id']===-1100&&$reply['text']===$bot->denial(-1100)&&!$api->last('sendPhoto'),'an explicit group /radio explains the access restriction instead of silently returning: '.$setting);
+        $store->set($setting,$original);
+    }
     $api->calls=[]; $bot->handle(rdText('/radio',66,-1100)); rdCheck(str_contains($api->last('sendMessage')['text'],'فقط مدیرهای'),'a member only gets a short refusal');
     $api->calls=[]; $bot->handle(rdText('/radio',55,-3333)); rdCheck(str_contains($api->last('sendMessage')['text'],'رادیو ندارد'),'a group without a radio says so');
     $bot->handle(rdClick('rd:k:-1100',55,-1100)); rdCheck($radio->station(-1100)['command']==='skip','skip is passed to the player');

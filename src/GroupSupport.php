@@ -87,6 +87,7 @@ final class GroupSupport
         if($command==='radio') {
             $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
             if($this->bot->allowed($user,$chat)) (new RadioPanel($this->bot))->commandGroup($chat,$user,$thread);
+            else $this->bot->send($chat,$this->bot->denial($chat),[],0,$thread);
             return;
         }
         if($command==='update') {

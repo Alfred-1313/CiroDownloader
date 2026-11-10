@@ -40,6 +40,8 @@ try {
     file_put_contents($temp.'/mode.json','{}'); $before=count($method('sendPhoto'));
     $bot->handle(['update_id'=>60001,'message'=>['message_id'=>601,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321,'text'=>'/radio']]);
     navigationCheck(count($method('sendPhoto'))===$before+1,'an explicit /radio command posts its player visibly instead of silently editing an older message');
+    $cards=$method('sendPhoto'); $management=end($cards); $actions=array_column(array_merge(...json_decode($management['params']['reply_markup'],true)['inline_keyboard']),'callback_data');
+    navigationCheck(in_array('rd:x:-1001:0',$actions,true)&&in_array('rd:s:-1001:0',$actions,true)&&in_array('rd:l:-1001:0',$actions,true)&&in_array('rd:v:-1001:0',$actions,true),'an explicit /radio opens the full management menu immediately, including clear, stop, live status and refresh');
     navigationCheck((int)$store->query("SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn()===1,'reopening retires the old station panel instead of leaving multiple live subscriptions');
     $before=count($method('sendPhoto')); $click(55,-1001,503,true);
     navigationCheck(count($method('sendPhoto'))===$before+1&&$radio->queued(-1001)===1,'a human administrator can use controls on a bot message sent on behalf of the group');
@@ -48,7 +50,7 @@ try {
     $before=count($method('sendPhoto'));
     $bot->handle(['update_id'=>60002,'message'=>['message_id'=>602,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321,'text'=>'/radio@RadioFixtureBot']]);
     navigationCheck(count($method('sendPhoto'))===$before+1,'the bot-addressed /radio command opens controls in the original group topic');
-    $live=(int)$store->query("SELECT message_id FROM radio_panels WHERE chat_id=-1001 AND view='player'")->fetchColumn(); file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$live]])); $before=count($method('sendPhoto'));
+    $live=(int)$store->query("SELECT message_id FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn(); file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$live]])); $before=count($method('sendPhoto'));
     $bot->handle(['callback_query'=>['id'=>'missing-menu','from'=>['id'=>55],'message'=>['message_id'=>$live,'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321],'data'=>'rd:m:-1001']]);
     navigationCheck(count($method('sendPhoto'))===$before+1&&(int)$store->query("SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn()===1,'an explicit control click recovers a deleted panel instead of silently failing');
     $live=(int)$store->query("SELECT message_id FROM radio_panels WHERE chat_id=-1001 AND view IN ('player','menu')")->fetchColumn(); file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$live]])); $before=count($method('sendPhoto'));
@@ -73,7 +75,7 @@ try {
     file_put_contents($temp.'/mode.json','{"reject_photo":true,"photo_error_code":403}'); $before=count($method('sendMessage'));
     $bot->handle(['update_id'=>60003,'message'=>['message_id'=>603,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1001,'type'=>'supergroup'],'message_thread_id'=>321,'text'=>'/radio']]);
     $texts=$method('sendMessage'); $fallback=end($texts);
-    navigationCheck(count($texts)===$before+1&&(int)$fallback['params']['chat_id']===-1001&&str_contains($fallback['params']['reply_markup'],'rd:t:-1001'),'a group that refuses photos still gets usable text controls instead of silence');
+    navigationCheck(count($texts)===$before+1&&(int)$fallback['params']['chat_id']===-1001&&str_contains($fallback['params']['reply_markup'],'rd:t:-1001')&&str_contains($fallback['params']['reply_markup'],'rd:x:-1001'),'a group that refuses photos still gets the full usable management menu instead of silence');
     $photoCount=count($method('sendPhoto')); $mediaCount=count($method('editMessageMedia')); $store->query("UPDATE radio_panels SET updated=0,hash='' WHERE chat_id=-1001"); (new Zero\RadioPlayerPanel($bot))->refresh();
     navigationCheck(count($method('sendPhoto'))===$photoCount&&count($method('editMessageMedia'))===$mediaCount,'text controls do not keep retrying a rejected group photo on each timer tick');
     file_put_contents($temp.'/mode.json','{}'); $click();
@@ -87,6 +89,11 @@ try {
     navigationCheck(!$status['running']&&microtime(true)-$started<3,'worker shutdown reaps a slow radio panel child without waiting for Telegram');
     proc_close($worker); $worker=null; $lock=fopen($root.'/worker.lock','c');
     navigationCheck(flock($lock,LOCK_EX|LOCK_NB),'the radio refresh child releases the inherited worker lock on shutdown'); flock($lock,LOCK_UN); fclose($lock);
+    $radio->save(-1004,'Idle group','group',55,'rtmps://dc4-1.rtmp.t.me/s/1234567890:FakeKeyForTestsOnly_AbCdEf'); file_put_contents($temp.'/mode.json','{}');
+    $reopen=function(int $id) use($bot): void { $bot->handle(['update_id'=>$id,'message'=>['message_id'=>$id,'from'=>['id'=>55,'is_bot'=>false],'chat'=>['id'=>-1004,'type'=>'group'],'text'=>'/radio@RadioFixtureBot']]); };
+    $before=count($method('sendPhoto')); $reopen(70001); $old=(int)$store->query('SELECT message_id FROM radio_panels WHERE chat_id=-1004')->fetchColumn();
+    file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$old]])); $reopen(70002); $fresh=$store->query('SELECT * FROM radio_panels WHERE chat_id=-1004')->fetch();
+    navigationCheck(count($method('sendPhoto'))===$before+2&&(int)$fresh['message_id']!==$old&&$fresh['view']==='menu'&&(int)$fresh['thread_id']===0,'each addressed /radio resends management in a basic group with an empty queue and stopped stream, even after deleting its previous message');
 } finally {
     foreach([$worker,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); }
     Zero\Download::clean($temp);

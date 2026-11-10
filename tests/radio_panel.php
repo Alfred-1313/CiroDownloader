@@ -77,6 +77,8 @@ try {
     panelCheck((int)$api->last('editMessageCaption')['message_id']===$other,'the next refresh reaches the other topic instead of starving it behind the first panel');
     $view->forget(-1001,$other);
     $click('m'); $rows=$api->last('editMessageCaption')['reply_markup']['inline_keyboard']; $actions=array_column(array_merge(...$rows),'callback_data');
+    panelCheck(!in_array('rd:x:-1001:0',$actions,true),'the management menu can collapse to the compact player');
+    $click('m'); $rows=$api->last('editMessageCaption')['reply_markup']['inline_keyboard']; $actions=array_column(array_merge(...$rows),'callback_data');
     panelCheck(in_array('rd:x:-1001:0',$actions,true)&&in_array('rd:z:-1001:0',$actions,true)&&in_array('rd:v:-1001:0',$actions,true),'the menu exposes clear, close and refresh alongside the player');
     $paused=$radio->paused(-1001); $mode=$radio->mode(-1001); $command=$radio->station(-1001)['command'];
     foreach(['t','o','b','h','e','i','n','j'] as $op) $click($op,66);
