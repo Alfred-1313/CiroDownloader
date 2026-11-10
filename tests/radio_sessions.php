@@ -53,7 +53,7 @@ try {
     file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$old,$first]])); $event('video_chat_ended',11); $event('video_chat_started',12); $b=$radio->session(-1001);
     sessionCheck($b!==$a&&!$radio->paused(-1001)&&empty($radio->progress(-1001)),'same-second end/restart rotates the session and clears old progress and pause');
     sessionCheck(!is_file($oldAudio)&&!is_file($oldCover)&&is_file($ready)&&$store->query('SELECT status FROM radio_queue WHERE id=?',[$next])->fetchColumn()==='ready','ending a stream releases its playing file while preserving prepared upcoming songs');
-    foreach(['t','x','s','h','j','l','z'] as $op) $click('rd:'.$op.':-1001:'.$a,$first);
+    foreach(['t','x','s','o','h','j','l','z'] as $op) $click('rd:'.$op.':-1001:'.$a,$first);
     $click('rd:D:-1001:'.$a,$private,42,42); $click('rd:x:-1001',$first);
     sessionCheck(!$radio->paused(-1001)&&$radio->mode(-1001)==='off'&&$radio->station(-1001)['command']===''&&$radio->queued(-1001)===1,'old and legacy buttons cannot pause, clear, stop, restart or otherwise mutate the new stream');
     sessionCheck($radio->station(-1001)!==null,'an old private management confirmation cannot delete the new stream station');

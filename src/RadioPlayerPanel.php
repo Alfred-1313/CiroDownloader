@@ -80,17 +80,12 @@ final class RadioPlayerPanel
         if(count($queue)>8) $lines[]=$ui->text('radio_player_more',['count'=>count($queue)-8]);
         $queueText=$lines?$ui->text(count($queue)>3?'radio_player_queue_collapsed':'radio_player_queue',['tracks'=>implode("\n",$lines)],['tracks']):$ui->text('radio_player_empty');
         $state=$paused?$ui->text('radio_player_paused'):((int)$station['live']===0?$ui->text('radio_status_off'):($preparing?$ui->text('radio_player_preparing'):''));
-        $text=Ui::fitCaption($ui->text('radio_player_caption',['track'=>$track,'bar'=>$bar,'times'=>$left.str_repeat(' ',max(1,21-strlen($left)-strlen($right))).$right,'queue'=>$queueText,'state'=>$state],['track','queue','state']));
         $mode=$this->radio->mode($id);
-        $row=[$this->button('radio_player_restart',$rd('j')),$this->button('radio_previous',$rd('b')),$this->button($paused?'radio_resume':'radio_pause',$rd('t')),$this->button('radio_next',$rd('k')),$this->button('radio_menu',$rd('m'))];
-        $modes=[];
-        foreach(['shuffle'=>'h','all'=>'e','one'=>'i','off'=>'n'] as $choice=>$op) {
-            $button=$this->button('radio_repeat_'.$choice,$rd($op));
-            if($choice===$mode) $button['text']=$ui->plainWith('radio_player_mode_selected',['label'=>$button['text']]);
-            $modes[]=$button;
-        }
-        $rows=[$row,$modes];
+        $text=Ui::fitCaption($ui->text('radio_player_mode_'.$mode)."\n\n".$ui->text('radio_player_caption',['track'=>$track,'bar'=>$bar,'times'=>$left.str_repeat(' ',max(1,21-strlen($left)-strlen($right))).$right,'queue'=>$queueText,'state'=>$state],['track','queue','state']));
+        $row=[$this->button('radio_repeat_'.$mode,$rd('o')),$this->button('radio_previous',$rd('b')),$this->button($paused?'radio_resume':'radio_pause',$rd('t')),$this->button('radio_next',$rd('k')),$this->button('radio_menu',$rd('m'))];
+        $rows=[$row];
         if($view==='menu') {
+            $rows[]=[$this->button('radio_player_restart',$rd('j'))];
             $rows[]=[$this->button((int)$station['live']===1?'radio_mark_off':'radio_mark_live',$rd('l'))];
             $rows[]=[$this->button('radio_stop',$rd('s')),$this->button('radio_clear',$rd('x'))];
             $rows[]=[$this->button('radio_close',$rd('z')),$this->button('radio_refresh',$rd('v'))];

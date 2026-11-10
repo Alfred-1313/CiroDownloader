@@ -37,7 +37,9 @@ try {
     panelCheck(str_contains($caption,'<blockquote><b>خواننده &amp; نام')&&str_contains($caption,'اثر &lt;جدید&gt;')&&str_contains($caption,'<blockquote expandable>'),'artist/work and a long upcoming queue use safe native blockquotes');
     panelCheck(str_contains($caption,'03:10')&&str_contains($caption,'03:14')&&str_contains($caption,'●'),'elapsed, total duration and the moving progress bar are present');
     panelCheck(array_column($row,'text')===['🔄','⏮','▶️','⏭','☰']&&!array_filter($row,fn($button)=>isset($button['style'])),'the five transport controls have neutral inline styling and show the playing state');
-    panelCheck(array_column($photo['reply_markup']['inline_keyboard'][1],'text')===['🔀','🔁','🔂','✅ 🔃'],'all playback modes are visible and the current ordered mode is marked');
+    $actions=array_column(array_merge(...$photo['reply_markup']['inline_keyboard']),'callback_data');
+    panelCheck($row[0]['callback_data']==='rd:o:-1001:0'&&!array_intersect($actions,['rd:h:-1001:0','rd:e:-1001:0','rd:i:-1001:0','rd:n:-1001:0']),'all modes share one cycling button, with normal playback as the default');
+    panelCheck(str_starts_with($caption,$bot->text('radio_player_mode_off')."\n\n"),'the current mode appears as display text above the track caption');
     $click=function(string $op,int $user=55,int $chat=-1001,int $id=0) use($bot,$message): void {
         $bot->handle(['callback_query'=>['id'=>'panel'.random_int(1,99999),'from'=>['id'=>$user],'message'=>['message_id'=>$message,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'message_thread_id'=>$chat<0?321:0],'data'=>'rd:'.$op.':'.($id?:-1001)]]);
     };
@@ -47,11 +49,11 @@ try {
     panelCheck(!array_filter(array_slice($api->calls,$before),fn($call)=>str_starts_with($call[0],'edit')),'an unchanged paused panel does not send redundant Telegram edits');
     $click('t'); panelCheck(!$radio->paused(-1001),'play resumes the same station');
     panelCheck($api->last('editMessageCaption')['reply_markup']['inline_keyboard'][0][2]['text']==='▶️','pressing the paused icon restores the playing icon');
-    $click('o'); panelCheck($radio->mode(-1001)==='all','the mode switch enables playlist repeat');
-    $click('o'); panelCheck($radio->mode(-1001)==='one','the next mode repeats one track');
-    $click('o'); panelCheck($radio->mode(-1001)==='shuffle','legacy mode cycling reaches shuffle');
-    $click('o'); panelCheck($radio->mode(-1001)==='off','the next mode returns to normal playback');
-    $click('h'); panelCheck($radio->mode(-1001)==='shuffle'&&$api->last('editMessageCaption')['reply_markup']['inline_keyboard'][1][0]['text']==='✅ 🔀','Shuffle is directly selectable and visibly active');
+    foreach(['all'=>'🔁','one'=>'🔂','shuffle'=>'🔀','off'=>'🔄'] as $mode=>$icon) {
+        $click('o'); $edit=$api->last('editMessageCaption'); $button=$edit['reply_markup']['inline_keyboard'][0][0];
+        panelCheck($radio->mode(-1001)===$mode&&$button['text']===$icon&&$button['callback_data']==='rd:o:-1001:0'&&str_starts_with($edit['caption'],$bot->text('radio_player_mode_'.$mode)."\n\n")&&(int)$edit['message_id']===$message,'cycling updates the same button and read-only caption mode in place: '.$mode);
+    }
+    $click('h'); panelCheck($radio->mode(-1001)==='shuffle'&&$api->last('editMessageCaption')['reply_markup']['inline_keyboard'][0][0]['text']==='🔀','an older direct Shuffle control updates the single cycling button too');
     $order=array_column($radio->queue(-1001,100),'id');
     panelCheck(array_column($radio->queue(-1001,100),'id')===$order&&$order[0]===$ids[0]&&count(array_unique($order))===count($ids),'shuffle preserves the playing song and a stable complete upcoming queue');
     $click('h'); panelCheck($radio->mode(-1001)==='off','pressing active Shuffle restores ordered playback');
@@ -77,9 +79,9 @@ try {
     panelCheck((int)$api->last('editMessageCaption')['message_id']===$other,'the next refresh reaches the other topic instead of starving it behind the first panel');
     $view->forget(-1001,$other);
     $click('m'); $rows=$api->last('editMessageCaption')['reply_markup']['inline_keyboard']; $actions=array_column(array_merge(...$rows),'callback_data');
-    panelCheck(!in_array('rd:x:-1001:0',$actions,true),'the management menu can collapse to the compact player');
+    panelCheck(!in_array('rd:x:-1001:0',$actions,true)&&count($rows)===1&&count($rows[0])===5,'the compact player has one row of five controls and no separate mode row');
     $click('m'); $rows=$api->last('editMessageCaption')['reply_markup']['inline_keyboard']; $actions=array_column(array_merge(...$rows),'callback_data');
-    panelCheck(in_array('rd:x:-1001:0',$actions,true)&&in_array('rd:z:-1001:0',$actions,true)&&in_array('rd:v:-1001:0',$actions,true),'the menu exposes clear, close and refresh alongside the player');
+    panelCheck(in_array('rd:x:-1001:0',$actions,true)&&in_array('rd:z:-1001:0',$actions,true)&&in_array('rd:v:-1001:0',$actions,true)&&in_array('rd:j:-1001:0',$actions,true),'the menu exposes restart from the beginning, clear, close and refresh alongside the player');
     $paused=$radio->paused(-1001); $mode=$radio->mode(-1001); $command=$radio->station(-1001)['command'];
     foreach(['t','o','b','h','e','i','n','j'] as $op) $click($op,66);
     panelCheck($paused===$radio->paused(-1001)&&$mode===$radio->mode(-1001)&&$command===$radio->station(-1001)['command'],'ordinary members cannot steer the player, restart it or change any mode');
@@ -91,7 +93,8 @@ try {
     panelCheck($api->last('editMessageCaption')!==null&&$store->query('SELECT view FROM radio_panels WHERE chat_id=42')->fetchColumn()==='static','Back renders the private station list as a photo caption and stops timer edits');
     $view->show(-1001,55,0,$radio->station(-1001),321); $api->admins=[]; $store->query('DELETE FROM settings WHERE key=?',['radio.admin.-1001.55']); $store->query('UPDATE radio_panels SET updated=0'); $view->refresh();
     panelCheck((int)$store->query("SELECT COUNT(*) FROM radio_panels WHERE chat_id=-1001")->fetchColumn()===0,'background refresh rechecks authorization and removes revoked panels');
-    foreach(['radio_player_caption','radio_player_track','radio_player_queue_collapsed'] as $key) panelCheck($bot->ui->customizable('text',$key),'the new public caption is editable: '.$key);
+    foreach(['radio_player_caption','radio_player_track','radio_player_queue_collapsed','radio_player_mode_off','radio_player_mode_all','radio_player_mode_one','radio_player_mode_shuffle'] as $key) panelCheck($bot->ui->customizable('text',$key),'the public caption and mode display are editable: '.$key);
+    panelCheck(!$bot->ui->customizable('text','radio_player_mode_selected'),'the obsolete separate-button selection marker is hidden from Personalization');
     foreach(['radio_pause','radio_resume','radio_previous','radio_next','radio_menu','radio_repeat_all','radio_repeat_one','radio_repeat_off','radio_repeat_shuffle','radio_player_restart'] as $key) panelCheck($bot->ui->customizable('button',$key),'the public transport button is editable: '.$key);
     $clock=new Zero\RadioPlayback($store,-1001); $item=$store->query('SELECT * FROM radio_queue WHERE id=?',[$ids[0]])->fetch(); $clock->start($item,0); $clock->silence(3,2); $clock->tick(6,false);
     panelCheck(abs($radio->progress(-1001)['elapsed']-4)<0.01,'the presentation clock excludes paused silence from elapsed track time');
