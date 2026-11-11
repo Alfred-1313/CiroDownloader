@@ -356,10 +356,13 @@ final class Worker
         $label=array_merge(array_filter((array)($meta['categories']??[]),'is_string'),array_filter((array)($meta['tags']??[]),'is_string'));
         $label=array_values(array_unique(array_map(fn($name)=>mb_strtolower($name),$label)));
         $views=(int)($meta['views']??0);
-        $render=fn(string $tags)=>$ui->text($site.'_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
+        // The notice is a delivery rule, not an optional part of a saved caption template.
+        // Prefix it ourselves so older/custom templates without {notice} cannot promise deletion silently.
+        $notice=$deleteAfter>0?$ui->text($site.'_notice',['seconds'=>(string)$deleteAfter])."\n\n":'';
+        $render=fn(string $tags)=>$notice.$ui->text($site.'_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
             'people'=>$who!==''?"\n".$ui->text($site.'_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith($site.'_views',['n'=>number_format($views)]):'',
             'tags'=>$tags!==''?"\n".$ui->text($site.'_tags',['tags'=>$tags],['tags']):'',
-            'notice'=>$deleteAfter>0?$ui->text($site.'_notice',['seconds'=>(string)$deleteAfter])."\n\n":''],['people','views','tags','notice']);
+            'notice'=>''],['people','views','tags','notice']);
         $room=1000-TextFormat::length($plain($render('')));
         $kept=[]; $used=0;
         foreach($label as $name) {
