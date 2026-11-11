@@ -726,9 +726,32 @@ function tikpornUrl(string $input): ?string
         ||!preg_match('~^/video/([0-9]{1,20})/?$~D',$u['path']??'',$match)) return null;
     return 'https://tik.porn/video/'.$match[1];
 }
-function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos','tikporn']; }
-function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input)??tikpornUrl($input); }
-function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':((xnxxUrl($input)||xnxxSearchUrl($input))?'xnxx':((xvideosUrl($input)||xvideosSearchUrl($input))?'xvideos':(tikpornUrl($input)?'tikporn':null)))); }
+/** A single YouPorn watch/embed page; keep only its numeric ID. */
+function youpornUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?youporn\.com/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!in_array(strtolower($u['host']??''),['youporn.com','www.youporn.com'],true)
+        ||!preg_match('~^/(?:watch|embed)/([0-9]{1,20})(?:/[^/?#]{1,600})?/?$~D',$u['path']??'',$match)) return null;
+    return 'https://www.youporn.com/watch/'.$match[1].'/';
+}
+function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos','tikporn','youporn']; }
+function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input)??tikpornUrl($input)??youpornUrl($input); }
+function adultService(string $input): ?string
+{
+    return match(true) {
+        pornhubUrl($input)!==null=>'pornhub',
+        beegUrl($input)!==null=>'beeg',
+        xnxxUrl($input)!==null||xnxxSearchUrl($input)!==null=>'xnxx',
+        xvideosUrl($input)!==null||xvideosSearchUrl($input)!==null=>'xvideos',
+        tikpornUrl($input)!==null=>'tikporn',
+        youpornUrl($input)!==null=>'youporn',
+        default=>null,
+    };
+}
 
 function instagramUrl(string $input): ?string
 {

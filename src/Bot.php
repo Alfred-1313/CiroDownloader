@@ -122,7 +122,7 @@ final class Bot
                 $message=(int)($result['message_id']??0);
                 if(!$message) throw new \RuntimeException('Missing poster message ID');
             }
-            if(in_array(adultService($job['url']),['xvideos','tikporn'],true)) {
+            if(in_array(adultService($job['url']),['xvideos','tikporn','youporn'],true)) {
                 $photos=is_array($result)&&is_array($result['photo']??null)?$result['photo']:[];
                 $poster=$photos?(string)(end($photos)['file_id']??''):'';
             }
@@ -134,7 +134,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A rejected thumbnail must not prevent choosing and downloading the video.
-            if(in_array($site=adultService($job['url']),['xvideos','tikporn'],true)) error_log(($site==='xvideos'?'XVideos':'TikPorn').' quality cover remote=telegram_400');
+            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$site]).' quality cover remote=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
@@ -168,7 +168,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A refused picture must not prevent choosing and downloading the video.
-            if(in_array($site=adultService($job['url']),['xvideos','tikporn'],true)) error_log(($site==='xvideos'?'XVideos':'TikPorn').' quality cover upload=telegram_400');
+            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$site]).' quality cover upload=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
