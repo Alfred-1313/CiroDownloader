@@ -27,6 +27,9 @@ try {
     $menu=end($api->calls)[1];
     waitingCheck(count($menu['reply_markup']['inline_keyboard'])===2&&!str_contains(json_encode($menu),':cancel'),'quality menus contain only available media choices, without a cancel row');
     waitingCheck((int)$store->query('SELECT expires FROM jobs WHERE id=?',[$firstId])->fetchColumn()===0,'new quality menus have no selection deadline');
+    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode($options+[540=>[['id'=>'native','audio'=>true]]]),$firstId]);
+    waitingCheck($store->choose($firstId,7,7,540)===null&&$store->query('SELECT status FROM jobs WHERE id=?',[$firstId])->fetchColumn()==='waiting_quality','native TikPorn qualities cannot be selected for a different service');
+    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode($options),$firstId]);
 
     // Recreate the previous release's index and deadline before reopening the DB.
     $store->db->exec("DROP INDEX one_active; CREATE UNIQUE INDEX one_active ON jobs(user_id) WHERE status IN ('queued','running','choosing','confirming')");

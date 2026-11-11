@@ -764,6 +764,7 @@
     "catalog_item":{"audience":"admin","label":"گزینه‌های فهرست تنظیمات","group":"custom","value":"{label}"},
     "quality":{"audience":"user","label":"گزینهٔ کیفیت 360 تا 720","group":"download","variables":["quality"],"value":"🎬 {quality} (⌛)","hidden":true},
     "quality_high":{"audience":"user","label":"دکمهٔ کیفیت 1080p","group":"download","variables":["quality"],"value":"🎬 {quality}"},
+    "quality_native":{"audience":"user","label":"دکمهٔ کیفیت اصلی سایت","group":"download","variables":["quality"],"value":"🎬 {quality}"},
     "extract_audio":{"audience":"user","label":"استخراج صدا","group":"download","value":"🎶 Audio"},
     "source_video":{"audience":"user","label":"دکمهٔ لینک زیر فایل ویدیو","group":"download","value":"🔗 مشاهده در یوتیوب","style":"primary"},
     "update_start":{"audience":"admin","label":"شروع به‌روزرسانی","group":"updates","value":"🚀 بررسی و به‌روزرسانی","style":"success"},

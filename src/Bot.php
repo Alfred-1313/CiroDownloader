@@ -245,6 +245,13 @@ final class Bot
         $rows=[]; $row=[]; $perRow=max(1,min(3,(int)$this->store->get('cover.per_row','2')));
         // 240p exists only on sites with a lower ladder (Pornhub); it leads the menu when offered.
         $order=$this->ui->coverOrder(); if(!empty($media['options']['240'])) array_unshift($order,'240');
+        if(adultService($job['url'])==='tikporn') foreach(array_keys($media['options']) as $height) {
+            $height=(string)$height;
+            if(!ctype_digit($height)||in_array($height,$order,true)) continue;
+            $position=count($order);
+            foreach($order as $i=>$value) if($value==='audio'||(ctype_digit($value)&&(int)$value>(int)$height)) { $position=$i; break; }
+            array_splice($order,$position,0,[$height]);
+        }
         foreach($order as $height) {
             if(empty($media['options'][$height])) continue;
             if($height==='audio') {
@@ -252,7 +259,8 @@ final class Bot
                 $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
                 continue;
             }
-            $row[]=$this->ui->button(Ui::qualityKey($height),'quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
+            $key=Ui::qualityKey($height);
+            $row[]=$this->ui->button($this->ui->definition('button',$key)?$key:'quality_native','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
             if(count($row)===$perRow) { $rows[]=$row; $row=[]; }
         }
         if($row) $rows[]=$row;

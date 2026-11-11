@@ -581,10 +581,12 @@ final class Store
     }
     public function choose(int $id,int $user,int $chat,int|string|null $quality): ?array
     {
-        if($quality!==null&&$quality!=='audio'&&!in_array($quality,Config::SITE_QUALITIES,true)) return null;
+        $native=$quality!==null&&$quality!=='audio'&&!in_array($quality,Config::SITE_QUALITIES,true);
+        if($native&&(!is_int($quality)||$quality<72||$quality>8640)) return null;
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[$id,$user,$chat])->fetch();
+            if($native&&$job&&adultService($job['url'])!=='tikporn') $job=null;
             $options=$job?json_decode($job['options'],true):[];
             $audio=$quality==='audio';
             if(!$job||($quality!==null&&(empty($options[(string)$quality])||$this->busy($user,$chat)||$this->full()))) $job=null;

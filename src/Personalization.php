@@ -235,7 +235,7 @@ final class Personalization
     private function sectionItems(string $section): array
     {
         $screens=[
-            'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_240'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
+            'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_240'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','quality_native'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
             'help'=>[['text','welcome'],['text','help'],['text','prompt'],['text','your_id'],['button','help']],

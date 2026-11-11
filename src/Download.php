@@ -245,7 +245,7 @@ final class Download
         // Load compatibility extractors only for the sites that need them.
         if($site==='beeg') $options=array_merge(['--plugin-dirs',__DIR__.'/ytdlp'],$options);
         if($site==='xvideos') $options=array_merge(['--plugin-dirs',__DIR__.'/xvideos-ytdlp'],$options);
-        if($site==='tikporn') $options=array_merge(['--extractor-args','generic:impersonate'],$options);
+        if($site==='tikporn') $options=array_merge(['--plugin-dirs',__DIR__.'/tikporn-ytdlp'],$options);
         try { return $this->plain($canonical,$options,$folder,$seconds); }
         catch(MediaFailure $e) {
             // The administrator sees WHY ("pornhub=dns", "pornhub=certificate"), never the raw downloader output.
@@ -284,7 +284,7 @@ final class Download
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
         if($site!=='youtube') {
             // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
-            $options=self::sizedOptions($info,$this->config->maxBytes);
+            $options=self::sizedOptions($info,$this->config->maxBytes,$site==='tikporn');
             $options['meta']=self::siteMeta($info);
             $poster=in_array($site,['xvideos','tikporn'],true)?$this->qualityPoster($folder):self::posterFile($folder);
             $remote=$site==='xvideos'&&$poster===null?(self::trustedPoster($info,'xvideos-cdn.com')?:self::trustedPoster($info,'xvideos.com')):($site==='tikporn'&&$poster===null?self::trustedPoster($info,'tik.porn'):'');
@@ -304,7 +304,7 @@ final class Download
      * this bot. HLS streams with a known H.264 codec come first: they download in parallel pieces, while the plain MP4
      * of the same height is throttled by the CDN to a few hundred KB/s.
      */
-    public static function sizedOptions(array $info,int $maxBytes): array
+    public static function sizedOptions(array $info,int $maxBytes,bool $nativeQualities=false): array
     {
         if(!empty($info['is_live'])||($info['live_status']??'')==='is_live') throw new MediaFailure('duration','Live streams are not supported');
         $duration=(float)($info['duration']??0); $formats=array_values(array_filter(is_array($info['formats']??null)?$info['formats']:[],'is_array')); $tooBig=false; $options=[]; $smallest=null;
@@ -317,7 +317,7 @@ final class Download
             $id=(string)($format['format_id']??'');
             if(!preg_match('/^[A-Za-z0-9_-]{1,64}$/D',$id)||in_array($format['vcodec']??'',['none','images'],true)||($format['acodec']??'')==='none'||!empty($format['has_drm'])||($format['protocol']??'')==='mhtml') continue;
             $height=(int)($format['height']??0); $width=(int)($format['width']??0); $height=$width>0?min($width,$height):$height;
-            if(!in_array($height,Config::SITE_QUALITIES,true)) continue;
+            if(!in_array($height,Config::SITE_QUALITIES,true)&&!($nativeQualities&&$height>=72&&$height<=8640)) continue;
             // Stated size, else bitrate x length. Pornhub's plain MP4s state neither, but their file names carry the bitrate (480P_2000K_...).
             $kbps=(float)($format['tbr']??0);
             if($kbps<=0&&preg_match('~/\d+P_(\d{3,5})K_~',(string)($format['url']??''),$bitrate)) $kbps=(float)$bitrate[1];

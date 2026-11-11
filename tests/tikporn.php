@@ -12,18 +12,38 @@ tpCheck(Zero\mediaUrl($link)===null&&Zero\adultService($link)==='tikporn'&&Zero\
 $temp=sys_get_temp_dir().'/ciro-tikporn-'.bin2hex(random_bytes(6)); mkdir($temp,0700); $server=null;
 try {
     $config=new Zero\Config('123:fixture',[42],$temp.'/data'); $store=new Zero\Store($config->storage); mkdir($config->storage.'/downloads',0700); $runner=new Zero\Download($config);
-    foreach([240=>[426,240],480=>[854,480]] as $height=>[$width,$pixels]) {
-        mkdir($temp.'/'.$height,0700);
-        $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.$width.'x'.$pixels.':r=5:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest','-hls_time','2','-hls_list_size','0',$temp.'/'.$height.'/stream.m3u8'],$temp,60);
+    foreach([240=>[426,240],480=>[854,480],540=>[540,960]] as $height=>[$width,$pixels]) {
+        $path=$temp.'/'.$height.'.mp4';
+        $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s='.$width.'x'.$pixels.':r=5:d=2','-f','lavfi','-i','sine=frequency=440:duration=2','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest',$path],$temp,60);
+        // Put moov after a large free atom: metadata extraction must jump past media, never fetch the whole file.
+        $raw=(string)file_get_contents($path); $offset=0;
+        while($offset+8<=strlen($raw)) {
+            $size=unpack('N',substr($raw,$offset,4))[1];
+            if(substr($raw,$offset+4,4)==='moov') {
+                $free=pack('N',1048576).'free'.str_repeat("\0",1048568); $movie=substr($raw,$offset);
+                if($height===540) { $movie=str_replace(pack('NN',540<<16,960<<16),pack('NN',600<<16,960<<16),$movie,$changed); if($changed!==1) throw new RuntimeException('Missing fixture display dimensions'); }
+                file_put_contents($path,substr($raw,0,$offset).$free.$movie); break;
+            }
+            if($size<8) throw new RuntimeException('Invalid fixture atom');
+            $offset+=$size;
+        }
     }
     $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=640x360','-frames:v','1','-threads','1',$temp.'/cover.jpg'],$temp,30);
-    file_put_contents($temp.'/master.m3u8',"#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=150000,RESOLUTION=426x240,CODECS=\"avc1.640015,mp4a.40.2\"\n/240/stream.m3u8\n#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=854x480,CODECS=\"avc1.64001f,mp4a.40.2\"\n/480/stream.m3u8\n");
     $log=$temp.'/http.jsonl'; $trace=$temp.'/backend.jsonl'; $mode=$temp.'/mode.json'; file_put_contents($log,''); file_put_contents($trace,''); file_put_contents($mode,'{}');
     $router=$temp.'/router.php';
     file_put_contents($router,'<?php $root='.var_export($temp,true).';$path=parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH);'. <<<'PHP'
         if($path==='/cover.jpg') { header('Content-Type: image/jpeg');readfile($root.'/cover.jpg');return; }
-        if($path==='/master.m3u8'||preg_match('~^/(240|480)/stream[0-9]*\.(m3u8|ts)$~D',$path)) {
-            header('Content-Type: '.(str_ends_with($path,'.m3u8')?'application/vnd.apple.mpegurl':'video/mp2t'));readfile($root.$path);return;
+        if(preg_match('~^/(240|480|540)\.mp4$~D',$path)) {
+            $file=$root.$path; $size=filesize($file);$start=0;$end=$size-1;
+            $mode=json_decode(file_get_contents($root.'/mode.json'),true);
+            if(empty($mode['no_range'])&&preg_match('/^bytes=([0-9]+)-([0-9]*)$/D',$_SERVER['HTTP_RANGE']??'',$range)) {
+                $start=(int)$range[1];$end=$range[2]!==''?min($size-1,(int)$range[2]):$size-1;
+                if($start>$end) { http_response_code(416);return; }
+                http_response_code(206);header('Content-Range: bytes '.$start.'-'.$end.'/'.$size);
+            }
+            header('Content-Type: video/mp4');header('Content-Length: '.($end-$start+1));
+            file_put_contents($root.'/ranges.jsonl',json_encode(['phase'=>$_GET['phase']??'','start'=>$start,'bytes'=>$end-$start+1]).PHP_EOL,FILE_APPEND);
+            $stream=fopen($file,'rb');fseek($stream,$start);echo stream_get_contents($stream,$end-$start+1);fclose($stream);return;
         }
 PHP
         .
@@ -58,10 +78,15 @@ PHP
     Zero\saveYouTubeCookies($config,"# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tSID\tFAKE_SESSION\n");
     $send(42,-100123,'/download@FixtureBot '.$link); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     if($saved['status']!=='waiting_quality') throw new RuntimeException($store->get('last_job_error'));
-    $options=json_decode($saved['options'],true); tpCheck($saved['url']===$canonical&&isset($options[240],$options[480],$options['audio']),'A video page reaches the actual generic extractor and produces actual HLS qualities');
+    $options=json_decode($saved['options'],true); tpCheck($saved['url']===$canonical&&isset($options[240],$options[480],$options['audio']),'the requested player is selected and MP4 metadata supplies the actual qualities');
     $posters=$calls('editMessageMedia'); tpCheck($saved['message_kind']==='photo'&&end($posters)['uploads']['poster']['bytes']>0,'the quality menu contains the uploaded cover');
     $args=json_decode(file($trace)[0],true); tpCheck(!in_array('--cookies',$args,true),'YouTube cookies are never sent to TikPorn');
-    tpCheck(in_array('generic:impersonate',$args,true),'TikPorn requests browser-compatible generic extraction');
+    tpCheck(in_array('--plugin-dirs',$args,true),'TikPorn uses its scoped native extractor');
+    tpCheck(isset($options[540])&&!isset($options[600])&&!isset($options[960])&&!str_contains($saved['options'],'inspect-token'),'portrait quality uses coded pixel dimensions rather than display scaling or filename, and no signed address is retained');
+    $ranges=array_map(fn($line)=>json_decode($line,true),file($temp.'/ranges.jsonl',FILE_IGNORE_NEW_LINES));
+    tpCheck(array_sum(array_column($ranges,'bytes'))<300000&&max(array_column($ranges,'start'))>1000000,'inspection reads bounded MP4 ranges and skips the large media area');
+    $buttons=json_decode(end($posters)['params']['reply_markup'],true)['inline_keyboard'];
+    tpCheck(str_contains(json_encode($buttons),'540p'),'the measured nonstandard native quality has a working quality button');
     $click('quality:'.$job['id'].':480',7,-100123,(int)$saved['message_id']); tpCheck($store->claim('media')===null,'another member cannot select a quality');
     $click('quality:'.$job['id'].':480',42,-100123,(int)$saved['message_id']); $worker->process($store->claim('media')); $videos=$calls('sendVideo');
     if(!$videos) throw new RuntimeException($store->get('last_job_error'));
@@ -69,6 +94,13 @@ PHP
     tpCheck(($video['uploads']['cover']['mime']??'')==='image/jpeg'&&($video['uploads']['cover']['bytes']??0)>0,'the video also includes an explicit Telegram cover');
     tpCheck((int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()===1&&(int)$store->query("SELECT ok FROM stats WHERE service='tikporn'")->fetchColumn()===1,'the video is scheduled for deletion and counted for TikPorn');
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); tpCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','audio is delivered as MP3');
+    $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':540',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $videos=$calls('sendVideo'); $native=end($videos);
+    tpCheck((int)$native['params']['width']===540&&(int)$native['params']['height']===960&&str_contains($native['params']['caption'],'540p'),'the native portrait-quality button downloads and delivers the exact measured resolution');
+    foreach(['wrong_video','wrong_page','foreign_source','no_range'] as $failure) {
+        file_put_contents($mode,json_encode([$failure=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job);
+        tpCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed'&&$store->get('last_job_error_reason')==='format','unsupported or unrelated media is rejected: '.$failure);
+    }
+    file_put_contents($mode,'{}');
     $send(); $job=$store->claim('inspect'); $before=count(file($trace)); $store->set('adult.tikporn','0'); $worker->process($job);
     tpCheck(count(file($trace))===$before&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed','disabling TikPorn stops queued work before any downloader request');
     $store->set('adult.tikporn','1'); file_put_contents($mode,json_encode(['blocked'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job);
