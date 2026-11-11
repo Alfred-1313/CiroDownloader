@@ -39,6 +39,8 @@ PHP
         '$counter=$root."/counter";$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
         'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next),"at"=>microtime(true)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$result=str_starts_with($method,"send")||str_starts_with($method,"edit")?["message_id"=>(int)($_POST["message_id"]??900+$next)]:true;'.
+        '$settings=json_decode(file_get_contents($root."/mode.json"),true);'.
+        'if(in_array($method,["sendVideo","sendAudio","editMessageCaption"],true)) $result["caption"]=($method==="sendVideo"&&!empty($settings["drop_caption"]))?"":html_entity_decode(strip_tags((string)($_POST["caption"]??"")),ENT_QUOTES|ENT_HTML5,"UTF-8");'.
         'if($method==="sendPhoto"||$method==="editMessageMedia") $result["photo"]=[["file_id"=>"FIXTURE_YOUPORN_COVER"]];'.
         'header("Content-Type: application/json");echo json_encode(["ok"=>true,"result"=>$result]);');
     $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
@@ -95,13 +97,20 @@ PHP
     $store->query('DELETE FROM timed_deletes');
     // Reproduce the deployment settings: private off, group on, delay 180 seconds.
     $store->set('adult.delete_private','0'); $store->set('adult.delete_group','1'); $store->set('adult.delete_seconds','180');
+    // A valid saved template may render empty when this video has no optional metadata.
+    $store->set('text.youporn_caption','{tags}'); $store->set('text.youporn_notice'," \n");
     foreach([42,-100123] as $chat) {
+        file_put_contents($mode,json_encode(['drop_caption'=>$chat<0]));
         $send(42,$chat); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
         $click('quality:'.$job['id'].':240',42,$chat,(int)$saved['message_id']); $worker->process($store->claim('media')); $videos=$calls('sendVideo'); $sent=end($videos);
         $deletion=$store->query('SELECT * FROM timed_deletes WHERE chat_id=? AND message_id=?',[$chat,$sent['result_message_id']])->fetch();
         ypCheck($chat>0?(!$deletion&&!str_contains($sent['params']['caption'],'🗑')):($deletion&&(int)$deletion['at']>=time()+178&&str_contains($sent['params']['caption'],'180 ثانیه')),'deployment settings: '.($chat>0?'private-off omits both notice and timer':'group-on keeps its notice and 180-second timer independently of private-off'));
+        ypCheck(str_contains($sent['params']['caption'],'Neutral Fixture Video')&&str_contains($sent['params']['caption'],'240p'),'an empty rendered saved caption falls back to the title, duration and actual quality');
+        $repairs=array_values(array_filter($calls('editMessageCaption'),fn($call)=>(int)$call['params']['message_id']===$sent['result_message_id']));
+        ypCheck($chat>0?!$repairs:(count($repairs)===1&&$repairs[0]['params']['caption']===$sent['params']['caption']&&!isset($repairs[0]['uploads']['video'])),'a missing Telegram caption is repaired once on the delivered message without another media upload; confirmed captions need no repair');
         ypCheck($bot->adultDeleteAfter($chat)===($chat>0?0:180),'YouPorn and Pornhub read the same chat-specific filter and delay');
     }
+    $store->query("DELETE FROM settings WHERE key IN ('text.youporn_caption','text.youporn_notice')"); file_put_contents($mode,'{}');
     $store->set('adult.delete_private','1'); $store->set('adult.delete_seconds','10');
     file_put_contents($mode,json_encode(['no_cover'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     ypCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','a temporarily missing cover does not disable quality selection'); $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);

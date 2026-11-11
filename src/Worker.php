@@ -159,10 +159,11 @@ final class Worker
                 Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
             }
             $bot->jobMessage($job,$bot->text($audio?'audio_uploading':'uploading'));
+            $deleteAfter=$adult?$bot->adultDeleteAfter((int)$job['chat_id']):0;
             if($adult) {
                 if($adultSite==='beeg'&&preg_match('/^\d+$/D',$media['title'])&&trim((string)($job['title']??''))!=='') $media['title']=$job['title'];
                 // Its own caption (title, people, categories, tags, views) and no link back to the site.
-                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$bot->adultDeleteAfter((int)$job['chat_id']),$adultSite);
+                $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$deleteAfter,$adultSite);
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
             } else {
                 $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
@@ -186,8 +187,9 @@ final class Worker
             if(!$audio&&in_array($adultSite,['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$adultSite]).' video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
             // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
             // so a restart in between does not leave it in the chat).
-            if($adult&&($after=$bot->adultDeleteAfter((int)$job['chat_id']))>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$after);
+            if($adult&&$deleteAfter>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$deleteAfter);
             $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+            if($adult&&is_array($sent)&&!empty($sent['message_id'])) $this->confirmAdultCaption($sent,$params,$adultSite,$deleteAfter);
             $this->noteSpeed($label,$uploadBytes,$timings);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
             try { $bot->finishJob($job); }
@@ -221,6 +223,23 @@ final class Worker
             error_log('Job '.$job['id'].' timings '.json_encode($timings,JSON_THROW_ON_ERROR));
             Download::clean($folder);
         }
+    }
+
+    /** Repair only the confirmed message; a caption failure must never resend its media. */
+    private function confirmAdultCaption(array $sent,array $params,string $site,int $deleteAfter): void
+    {
+        $acknowledged=preg_match('/[^\s\p{Z}\p{C}]/u',(string)($sent['caption']??''))===1;
+        $repaired=false;
+        if(!$acknowledged) {
+            try {
+                $edited=$this->api->call('editMessageCaption',['chat_id'=>(int)$params['chat_id'],'message_id'=>(int)$sent['message_id'],
+                    'caption'=>$params['caption'],'parse_mode'=>'HTML']);
+                $repaired=$edited===true||(is_array($edited)&&preg_match('/[^\s\p{Z}\p{C}]/u',(string)($edited['caption']??''))===1);
+            } catch(Throwable $e) { error_log('Adult caption repair failed service='.$site.' code='.(int)$e->getCode()); }
+        }
+        // Counts and flags only: never retain a caption, URL, chat ID or Telegram message ID in the log.
+        error_log('Adult delivery service='.$site.' caption_chars='.TextFormat::length(html_entity_decode(strip_tags($params['caption']),ENT_QUOTES|ENT_HTML5,'UTF-8'))
+            .' caption_ack='.($acknowledged?'yes':'no').' caption_repaired='.($repaired?'yes':'no').' delete_after='.$deleteAfter);
     }
 
     /**
@@ -357,12 +376,12 @@ final class Worker
         $label=array_values(array_unique(array_map(fn($name)=>mb_strtolower($name),$label)));
         $views=(int)($meta['views']??0);
         // The notice is a delivery rule, not an optional part of a saved caption template.
-        // Prefix it ourselves so older/custom templates without {notice} cannot promise deletion silently.
-        $notice=$deleteAfter>0?$ui->text($site.'_notice',['seconds'=>(string)$deleteAfter])."\n\n":'';
+        // Prefix it ourselves so older/custom templates without {notice} cannot hide the active deletion notice.
+        $notice=$deleteAfter>0?$ui->text($site.'_notice',['seconds'=>(string)$deleteAfter],nonempty:true)."\n\n":'';
         $render=fn(string $tags)=>$notice.$ui->text($site.'_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
             'people'=>$who!==''?"\n".$ui->text($site.'_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith($site.'_views',['n'=>number_format($views)]):'',
             'tags'=>$tags!==''?"\n".$ui->text($site.'_tags',['tags'=>$tags],['tags']):'',
-            'notice'=>''],['people','views','tags','notice']);
+            'notice'=>''],['people','views','tags','notice'],nonempty:true);
         $room=1000-TextFormat::length($plain($render('')));
         $kept=[]; $used=0;
         foreach($label as $name) {
@@ -370,7 +389,7 @@ final class Worker
             if($used+$cost>$room-40) break;
             $kept[]=Ui::escape(trim($tag,'_')===''?$tag:rtrim($tag,'_')); $used+=$cost;
         }
-        return $render(implode(' ',$kept));
+        return Ui::fitCaption($render(implode(' ',$kept)));
     }
 
     /**

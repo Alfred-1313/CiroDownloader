@@ -35,14 +35,15 @@ final class Ui
         if(!$item) throw new \RuntimeException('Unregistered UI text: '.$key);
         return $this->get('text.'.$key,$item['value']);
     }
-    public function text(string $key,array $values=[],array $raw=[]): string
+    public function text(string $key,array $values=[],array $raw=[],bool $nonempty=false): string
     {
         $replace=[];
         foreach($values as $name=>$value) $replace['{'.$name.'}']=in_array($name,$raw,true)?(string)$value:self::escape((string)$value);
         $result=strtr($this->template($key),$replace);
         $definition=$this->definition('text',$key);
         $limit=!empty($definition['caption'])?1024:3900;
-        if(TextFormat::length(html_entity_decode(strip_tags($result),ENT_QUOTES|ENT_HTML5,'UTF-8'))>$limit) $result=strtr($definition['value'],$replace);
+        $plain=html_entity_decode(strip_tags($result),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        if(TextFormat::length($plain)>$limit||($nonempty&&preg_match('/[^\s\p{Z}\p{C}]/u',$plain)!==1)) $result=strtr($definition['value'],$replace);
         return $result;
     }
     /** A text with {placeholders} filled for places that take plain text, such as button labels. */
