@@ -712,9 +712,21 @@ function xvideosSearchUrl(string $input): ?string
     $page=isset($args['p'])&&is_string($args['p'])&&preg_match('/^\d{1,2}$/D',$args['p'])?'&p='.$args['p']:'';
     return 'https://www.xvideos.com/?k='.rawurlencode($query).$page;
 }
-function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos']; }
-function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input); }
-function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':((xnxxUrl($input)||xnxxSearchUrl($input))?'xnxx':((xvideosUrl($input)||xvideosSearchUrl($input))?'xvideos':null))); }
+/** A single TikPorn video; do not confuse this adult service with TikTok. */
+function tikpornUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?tik\.porn/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!in_array(strtolower($u['host']??''),['tik.porn','www.tik.porn'],true)
+        ||!preg_match('~^/video/([0-9]{1,20})/?$~D',$u['path']??'',$match)) return null;
+    return 'https://tik.porn/video/'.$match[1];
+}
+function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos','tikporn']; }
+function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input)??tikpornUrl($input); }
+function adultService(string $input): ?string { return pornhubUrl($input)?'pornhub':(beegUrl($input)?'beeg':((xnxxUrl($input)||xnxxSearchUrl($input))?'xnxx':((xvideosUrl($input)||xvideosSearchUrl($input))?'xvideos':(tikpornUrl($input)?'tikporn':null)))); }
 
 function instagramUrl(string $input): ?string
 {

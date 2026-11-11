@@ -172,14 +172,14 @@ final class Worker
             if(!$audio&&!empty($media['thumbnail'])) {
                 $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','thumbnail.jpg');
                 // Telegram can generate its own thumbnail; an explicit cover selects the displayed video picture.
-                if($adultSite==='xvideos') $params['cover']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
+                if(in_array($adultSite,['xvideos','tikporn'],true)) $params['cover']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
             }
             $uploadStarted=hrtime(true);
             if($audio) $sent=$api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
             else $sent=$api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
-            if(!$audio&&$adultSite==='xvideos') error_log('XVideos video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
+            if(!$audio&&in_array($adultSite,['xvideos','tikporn'],true)) error_log(($adultSite==='xvideos'?'XVideos':'TikPorn').' video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
             // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
             // so a restart in between does not leave it in the chat).
             if($adult&&($after=$bot->adultDeleteAfter((int)$job['chat_id']))>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$after);

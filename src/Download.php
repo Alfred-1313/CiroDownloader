@@ -245,6 +245,7 @@ final class Download
         // Load compatibility extractors only for the sites that need them.
         if($site==='beeg') $options=array_merge(['--plugin-dirs',__DIR__.'/ytdlp'],$options);
         if($site==='xvideos') $options=array_merge(['--plugin-dirs',__DIR__.'/xvideos-ytdlp'],$options);
+        if($site==='tikporn') $options=array_merge(['--extractor-args','generic:impersonate'],$options);
         try { return $this->plain($canonical,$options,$folder,$seconds); }
         catch(MediaFailure $e) {
             // The administrator sees WHY ("pornhub=dns", "pornhub=certificate"), never the raw downloader output.
@@ -285,9 +286,9 @@ final class Download
             // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
             $options=self::sizedOptions($info,$this->config->maxBytes);
             $options['meta']=self::siteMeta($info);
-            $poster=$site==='xvideos'?$this->qualityPoster($folder):self::posterFile($folder);
-            $remote=$site==='xvideos'&&$poster===null?(self::trustedPoster($info,'xvideos-cdn.com')?:self::trustedPoster($info,'xvideos.com')):'';
-            if($site==='xvideos') error_log('XVideos quality cover candidates='.count($info['thumbnails']??[]).' source='.($poster!==null?'file':($remote!==''?'remote':'none')));
+            $poster=in_array($site,['xvideos','tikporn'],true)?$this->qualityPoster($folder):self::posterFile($folder);
+            $remote=$site==='xvideos'&&$poster===null?(self::trustedPoster($info,'xvideos-cdn.com')?:self::trustedPoster($info,'xvideos.com')):($site==='tikporn'&&$poster===null?self::trustedPoster($info,'tik.porn'):'');
+            if(in_array($site,['xvideos','tikporn'],true)) error_log(($site==='xvideos'?'XVideos':'TikPorn').' quality cover candidates='.count($info['thumbnails']??[]).' source='.($poster!==null?'file':($remote!==''?'remote':'none')));
             return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>$remote,'poster_file'=>$poster,'duration'=>max(0,(int)ceil((float)($info['duration']??0)))];
         }
         $options=self::qualityOptions($info);
@@ -588,7 +589,7 @@ final class Download
             '--concurrent-fragments',$site==='youtube'?'4':'8',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',
-            ...($site==='xvideos'?['--write-thumbnail','-o','thumbnail:'.$folder.'/poster.%(ext)s']:[]),
+            ...(in_array($site,['xvideos','tikporn'],true)?['--write-thumbnail','-o','thumbnail:'.$folder.'/poster.%(ext)s']:[]),
             // Explicit IDs prevent silently substituting a different quality.
             '-f',$selector?implode('/',$selector):'bv*+ba/b','-S','res:'.$target.',vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
@@ -631,8 +632,8 @@ final class Download
         foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
         if(!$video||min((int)$video['width'],(int)$video['height'])>$target||($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality)) throw new MediaFailure('format','Prepared resolution does not match the selected quality');
         // The selected file, not an estimated playlist label, supplies the final caption's resolution.
-        $poster=$site==='xvideos'?self::posterFile($folder):null;
-        $thumbnail=in_array($site,['beeg','xvideos'],true)?(($poster?$this->videoThumbnail($poster,$folder):null)??$this->videoThumbnail($ready,$folder)):null;
+        $poster=in_array($site,['xvideos','tikporn'],true)?self::posterFile($folder):null;
+        $thumbnail=in_array($site,['beeg','xvideos','tikporn'],true)?(($poster?$this->videoThumbnail($poster,$folder):null)??$this->videoThumbnail($ready,$folder)):null;
         @unlink($file); // The validated MP4 is the only full video needed during upload.
         return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube','thumbnail'=>$thumbnail,
             'height'=>(int)$video['height'],'width'=>(int)$video['width'],
