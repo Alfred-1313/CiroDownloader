@@ -1,5 +1,7 @@
 # Verification
 
+`php tests/youporn.php` starts the real worker supervisor after a completed group video delivery and observes deletion of that exact message at its persisted deadline without another user update. It also reproduces private deletion off with group deletion on at 180 seconds, checking the corresponding captions and timers independently, plus the private audio timer. All media and Bot API traffic use neutral local fixtures.
+
 `php tests/beeg.php` uses the pinned yt-dlp Python (set `YTDLP_TEST_PYTHON` outside Docker) and the bundled Beeg compatibility plugin with neutral local API/HLS fixtures. The real HTTP API rejects leading-zero IDs or missing Origin/Referer headers with the reported HTTP 400, and exposes formats only through `video/play_url`. Real video/audio downloads, FFmpeg and multipart Telegram uploads verify independent default-off access, quality selection and ownership, group topics, no YouTube-cookie reuse, site-specific captions/diagnostics, restart-safe deletion and separate reports. Public Beeg and Telegram endpoints are not contacted. The Pornhub regression remains separate to guard compatibility.
 
 GitHub Actions runs these checks on each push:

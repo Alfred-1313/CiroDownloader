@@ -9,7 +9,7 @@ $link='https://www.youporn.com/watch/189780301/'; $canonical=$link;
 foreach([$link,'youporn.com/watch/189780301','https://www.youporn.com/watch/189780301/fixture_title/?tracking=1','https://www.youporn.com/watch/189780301/عنوان_نمونه/','https://www.youporn.com/embed/189780301/fixture_title'] as $url) ypCheck(Zero\youpornUrl($url)===$canonical,'watch, titled and embed YouPorn links are canonicalized');
 foreach(['https://www.youporn.com/','https://www.youporn.com/search/?query=test','https://www.youporn.com/porntags/test/','https://www.youporn.com/model/test/','https://youporn.com.evil.test/watch/189780301/','https://youporn.com@evil.test/watch/189780301/','https://youporn.com:443/watch/189780301/','ftp://www.youporn.com/watch/189780301/','https://www.youporn.com/watch/189780301/title/extra'] as $url) ypCheck(Zero\youpornUrl($url)===null,'non-video or unsafe YouPorn links are rejected');
 ypCheck(Zero\mediaUrl($link)===null&&Zero\adultService($link)==='youporn','YouPorn uses the restricted adult intake');
-$temp=sys_get_temp_dir().'/ciro-youporn-'.bin2hex(random_bytes(6)); mkdir($temp,0700); $server=null;
+$temp=sys_get_temp_dir().'/ciro-youporn-'.bin2hex(random_bytes(6)); mkdir($temp,0700); $server=null; $supervisor=null;
 try {
     $config=new Zero\Config('123:fixture',[42],$temp.'/data'); $store=new Zero\Store($config->storage); mkdir($config->storage.'/downloads',0700); $runner=new Zero\Download($config);
     foreach([240=>[426,240],480=>[854,480]] as $height=>[$width,$pixels]) {
@@ -37,7 +37,7 @@ PHP
         .
         '$method=basename($path);$uploads=[];foreach($_FILES as $key=>$file) $uploads[$key]=["bytes"=>filesize($file["tmp_name"]),"mime"=>$file["type"]];'.
         '$counter=$root."/counter";$next=(int)@file_get_contents($counter)+1;file_put_contents($counter,(string)$next);'.
-        'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
+        'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"uploads"=>$uploads,"result_message_id"=>(int)($_POST["message_id"]??900+$next),"at"=>microtime(true)],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$result=str_starts_with($method,"send")||str_starts_with($method,"edit")?["message_id"=>(int)($_POST["message_id"]??900+$next)]:true;'.
         'if($method==="sendPhoto"||$method==="editMessageMedia") $result["photo"]=[["file_id"=>"FIXTURE_YOUPORN_COVER"]];'.
         'header("Content-Type: application/json");echo json_encode(["ok"=>true,"result"=>$result]);');
@@ -78,7 +78,31 @@ PHP
     $video=end($videos); ypCheck($video['uploads']['video']['bytes']>0&&(int)$video['params']['message_thread_id']===321&&str_contains($video['params']['caption'],'🎞 480p')&&str_starts_with($video['params']['caption'],'<blockquote>🗑')&&!isset($video['params']['reply_markup']),'the chosen video is delivered with quality and automatic deletion notice in the original topic');
     ypCheck(($video['uploads']['cover']['mime']??'')==='image/jpeg'&&($video['uploads']['cover']['bytes']??0)>0&&($video['uploads']['thumbnail']['bytes']??0)>0,'the delivered video includes both its actual site cover and thumbnail');
     ypCheck((int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()===1&&(int)$store->query("SELECT ok FROM stats WHERE service='youporn'")->fetchColumn()===1,'the video is scheduled for deletion and counted for YouPorn');
+    $deletion=$store->query('SELECT * FROM timed_deletes')->fetch();
+    ypCheck((int)$deletion['chat_id']===-100123&&(int)$deletion['message_id']===$video['result_message_id']&&(int)$deletion['at']>=time()+8,'the shared timer targets the delivered YouPorn video, not the quality menu');
+    // Start the actual worker after delivery: persisted timers must run without another bot message.
+    $store->set('cookie_sweep_last',(string)time()); $store->set('cookies.keepalive','0');
+    $environment=array_merge(getenv(),['BOT_TOKEN'=>$config->token,'ADMIN_IDS'=>'42','STORAGE_DIR'=>$config->storage,'BOT_API_URL'=>$base,'YT_DLP_BIN'=>$stub,'YOUTUBE_PROXY'=>'','YOUTUBE_COOKIES_FILE'=>'','WORKER_CONCURRENCY'=>'1']);
+    $supervisor=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/worker.log','w'],2=>['file',$temp.'/worker-error.log','w']],$pipes,dirname(__DIR__),$environment);
+    $until=microtime(true)+18;
+    do { if(!(int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn()) break; usleep(100000); } while(microtime(true)<$until&&proc_get_status($supervisor)['running']);
+    $removed=array_values(array_filter($calls('deleteMessage'),fn($call)=>(int)$call['params']['chat_id']===-100123&&(int)$call['params']['message_id']===$video['result_message_id']));
+    ypCheck(count($removed)===1&&$removed[0]['at']>=(int)$deletion['at']&&!(int)$store->query('SELECT COUNT(*) FROM timed_deletes')->fetchColumn(),'the actual supervisor deletes YouPorn after its delay from a persisted timer, without another user action');
+    proc_terminate($supervisor); proc_close($supervisor); $supervisor=null;
     $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch(); $click('quality:'.$job['id'].':audio',42,42,(int)$saved['message_id']); $worker->process($store->claim('media')); $audio=$calls('sendAudio'); ypCheck((bool)$audio&&end($audio)['uploads']['audio']['mime']==='audio/mpeg','audio is delivered as MP3');
+    $audio=end($audio); $deletion=$store->query('SELECT * FROM timed_deletes')->fetch();
+    ypCheck((int)$deletion['chat_id']===42&&(int)$deletion['message_id']===$audio['result_message_id']&&str_starts_with($audio['params']['caption'],'<blockquote>🗑'),'private YouPorn audio shares the same deletion notice and timer');
+    $store->query('DELETE FROM timed_deletes');
+    // Reproduce the deployment settings: private off, group on, delay 180 seconds.
+    $store->set('adult.delete_private','0'); $store->set('adult.delete_group','1'); $store->set('adult.delete_seconds','180');
+    foreach([42,-100123] as $chat) {
+        $send(42,$chat); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
+        $click('quality:'.$job['id'].':240',42,$chat,(int)$saved['message_id']); $worker->process($store->claim('media')); $videos=$calls('sendVideo'); $sent=end($videos);
+        $deletion=$store->query('SELECT * FROM timed_deletes WHERE chat_id=? AND message_id=?',[$chat,$sent['result_message_id']])->fetch();
+        ypCheck($chat>0?(!$deletion&&!str_contains($sent['params']['caption'],'🗑')):($deletion&&(int)$deletion['at']>=time()+178&&str_contains($sent['params']['caption'],'180 ثانیه')),'deployment settings: '.($chat>0?'private-off omits both notice and timer':'group-on keeps its notice and 180-second timer independently of private-off'));
+        ypCheck($bot->adultDeleteAfter($chat)===($chat>0?0:180),'YouPorn and Pornhub read the same chat-specific filter and delay');
+    }
+    $store->set('adult.delete_private','1'); $store->set('adult.delete_seconds','10');
     file_put_contents($mode,json_encode(['no_cover'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job); $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$job['id']])->fetch();
     ypCheck($saved['status']==='waiting_quality'&&$saved['message_kind']==='text','a temporarily missing cover does not disable quality selection'); $click('quality:'.$job['id'].':cancel',42,42,(int)$saved['message_id']);
     file_put_contents($mode,json_encode(['disable'=>'inspect'])); $send(); $job=$store->claim('inspect'); $before=count($calls('editMessageMedia')); $worker->process($job);
@@ -90,4 +114,4 @@ PHP
     $store->set('adult.youporn','1'); file_put_contents($mode,json_encode(['blocked'=>true])); $send(); $job=$store->claim('inspect'); $worker->process($job);
     ypCheck($store->get('last_job_service')==='youporn'&&$store->get('last_job_sources')==='youporn=forbidden'&&!str_contains($store->get('recent_errors'),'hidden.example'),'network refusals retain only a clean service-specific diagnostic');
     ypCheck(!glob($config->storage.'/downloads/job-*'),'YouPorn covers and media are cleaned after success and failure');
-} finally { if(is_resource($server)) { proc_terminate($server); proc_close($server); } Zero\Download::clean($temp); }
+} finally { foreach([$supervisor,$server] as $process) if(is_resource($process)) { proc_terminate($process); proc_close($process); } Zero\Download::clean($temp); }
