@@ -43,7 +43,7 @@ try {
         '$method=basename(parse_url($_SERVER["REQUEST_URI"],PHP_URL_PATH));'.
         '$file=$_FILES["video"]??$_FILES["audio"]??null;'.
         'if(isset($_FILES["audio"])) copy($file["tmp_name"],'.var_export($temp.'/received.mp3',true).');'.
-        'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"video_hash"=>$file?hash_file("sha256",$file["tmp_name"]):null,"mime"=>$file["type"]??null],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
+        'file_put_contents('.var_export($log,true).',json_encode(["method"=>$method,"params"=>$_POST,"video_hash"=>$file?hash_file("sha256",$file["tmp_name"]):null,"mime"=>$file["type"]??null,"local_media"=>glob('.var_export($storage.'/downloads/job-*/*',true).')],JSON_UNESCAPED_UNICODE).PHP_EOL,FILE_APPEND);'.
         '$kindFile='.var_export($temp.'/message-kind',true).';$kind=is_file($kindFile)?file_get_contents($kindFile):"text";'.
         '$valid=!(($method==="editMessageText"&&$kind==="photo")||($method==="editMessageCaption"&&$kind!=="photo"));'.
         'if($method==="deleteMessage"&&'.($cleanupFailure?'true':'false').') $valid=false;'.
@@ -158,6 +158,7 @@ try {
     qualityCheck(count(array_filter($records,fn($record)=>$record['method']==='sendMessage'))===1,'inspection, choices, download and completion keep one status message');
     $cleanup=end($records);
     qualityCheck($cleanup['method']==='deleteMessage'&&(int)$cleanup['params']['chat_id']===$chat&&(int)$cleanup['params']['message_id']===501,'the entire poster is deleted from the original chat after successful file upload');
+    qualityCheck($cleanup['local_media']===[],'local video, audio and artwork are removed before optional Telegram status cleanup');
     $uploadPosition=array_search($audio?'sendAudio':'sendVideo',array_column($records,'method'),true);
     $deletePositions=array_keys(array_column($records,'method'),'deleteMessage',true);
     qualityCheck(count($deletePositions)===1&&$deletePositions[0]>$uploadPosition,'the cover stays through processing and is only removed after delivery');

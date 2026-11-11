@@ -319,8 +319,9 @@ class Agent:
 
     def backup(self):
         BACKUPS.mkdir(mode=0o700, parents=True, exist_ok=True)
-        path = BACKUPS / ('pre-update-' + datetime.now().strftime('%Y%m%d-%H%M%S') + '-' + str(self.job['id']) + '.tar.gz')
+        path = BACKUPS / ('pre-update-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f') + '-' + str(self.job['id']) + '.tar.gz')
         snapshot = self.data / '.updater-snapshot.sqlite'
+        temporary = None
         try:
             with self.db() as db:
                 destination = sqlite3.connect(snapshot)
@@ -328,17 +329,26 @@ class Agent:
                     db.backup(destination)
                 finally:
                     destination.close()
-            with tarfile.open(path, 'w:gz') as archive:
-                for item in PROJECT.iterdir():
-                    if item.name not in ('.git', 'storage', '__pycache__'):
-                        archive.add(item, arcname='source/' + item.name)
-                archive.add(snapshot, arcname='data/zero.sqlite')
-                for item in self.data.iterdir():
-                    if item.name not in ('zero.sqlite', 'zero.sqlite-wal', 'zero.sqlite-shm', 'downloads', snapshot.name) and not item.name.endswith('.lock'):
-                        archive.add(item, arcname='data/' + item.name)
-            path.chmod(0o600)
+            excluded = {'zero.sqlite', 'zero.sqlite-wal', 'zero.sqlite-shm', snapshot.name,
+                        'downloads', 'instagram-pages', 'pinterest-pages', 'tiktok-pages', 'twitter-pages',
+                        'music-batches', 'yt-cache', 'radio', '.youtube-blocked', '.youtube-ok'}
+            # Media queues/caches are runtime data, not a second copy of delivered files in every update backup.
+            with tempfile.NamedTemporaryFile(prefix='.pre-update-', suffix='.partial', dir=BACKUPS, delete=False) as raw:
+                temporary = Path(raw.name)
+                with tarfile.open(fileobj=raw, mode='w:gz') as archive:
+                    for item in PROJECT.iterdir():
+                        if item.name not in ('.git', 'storage', '__pycache__'):
+                            archive.add(item, arcname='source/' + item.name)
+                    archive.add(snapshot, arcname='data/zero.sqlite')
+                    for item in self.data.iterdir():
+                        if (item.name not in excluded and not item.name.endswith('.lock')
+                                and not item.name.startswith(('.keepalive-', '.cookie-check-', '.updater-snapshot.sqlite-'))):
+                            archive.add(item, arcname='data/' + item.name)
+            temporary.replace(path)
             return path.name
         finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
             snapshot.unlink(missing_ok=True)
 
     def wait_idle(self):

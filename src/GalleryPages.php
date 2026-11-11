@@ -107,6 +107,11 @@ class GalleryPages
         $photo=$result['photo']??[];
         $fileId=$item['type']==='video'?($result['video']['file_id']??null):($photo?($photo[array_key_last($photo)]['file_id']??null):null);
         if(is_string($fileId)&&preg_match('/^[A-Za-z0-9_-]{1,1024}$/D',$fileId)) $state['items'][$index-1]['file_id']=$fileId;
+        if($initial&&isset($state['items'][$index-1]['file_id'])) {
+            // Save the reusable photo/video ID and release the file before optional status-message cleanup.
+            $this->store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode(['pages'=>$state],JSON_THROW_ON_ERROR),$job['id']]);
+            if(is_file($path)) @unlink($path);
+        }
         // Finish this claim's status before releasing the cursor for another click.
         if($initial) try { $bot->finishJob($job); } catch(\Throwable) { error_log('Gallery page delivered; status cleanup unavailable'); }
         $state['message']=(int)$result['message_id']; $state['current']=$index; $state['target']=$index; $state['revision']=$revision;

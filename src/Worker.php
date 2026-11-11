@@ -94,6 +94,7 @@ final class Worker
                 if(count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text($service.'_article_building'));
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
+                    Download::clean($folder);
                     $button=$bot->ui->button('open_'.$service.'_article'); $button['url']=$url;
                     $bot->jobMessage($job,$bot->text($service.'_article_ready',['count'=>count($media),'page_url'=>$url,'url'=>$job['url']]),[[$button]]);
                     $store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['article_url'=>$url],JSON_THROW_ON_ERROR),$job['id']]);
@@ -104,6 +105,7 @@ final class Worker
                 }
                 if(count($media)>1) {
                     $job=$pages->prepare($job,$media);
+                    Download::clean($folder);
                     $sent=$pages->deliver($job,$bot);
                     $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
                     // Every slide was downloaded, but only the first one is uploaded now (the others when someone turns the page).
@@ -111,8 +113,9 @@ final class Worker
                     return;
                 }
                 $this->galleryDelivery($job,$media,$bot,$service);
+                Download::clean($folder);
                 $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
-                $this->noteSpeed($service,(int)@filesize((string)($media[0]['path']??'')),$timings);
+                $this->noteSpeed($service,$mediaBytes,$timings);
                 $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
                 try { $bot->finishJob($job); } catch(Throwable) { error_log(ucfirst($service).' media delivered; status cleanup unavailable'); }
                 return;
@@ -174,17 +177,18 @@ final class Worker
                 // Telegram can generate its own thumbnail; an explicit cover selects the displayed video picture.
                 if(in_array($adultSite,['xvideos','tikporn','youporn'],true)) $params['cover']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
             }
-            $uploadStarted=hrtime(true);
+            $uploadStarted=hrtime(true); $uploadBytes=(int)filesize($media['path']);
             if($audio) $sent=$api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
             else $sent=$api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
+            if(is_array($sent)&&!empty($sent['message_id'])) Download::clean($folder);
             if(!$audio&&in_array($adultSite,['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$adultSite]).' video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
             // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
             // so a restart in between does not leave it in the chat).
             if($adult&&($after=$bot->adultDeleteAfter((int)$job['chat_id']))>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$after);
             $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
-            $this->noteSpeed($label,(int)@filesize($media['path']),$timings);
+            $this->noteSpeed($label,$uploadBytes,$timings);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
             try { $bot->finishJob($job); }
             catch(Throwable) { error_log('Media delivered; status cleanup unavailable'); }
@@ -203,7 +207,7 @@ final class Worker
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($gallery) $key=$service.'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
-            elseif($adult) $key=$bot->ui->definition('text',$adultSite.'_'.$key)?$adultSite.'_'.$key:'failed';
+            elseif($adult) $key=$bot->ui->definition('text',$adultSite.'_'.$key)?$adultSite.'_'.$key:$key;
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
             $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($music!==null?$music.'_failed':'failed'))));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
@@ -261,6 +265,7 @@ final class Worker
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call('sendAudio',$params);
+        if(is_array($result)&&!empty($result['message_id'])) self::releaseMedia($media);
         $shares->fill($token,$result,$caption);
         return (int)($result['message_id']??0);
     }
@@ -283,9 +288,11 @@ final class Worker
         // A track chosen in a menu that closed gets the red way back to that menu, like a whole album.
         $menuId=(int)($options['menu']??0); $menus=new MusicMenu($bot,$this->catalog,$this->soundcloud);
         $back=$menuId>0&&$menus->owns($menuId,(int)$job['user_id'],(int)$job['chat_id'])?[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]]:[];
+        $uploadBytes=(int)filesize($media['path']);
         $audio=$this->sendTrack($job,$bot,$service,$media,$job['url'],(string)($options['album']??''),$back,['service'=>$service]+($track!==null?['m'=>$track]:['u'=>$job['url']]));
+        if($audio>0) Download::clean($folder);
         $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
-        $this->noteSpeed($service,(int)@filesize((string)($media['path']??'')),$timings);
+        $this->noteSpeed($service,$uploadBytes,$timings);
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         if($back) $menus->trackDelivered($menuId,(int)$job['user_id'],(int)$job['chat_id'],$audio);
         try { $bot->finishJob($job); }
@@ -433,6 +440,7 @@ final class Worker
             }
         }
         if($denied) {
+            Download::clean($dir);
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
         }
@@ -446,7 +454,7 @@ final class Worker
             $menus->paused($menuId,$batch,$total-count($pending()),$total);
             return;
         }
-        if(!$good) throw new MediaFailure('format','No track of the list could be prepared');
+        if(!$good) { Download::clean($dir); throw new MediaFailure('format','No track of the list could be prepared'); }
         $stage='upload'; $uploadStarted=hrtime(true);
         $sentShown=0.0;
         $sending=function(int $sent,bool $force=false) use($bot,$job,$good,$failedNames,&$sentShown): void {
@@ -464,16 +472,20 @@ final class Worker
             $items[]=$meta+['path'=>$dir.'/'.$i.'.'.$meta['extension'],'thumbnail'=>$meta['cover']?$dir.'/'.$i.'.jpg':null,'order'=>$position+1,'radio'=>['service'=>$service]+array_intersect_key($tracks[$i],['u'=>1,'m'=>1])];
         }
         $back=[[$bot->ui->button('batch_back','mm:'.$menuId.':r')]];
-        $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder,$back,$sending):$this->sendTracks($job,$bot,$items,$title,$back,$sending);
-        $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
-        // Only tracks prepared in this run count as downloaded, so a continued batch does not inflate the download speed.
+        $sizes=array_map(fn($item)=>self::bytesOf([$item]),$items);
         $fresh=array_values(array_filter($items,fn($item)=>(int)@filemtime((string)$item['path'])>=$runStart-1));
-        $this->noteSpeed('batch',self::bytesOf($zip?$items:array_slice($items,0,max(1,count($ids)))),$timings,self::bytesOf($fresh));
-        $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
-        // The last track carries the caption and the way back (Telegram shows buttons only under a message of its own); the old menu is deleted.
-        $menus->delivered($menuId,$batch,$ids,count($items),$failed,(int)end($ids));
-        // Back needs menu state and message IDs, not the already delivered audio files.
-        Download::clean($dir);
+        $downloadBytes=self::bytesOf($fresh);
+        try {
+            $ids=$zip?$this->sendZips($job,$bot,$items,$title,$folder,$back,$sending):$this->sendTracks($job,$bot,$items,$title,$back,$sending);
+            $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
+            // Sizes were captured before each confirmed item was released from disk.
+            $this->noteSpeed('batch',array_sum($zip?$sizes:array_slice($sizes,0,max(1,count($ids)))),$timings,$downloadBytes);
+            $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+            $menus->delivered($menuId,$batch,$ids,count($items),$failed,(int)end($ids));
+        } finally {
+            // Preparation has finished. A metadata/status failure after a send must not retain the whole batch.
+            Download::clean($dir);
+        }
     }
 
     /** What a .fail file says: the reason and the clean list of what each source said (older files hold only the reason). */
@@ -594,7 +606,8 @@ final class Worker
             $file=$folder.'/part-'.(count($archives)+1).'.zip'; $zip=new \ZipArchive();
             if($zip->open($file,\ZipArchive::CREATE|\ZipArchive::OVERWRITE)!==true) throw new MediaFailure('storage','Cannot create the ZIP file');
             foreach($current as $item) { $name=sprintf('%02d - %s',$item['order'],$item['name']); $zip->addFile($item['path'],$name); $zip->setCompressionName($name,\ZipArchive::CM_STORE); }
-            $zip->close();
+            if(!$zip->close()) throw new MediaFailure('storage','Cannot finish the ZIP file');
+            foreach($current as $item) self::releaseMedia($item);
             $archives[]=['path'=>$file,'count'=>count($current),'mime'=>'application/zip']; $current=[]; $bytes=0;
         };
         foreach($items as $item) {
@@ -611,7 +624,6 @@ final class Worker
             $ids[]=(int)($this->sendOne($job,'document',$archive,$last?$caption:'',$last?$back:[])['message_id']??0);
             $sent+=$archive['count']; $sending($sent);
         }
-        foreach($archives as $archive) @unlink($archive['path']);
         return $ids;
     }
     /** One audio or document message, with a caption and buttons when given. @return array Telegram's message */
@@ -623,7 +635,16 @@ final class Worker
         if($type==='audio') $params+=['audio'=>$file,'title'=>mb_substr($item['title'],0,100),'performer'=>mb_substr($item['performer'],0,100),'duration'=>$item['duration']]+($item['thumbnail']!==null?['thumbnail'=>new \CURLFile($item['thumbnail'],'image/jpeg','cover.jpg')]:[]);
         else $params['document']=$file;
         $result=$this->api->call($type==='audio'?'sendAudio':'sendDocument',$params);
+        if(is_array($result)&&!empty($result['message_id'])) self::releaseMedia($item);
         return is_array($result)?$result:[];
+    }
+
+    /** A confirmed send no longer needs a local audio/video/archive or its thumbnail. */
+    private static function releaseMedia(array $item): void
+    {
+        foreach(array_unique(array_filter([$item['path']??null,$item['thumbnail']??null],'is_string')) as $path) {
+            if(is_file($path)&&!@unlink($path)) error_log('Delivered media cleanup unavailable');
+        }
     }
 
     /** One delivered file for the speed report; a failure to note it never touches the delivery itself. */
@@ -648,6 +669,7 @@ final class Worker
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         if($item['type']==='video') $params+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($item['path'],$item['type']==='photo'?'image/jpeg':'video/mp4',$item['type']==='photo'?'photo.jpg':'video.mp4');
-        $this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+[$item['type']=>$file,'reply_markup'=>['inline_keyboard'=>$bot->ui->gallerySourceRows($service,$job['url'])]]);
+        $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+[$item['type']=>$file,'reply_markup'=>['inline_keyboard'=>$bot->ui->gallerySourceRows($service,$job['url'])]]);
+        if(!is_array($result)||empty($result['message_id'])) throw new MediaFailure('upload','Missing gallery delivery confirmation');
     }
 }

@@ -50,7 +50,8 @@ final class Download
     public static function ensureSpace(string $folder,int $required=268435456): void
     {
         $free=@disk_free_space($folder);
-        if($free===false||$free<$required) throw new MediaFailure('storage','Insufficient free disk space');
+        if($free===false) throw new MediaFailure('storage','Cannot determine available disk space');
+        if($free<$required) throw new MediaFailure('storage','Insufficient free disk space: free='.round($free/1048576,1).' MiB required='.round($required/1048576,1).' MiB');
     }
     public function run(array $command, string $folder, int $seconds,?int $maxTemporaryBytes=null,?int $maxFileBytes=null): string
     {
@@ -248,6 +249,7 @@ final class Download
         if($site==='tikporn') $options=array_merge(['--plugin-dirs',__DIR__.'/tikporn-ytdlp'],$options);
         try { return $this->plain($canonical,$options,$folder,$seconds); }
         catch(MediaFailure $e) {
+            if($e->reason==='storage') throw $e;
             // The administrator sees WHY ("pornhub=dns", "pornhub=certificate"), never the raw downloader output.
             throw new MediaFailure($e->reason,$e->getMessage().' ['.$site.'='.self::siteCause($e->getMessage()).']');
         }

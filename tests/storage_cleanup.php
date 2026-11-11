@@ -39,6 +39,28 @@ try {
     $state=json_decode($store->query('SELECT options FROM jobs WHERE id=?',[$job['id']])->fetchColumn(),true)['pages'];
     storageCheck(is_file($config->storage.'/instagram-pages/'.$state['folder'].'/1.jpg'),'a response without a reusable Telegram ID retains the slide for navigation');
 
+    // A confirmed slide is released before the old status message is deleted, even if that deletion fails.
+    $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,message_id,status,phase,created) VALUES(3,42,42,'https://www.instagram.com/p/Fixture2/',70,'running','instagram',?)",[time()]);
+    $job=$store->query('SELECT * FROM jobs WHERE update_id=3')->fetch(); $slides=[];
+    foreach([1,2] as $i) { $path=$temp.'/confirmed'.$i.'.jpg'; file_put_contents($path,'fixture'); $slides[]=['path'=>$path,'type'=>'photo']; }
+    $confirmed=new class($config,$store,(int)$job['id']) implements Zero\Api {
+        public bool $checked=false;
+        public function __construct(private Zero\Config $config,private Zero\Store $store,private int $id) {}
+        public function call(string $method,array $params=[]): mixed {
+            if($method==='deleteMessage') {
+                $state=json_decode($this->store->query('SELECT options FROM jobs WHERE id=?',[$this->id])->fetchColumn(),true)['pages'];
+                $dir=$this->config->storage.'/instagram-pages/'.$state['folder'];
+                storageCheck(($state['items'][0]['file_id']??'')==='PHOTO_CONFIRMED'&&!is_file($dir.'/1.jpg')&&is_file($dir.'/2.jpg'),'confirmed gallery ID is saved and its local slide removed before status cleanup; unsent slide stays ready');
+                $this->checked=true;
+                throw new RuntimeException('Fixture status cleanup rejected');
+            }
+            return ['message_id'=>100,'photo'=>[['file_id'=>'PHOTO_CONFIRMED']]];
+        }
+    };
+    $pages=new Zero\GalleryPages($config,$store,$confirmed); $job=$pages->prepare($job,$slides);
+    $pages->deliver($job,new Zero\Bot($config,$store,$confirmed));
+    storageCheck($confirmed->checked&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='done','failed status cleanup does not retain or invalidate a delivered gallery slide');
+
     $file=$config->storage.'/ready.mp4'; file_put_contents($file,'fixture'); $upload=new CURLFile($file,'video/mp4','video.mp4');
     $api=new Zero\Telegram($config); $config->localApiSharedStorage=true;
     storageCheck($api->localFiles(['video'=>$upload])['video'] instanceof CURLFile,'the hosted API retains real multipart uploads');

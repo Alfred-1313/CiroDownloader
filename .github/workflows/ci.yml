@@ -108,6 +108,7 @@ jobs:
           php tests/large_upload.php
           php tests/disk_space.php
           php tests/storage_cleanup.php
+          php tests/delivery_cleanup.php
           php tests/radio.php
           php tests/radio_access.php
           php tests/radio_panel.php

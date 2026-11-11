@@ -212,6 +212,39 @@ class UpdaterTests(unittest.TestCase):
         with sqlite3.connect(snapshot) as db:
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
 
+    def test_update_backup_excludes_runtime_media_and_retains_persistent_data(self):
+        excluded = ['downloads', 'instagram-pages', 'pinterest-pages', 'tiktok-pages', 'twitter-pages',
+                    'music-batches', 'yt-cache', 'radio', '.keepalive-fixture', '.cookie-check-fixture']
+        for name in excluded:
+            folder = self.data / name
+            folder.mkdir()
+            (folder / 'sent-media.bin').write_bytes(b'not backup data')
+        (self.data / 'worker.lock').write_bytes(b'lock')
+        (self.data / '.youtube-blocked').write_bytes(b'temporary state')
+        self.queue()
+        self.agent.claim()
+        archive_path = self.backups / self.agent.backup()
+        with tarfile.open(archive_path) as archive:
+            names = archive.getnames()
+            self.assertIn('source/.env', names)
+            self.assertIn('data/zero.sqlite', names)
+            self.assertIn('data/youtube-cookies.txt', names)
+            self.assertFalse(any(name.startswith('data/' + folder + '/') for folder in excluded for name in names))
+            self.assertNotIn('data/worker.lock', names)
+            self.assertNotIn('data/.youtube-blocked', names)
+        self.assertTrue((self.data / 'radio/sent-media.bin').exists(), 'Backup exclusion must not erase active media')
+        self.assertEqual(archive_path.stat().st_mode & 0o077, 0)
+
+    def test_failed_update_backup_leaves_no_partial_archive(self):
+        self.queue()
+        self.agent.claim()
+        with patch.object(tarfile.TarFile, 'add', side_effect=OSError('Simulated disk exhaustion')):
+            with self.assertRaises(OSError):
+                self.agent.backup()
+        self.assertFalse(list(self.backups.iterdir()))
+        self.assertFalse((self.data / '.updater-snapshot.sqlite').exists())
+        self.assertTrue((self.data / 'zero.sqlite').is_file())
+
     def test_build_failure_restores_previous_image_and_resumes_jobs(self):
         self.queue()
         self.agent.fail_build = True

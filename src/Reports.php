@@ -92,9 +92,10 @@ final class Reports
         $ui=$this->bot->ui; $list=json_decode($this->bot->store->get('recent_errors','[]'),true); $rows=[];
         foreach(is_array($list)?$list:[] as $error) {
             $service=in_array($error['s'],[...self::SERVICES],true)?$error['s']:'youtube'; $key=($service!=='youtube'&&$service!=='menu'&&$service!=='batch'?$service.'_':'').'error_'.$error['r'];
+            if(!$ui->definition('text',$key)) $key='error_'.$error['r'];
             $meaning=$ui->definition('text',$key)?$ui->plain($key):$ui->plain('failed');
             $rows[]=$ui->text('report_error_row',['ago'=>$this->ago((int)$error['t']),'name'=>$this->name($service),'reason'=>(string)$error['r'],'meaning'=>mb_substr($meaning,0,110),
-                'sources'=>preg_match('/^[a-z]+=[a-z]+(?:, [a-z]+=[a-z]+){0,4}$/D',(string)($error['c']??''))===1?"\n".$error['c']:''],['sources']);
+                'sources'=>$error['r']!=='storage'&&preg_match('/^[a-z]+=[a-z]+(?:, [a-z]+=[a-z]+){0,4}$/D',(string)($error['c']??''))===1?"\n".$error['c']:''],['sources']);
         }
         return $ui->text('report_errors_page',['rows'=>$rows?implode("\n\n",$rows):$ui->plain('report_no_errors')],['rows']);
     }
