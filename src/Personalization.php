@@ -95,6 +95,7 @@ final class Personalization
             [$this->switchButton('adult_xvideos','custom:adultxvideos',$store->get('adult.xvideos','0')==='1')],
             [$this->switchButton('adult_tikporn','custom:adulttikporn',$store->get('adult.tikporn','0')==='1')],
             [$this->switchButton('adult_youporn','custom:adultyouporn',$store->get('adult.youporn','0')==='1')],
+            [$this->switchButton('adult_eporner','custom:adulteporner',$store->get('adult.eporner','0')==='1')],
             [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
             [$this->heading($ui->label('adult_filters'),'adult_filters')],
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
@@ -784,6 +785,9 @@ final class Personalization
             $this->adultPage($chat,$message);
         } elseif($op==='adultyouporn') {
             $this->bot->store->set('adult.youporn',$this->bot->store->get('adult.youporn','0')==='1'?'0':'1');
+            $this->adultPage($chat,$message);
+        } elseif($op==='adulteporner') {
+            $this->bot->store->set('adult.eporner',$this->bot->store->get('adult.eporner','0')==='1'?'0':'1');
             $this->adultPage($chat,$message);
         } elseif($op==='adultdelp') {
             $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');

@@ -122,7 +122,7 @@ final class Bot
                 $message=(int)($result['message_id']??0);
                 if(!$message) throw new \RuntimeException('Missing poster message ID');
             }
-            if(in_array(adultService($job['url']),['xvideos','tikporn','youporn'],true)) {
+            if(in_array(adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) {
                 $photos=is_array($result)&&is_array($result['photo']??null)?$result['photo']:[];
                 $poster=$photos?(string)(end($photos)['file_id']??''):'';
             }
@@ -134,7 +134,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A rejected thumbnail must not prevent choosing and downloading the video.
-            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$site]).' quality cover remote=telegram_400');
+            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover remote=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
@@ -168,7 +168,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A refused picture must not prevent choosing and downloading the video.
-            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$site]).' quality cover upload=telegram_400');
+            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover upload=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
@@ -246,7 +246,7 @@ final class Bot
         $rows=[]; $row=[]; $perRow=max(1,min(3,(int)$this->store->get('cover.per_row','2')));
         // 240p exists only on sites with a lower ladder (Pornhub); it leads the menu when offered.
         $order=$this->ui->coverOrder(); if(!empty($media['options']['240'])) array_unshift($order,'240');
-        if(adultService($job['url'])==='tikporn') foreach(array_keys($media['options']) as $height) {
+        if(in_array(adultService($job['url']),['tikporn','eporner'],true)) foreach(array_keys($media['options']) as $height) {
             $height=(string)$height;
             if(!ctype_digit($height)||in_array($height,$order,true)) continue;
             $position=count($order);

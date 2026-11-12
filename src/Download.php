@@ -286,14 +286,14 @@ final class Download
         if(!is_array($info)) throw new MediaFailure('format','Downloader metadata is missing');
         if($site!=='youtube') {
             // The same quality menu as YouTube (plus 240p and the audio choice); qualities that cannot be sent are not offered.
-            $options=self::sizedOptions($info,$this->config->maxBytes,$site==='tikporn');
+            $options=self::sizedOptions($info,$this->config->maxBytes,in_array($site,['tikporn','eporner'],true));
             $options['meta']=self::siteMeta($info);
-            $poster=in_array($site,['xvideos','tikporn','youporn'],true)?$this->qualityPoster($folder):self::posterFile($folder);
+            $poster=in_array($site,['xvideos','tikporn','youporn','eporner'],true)?$this->qualityPoster($folder):self::posterFile($folder);
             $remote='';
-            if($poster===null) foreach(match($site) {'xvideos'=>['xvideos-cdn.com','xvideos.com'],'tikporn'=>['tik.porn'],'youporn'=>['ypncdn.com','youporn.com'],default=>[]} as $host) {
+            if($poster===null) foreach(match($site) {'xvideos'=>['xvideos-cdn.com','xvideos.com'],'tikporn'=>['tik.porn'],'youporn'=>['ypncdn.com','youporn.com'],'eporner'=>['eporner.com'],default=>[]} as $host) {
                 if(($remote=self::trustedPoster($info,$host))!=='') break;
             }
-            if(in_array($site,['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$site]).' quality cover candidates='.count($info['thumbnails']??[]).' source='.($poster!==null?'file':($remote!==''?'remote':'none')));
+            if(in_array($site,['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover candidates='.count($info['thumbnails']??[]).' source='.($poster!==null?'file':($remote!==''?'remote':'none')));
             return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>$remote,'poster_file'=>$poster,'duration'=>max(0,(int)ceil((float)($info['duration']??0)))];
         }
         $options=self::qualityOptions($info);
@@ -594,7 +594,7 @@ final class Download
             '--concurrent-fragments',$site==='youtube'?'4':'8',
             '--abort-on-unavailable-fragments','--max-filesize',(string)$this->config->maxBytes,
             '--match-filter','!is_live','--break-on-reject',
-            ...(in_array($site,['xvideos','tikporn','youporn'],true)?['--write-thumbnail','-o','thumbnail:'.$folder.'/poster.%(ext)s']:[]),
+            ...(in_array($site,['xvideos','tikporn','youporn','eporner'],true)?['--write-thumbnail','-o','thumbnail:'.$folder.'/poster.%(ext)s']:[]),
             // Explicit IDs prevent silently substituting a different quality.
             '-f',$selector?implode('/',$selector):'bv*+ba/b','-S','res:'.$target.',vcodec:h264,acodec:aac',
             '--merge-output-format','mkv','--print','after_move:%(title)j',
@@ -637,8 +637,8 @@ final class Download
         foreach($info['streams']??[] as $s) if(($s['codec_type']??'')==='video') $video=$s;
         if(!$video||min((int)$video['width'],(int)$video['height'])>$target||($quality!==null&&min((int)$video['width'],(int)$video['height'])!==$quality)) throw new MediaFailure('format','Prepared resolution does not match the selected quality');
         // The selected file, not an estimated playlist label, supplies the final caption's resolution.
-        $poster=in_array($site,['xvideos','tikporn','youporn'],true)?self::posterFile($folder):null;
-        $thumbnail=in_array($site,['beeg','xvideos','tikporn','youporn'],true)?(($poster?$this->videoThumbnail($poster,$folder):null)??$this->videoThumbnail($ready,$folder)):null;
+        $poster=in_array($site,['xvideos','tikporn','youporn','eporner'],true)?self::posterFile($folder):null;
+        $thumbnail=in_array($site,['beeg','xvideos','tikporn','youporn','eporner'],true)?(($poster?$this->videoThumbnail($poster,$folder):null)??$this->videoThumbnail($ready,$folder)):null;
         @unlink($file); // The validated MP4 is the only full video needed during upload.
         return ['path'=>$ready,'title'=>is_string($decoded=json_decode(trim($title),true))?$decoded:'YouTube','thumbnail'=>$thumbnail,
             'height'=>(int)$video['height'],'width'=>(int)$video['width'],

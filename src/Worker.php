@@ -176,7 +176,7 @@ final class Worker
             if(!$audio&&!empty($media['thumbnail'])) {
                 $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','thumbnail.jpg');
                 // Telegram can generate its own thumbnail; an explicit cover selects the displayed video picture.
-                if(in_array($adultSite,['xvideos','tikporn','youporn'],true)) $params['cover']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
+                if(in_array($adultSite,['xvideos','tikporn','youporn','eporner'],true)) $params['cover']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
             }
             $uploadStarted=hrtime(true); $uploadBytes=(int)filesize($media['path']);
             if($audio) $sent=$api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
@@ -184,7 +184,7 @@ final class Worker
             else $sent=$api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
             if(is_array($sent)&&!empty($sent['message_id'])) Download::clean($folder);
-            if(!$audio&&in_array($adultSite,['xvideos','tikporn','youporn'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn'][$adultSite]).' video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
+            if(!$audio&&in_array($adultSite,['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$adultSite]).' video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
             // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
             // so a restart in between does not leave it in the chat).
             if($adult&&$deleteAfter>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$deleteAfter);

@@ -1,5 +1,7 @@
 # Verification
 
+`YTDLP_TEST_PYTHON=/path/to/pinned-venv/bin/python php tests/eporner.php` exercises the native Eporner extractor (page/hash/XHR), neutral local HLS and MP4 media, native 1440p selection, MP3, multipart cover/caption delivery, shared access and deletion settings, actual supervisor deletion and cleanup. Public-site access and live Telegram delivery are not established by fixtures; see `docs/eporner.md`.
+
 `php tests/adult_captions.php` checks all adult services with empty, invisible and optional-metadata-only saved captions, empty saved deletion notices, meaningful rich custom captions and a rejected caption-repair request. `tests/youporn.php` also exercises the actual native extractor and multipart upload with a saved template that renders empty, and a local Bot API response that omits the caption: only the exact delivered message is edited once, with its deletion timer preserved and no second upload.
 
 `php tests/youporn.php` starts the real worker supervisor after a completed group video delivery and observes deletion of that exact message at its persisted deadline without another user update. It also reproduces private deletion off with group deletion on at 180 seconds, checking the corresponding captions and timers independently, plus the private audio timer. All media and Bot API traffic use neutral local fixtures.

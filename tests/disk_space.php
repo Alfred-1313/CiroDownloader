@@ -37,7 +37,7 @@ try {
     $store->set('text.error_storage','CUSTOM STORAGE NOTICE');
     $urls=['pornhub'=>'https://www.pornhub.com/view_video.php?viewkey=phfixture', 'beeg'=>'https://beeg.com/12345',
         'xnxx'=>'https://www.xnxx.com/video-fixture/title','xvideos'=>'https://www.xvideos.com/video.fixture/title',
-        'tikporn'=>'https://tik.porn/video/2344693','youporn'=>'https://www.youporn.com/watch/189780301/'];
+        'tikporn'=>'https://tik.porn/video/2344693','youporn'=>'https://www.youporn.com/watch/189780301/','eporner'=>'https://www.eporner.com/video-HmstDuT4BNE/'];
     foreach($urls as $site=>$url) {
         if(adultService($url)!==$site) throw new \RuntimeException('Invalid fixture URL for '.$site);
         $store->set('adult.'.$site,'1');

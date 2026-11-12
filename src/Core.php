@@ -586,7 +586,7 @@ final class Store
         $this->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[$id,$user,$chat])->fetch();
-            if($native&&$job&&adultService($job['url'])!=='tikporn') $job=null;
+            if($native&&$job&&!in_array(adultService($job['url']),['tikporn','eporner'],true)) $job=null;
             $options=$job?json_decode($job['options'],true):[];
             $audio=$quality==='audio';
             if(!$job||($quality!==null&&(empty($options[(string)$quality])||$this->busy($user,$chat)||$this->full()))) $job=null;
@@ -738,8 +738,20 @@ function youpornUrl(string $input): ?string
         ||!preg_match('~^/(?:watch|embed)/([0-9]{1,20})(?:/[^/?#]{1,600})?/?$~D',$u['path']??'',$match)) return null;
     return 'https://www.youporn.com/watch/'.$match[1].'/';
 }
-function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos','tikporn','youporn']; }
-function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input)??tikpornUrl($input)??youpornUrl($input); }
+/** One Eporner video or embed; never a search, profile or collection. */
+function epornerUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?eporner\.com/~i',$input)) $input='https://'.$input;
+    $u=parse_url($input);
+    if(!$u||!in_array(strtolower($u['scheme']??''),['http','https'],true)||isset($u['user'])||isset($u['pass'])||isset($u['port'])
+        ||!in_array(strtolower($u['host']??''),['eporner.com','www.eporner.com'],true)
+        ||!preg_match('~^/(?:video-|(?:hd-porn|embed)/)([A-Za-z0-9]{1,32})(?:/[A-Za-z0-9_-]{1,600})?/?$~D',$u['path']??'',$match)) return null;
+    return 'https://www.eporner.com/video-'.$match[1].'/';
+}
+function adultServices(): array { return ['pornhub','beeg','xnxx','xvideos','tikporn','youporn','eporner']; }
+function adultUrl(string $input): ?string { return pornhubUrl($input)??beegUrl($input)??xnxxUrl($input)??xnxxSearchUrl($input)??xvideosUrl($input)??xvideosSearchUrl($input)??tikpornUrl($input)??youpornUrl($input)??epornerUrl($input); }
 function adultService(string $input): ?string
 {
     return match(true) {
@@ -749,6 +761,7 @@ function adultService(string $input): ?string
         xvideosUrl($input)!==null||xvideosSearchUrl($input)!==null=>'xvideos',
         tikpornUrl($input)!==null=>'tikporn',
         youpornUrl($input)!==null=>'youporn',
+        epornerUrl($input)!==null=>'eporner',
         default=>null,
     };
 }

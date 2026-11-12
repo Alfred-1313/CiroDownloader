@@ -84,6 +84,7 @@ jobs:
           php tests/xnxx_search.php
           YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/xvideos.php
           YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/youporn.php
+          YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/eporner.php
           YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/tikporn.php
           php tests/xvideos_search.php
           YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/beeg.php
