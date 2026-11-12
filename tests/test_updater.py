@@ -112,6 +112,18 @@ class UpdaterTests(unittest.TestCase):
             return subprocess.check_output(args, cwd=self.project, text=True).strip()
         return self.commands(*args, **kwargs)
 
+    def test_legacy_cleanup_migration_runs_once_after_v1_already_completed(self):
+        (self.state / 'previous.json').write_text(json.dumps({
+            'sha': 'a' * 40, 'image': 'ciro-downloader:backup-' + 'a' * 12 + '-1',
+            'backup': 'pre-update-20261112-051840-088170-162.tar.gz'}))
+        (self.state / 'retention-v1.json').write_text('{"enabled":true}')
+        with patch.object(updater, 'prune_previous') as cleaned:
+            self.agent.tick()
+            cleaned.assert_called_once()
+            self.assertTrue((self.state / 'retention-v2.json').is_file())
+            self.agent.tick()
+            cleaned.assert_called_once()
+
     def test_prune_happens_only_after_verified_update(self):
         self.queue()
         def prune():

@@ -116,7 +116,8 @@ def prune_previous():
             records.append(pending)
     keep_images = {item['image'] for item in records}
     keep_backups = {item.get('backup', '') for item in records}
-    pattern = r'pre-update-\d{8}-\d{6}-\d{6}-\d+\.tar\.gz'
+    # Earlier releases omitted microseconds; both formats are automatic update archives.
+    pattern = r'pre-update-\d{8}-\d{6}(?:-\d{6})?-\d+\.tar\.gz'
     if not previous.get('backup') or not re.fullmatch(pattern, previous['backup']):
         return  # An older record without its archive is not enough to prune backups.
     if BACKUPS.is_symlink():
@@ -594,7 +595,7 @@ class Agent:
             self.finish(self.ui('update_recovered'), failed=True)
             return
         self.refresh_completion()
-        if (STATE / 'previous.json').is_file() and not (STATE / 'retention-v1.json').is_file():
+        if (STATE / 'previous.json').is_file() and not (STATE / 'retention-v2.json').is_file():
             try:
                 prune_previous()
             except Exception:
@@ -602,7 +603,7 @@ class Agent:
             finally:
                 # One migration attempt, not a repeating error history/notification loop.
                 # A later successful update or explicit cleanup retries retention.
-                atomic_json(STATE / 'retention-v1.json', {'enabled': True})
+                atomic_json(STATE / 'retention-v2.json', {'enabled': True})
         self.beat()
         with self.db() as db:
             # A crash before recovery.json exists has not modified code or image.

@@ -55,6 +55,31 @@ class RetentionTests(unittest.TestCase):
         removals = [a for a in self.calls if a[:3] == ('docker', 'image', 'rm')]
         self.assertEqual(removals, [('docker', 'image', 'rm', 'ciro-downloader:backup-' + 'b' * 12 + '-1')])
 
+    def test_legacy_archives_reported_on_full_server_are_removed(self):
+        legacy = ['pre-update-20261109-113622-134.tar.gz',
+                  'pre-update-20261109-224803-139.tar.gz',
+                  'pre-update-20261111-042818-159.tar.gz']
+        for name in legacy:
+            (self.backups / name).write_bytes(b'legacy automatic backup')
+        updater.prune_previous()
+        self.assertTrue((self.backups / self.keep).is_file())
+        self.assertTrue((self.backups / 'ciro-backup-manual.tar.gz').is_file())
+        self.assertFalse(any((self.backups / name).exists() for name in legacy))
+
+    def test_legacy_retained_version_and_pending_archive_remain_protected(self):
+        self.keep = 'pre-update-20261111-042818-159.tar.gz'
+        self.previous['backup'] = self.keep
+        self.valid_archive()
+        (self.state / 'previous.json').write_text(json.dumps(self.previous))
+        pending_name = 'pre-update-20261110-190150-152.tar.gz'
+        (self.backups / pending_name).write_bytes(b'pending recovery')
+        (self.state / 'recovery.json').write_text(json.dumps({'previous': {
+            'sha': 'b' * 40, 'image': 'ciro-downloader:backup-' + 'b' * 12 + '-1', 'backup': pending_name}}))
+        updater.prune_previous()
+        self.assertTrue((self.backups / self.keep).is_file())
+        self.assertTrue((self.backups / pending_name).is_file())
+        self.assertFalse((self.backups / self.old).exists())
+
     def test_pending_recovery_and_completion_are_protected(self):
         for name in ('recovery.json', 'completion-pending.json'):
             (self.state / name).write_text(json.dumps({'previous': {'sha': 'b' * 40, 'image': 'ciro-downloader:backup-' + 'b' * 12 + '-1', 'backup': self.old}}))
