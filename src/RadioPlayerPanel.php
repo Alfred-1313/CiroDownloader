@@ -124,7 +124,7 @@ final class RadioPlayerPanel
                 return $this->show($chat,$user,0,$station,$thread,$view,true,$preview);
             }
             if(!in_array($e->getCode(),[400,403],true)) throw $e;
-            error_log('Radio panel image rejected (code '.(int)$e->getCode().')');
+            ErrorAlerts::event('Radio panel image rejected (code '.(int)$e->getCode().')');
             if($kind==='photo') {
                 // A rejected replacement picture must not disable an otherwise working player.
                 if($photoKey===($saved['photo_key']??'')) throw $e;
@@ -212,7 +212,7 @@ final class RadioPlayerPanel
             if($owner===0) { $store->query('UPDATE radio_sessions SET pending=0 WHERE chat_id=? AND token=?',[$id,$stream['token']]); continue; }
             try { $this->show($id,$owner,0,$station,(int)$stream['thread_id'],'menu'); }
             catch(\Throwable $e) {
-                error_log('Radio stream panel failed: '.get_class($e).' (code '.(int)$e->getCode().')');
+                ErrorAlerts::event('Radio stream panel failed: '.get_class($e).' (code '.(int)$e->getCode().')');
                 $tries=(int)$stream['tries']+1;
                 $store->query('UPDATE radio_sessions SET tries=?,due=?,pending=? WHERE chat_id=? AND token=?',[$tries,time()+min(60,5*(2**min(4,$tries))),$tries<5?1:0,$id,$stream['token']]);
             }

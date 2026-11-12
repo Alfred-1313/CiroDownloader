@@ -83,7 +83,6 @@ abstract class GalleryMedia
                 if(file_put_contents($private,$content)!==strlen($content)||!chmod($private,0600)) throw new MediaFailure('cookies','Cannot create private '.static::NAME.' cookie copy');
                 $arguments=['--cookies',$private];
             }
-            error_log(static::NAME.' provider=gallery-dl cookies='.($jar?'yes jar='.$jar['id']:'no'));
             // Partial files of an earlier refused attempt must not be mistaken for this one's result.
             foreach(glob($folder.'/'.static::PREFIX.'-*')?:[] as $stale) if(is_file($stale)) unlink($stale);
             try { $output=$runner->run(array_merge($command,$arguments,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*(static::MAX_ITEMS+1),$this->config->maxBytes); $failure=null; }

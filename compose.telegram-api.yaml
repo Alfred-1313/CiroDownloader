@@ -21,8 +21,7 @@ services:
     security_opt: [no-new-privileges:true]
     stop_grace_period: 60s
     logging:
-      driver: json-file
-      options: {max-size: 10m, max-file: '3'}
+      driver: none
 networks:
   app:
     name: ciro-downloader_default

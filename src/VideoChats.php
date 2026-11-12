@@ -20,11 +20,6 @@ final class VideoChats
         if(!is_array($post)) return false;
         $event=null;
         foreach(self::EVENTS as $field=>$name) if(isset($post[$field])) $event=[$field,$name];
-        if($channel&&$bot->store->get('channel_post_logged','0')<(string)(time()-600)) {
-            // Which kinds of update reach the bot from channels: field names only, never content, at most every ten minutes.
-            $bot->store->set('channel_post_logged',(string)time());
-            error_log('Channel update: '.($event!==null?$event[0]:implode(',',array_slice(array_keys($post),0,8))));
-        }
         if($event===null) return $channel;
         $chat=is_array($post['chat']??null)?$post['chat']:[];
         $title=trim((string)($chat['title']??''));
@@ -32,7 +27,6 @@ final class VideoChats
         // A group administrator who stays anonymous (or "appears as" the group) starts the stream on behalf of the group
         // itself: Telegram then names the group as sender and a service account as "from". Only administrators can do that.
         $asGroup=!$channel&&$chatId!==0&&(int)($post['sender_chat']['id']??0)===$chatId;
-        if(!$channel) error_log('Group video chat '.$event[1].': '.($asGroup?'as the group':($starter>0&&$bot->admin($starter)?'bot administrator':'member or chat administrator')));
         // The radio of this chat: its stream is live or not, and a chat where an administrator started one can be set up.
         try {
             $radio=new Radio($bot->config,$bot->store);
@@ -41,7 +35,7 @@ final class VideoChats
             if($event[1]==='started') {
                 if($chatId!==0&&($channel||$asGroup||($starter>0&&Radio::chatAdmin($bot->api,$bot->store,$chatId,$starter)))) $radio->seen($chatId,$title,$channel?'channel':'group');
             }
-        } catch(\Throwable $e) { error_log('Radio stream event failed: '.get_class($e).' (code '.(int)$e->getCode().')'); }
+        } catch(\Throwable $e) { ErrorAlerts::event('Radio stream event failed: '.get_class($e).' (code '.(int)$e->getCode().')'); }
         // In a group the administrators hear about it when one of them started it, or when one of the group's administrators
         // did so anonymously ("as the group"); only administrators can, so this is no stranger's news.
         if(!$channel&&!($starter>0&&$bot->admin($starter))&&!$asGroup) return true;

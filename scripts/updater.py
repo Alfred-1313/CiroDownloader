@@ -18,7 +18,7 @@ import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-PROJECT = Path('/opt/ciro-downloader')
+PROJECT = Path(__file__).resolve().parents[1] if '--cli-update' in sys.argv else Path('/opt/ciro-downloader')
 STATE = Path('/var/lib/ciro-downloader-updater')
 BACKUPS = Path('/var/backups/ciro-downloader')
 ORIGIN = 'https://github.com/Alfred-1313/CiroDownloader.git'
@@ -96,6 +96,50 @@ def changes_since(installed, target, project=None):
 def valid_recovery(value):
     return (isinstance(value, dict) and bool(SHA.fullmatch(value.get('sha', '')))
             and bool(re.fullmatch(r'ciro-downloader:backup-[0-9a-f]{12}-\d+', value.get('image', ''))))
+
+
+def prune_previous():
+    """Only Ciro's automatic update artifacts; never Docker volumes or manual backups."""
+    record = STATE / 'previous.json'
+    if not record.is_file():
+        return  # Without a recovery record, deletion cannot be proven safe.
+    previous = json.loads(record.read_text())
+    if not valid_recovery(previous):
+        raise RuntimeError('Invalid retained version')
+    records = [previous]
+    for name in ('recovery.json', 'completion-pending.json'):
+        path = STATE / name
+        if path.exists():
+            pending = json.loads(path.read_text()).get('previous')
+            if not valid_recovery(pending):
+                raise RuntimeError('Invalid pending recovery')
+            records.append(pending)
+    keep_images = {item['image'] for item in records}
+    keep_backups = {item.get('backup', '') for item in records}
+    pattern = r'pre-update-\d{8}-\d{6}-\d{6}-\d+\.tar\.gz'
+    if not previous.get('backup') or not re.fullmatch(pattern, previous['backup']):
+        return  # An older record without its archive is not enough to prune backups.
+    if BACKUPS.is_symlink():
+        raise RuntimeError('Unsafe backup directory')
+    archive = BACKUPS / previous['backup']
+    if not archive.is_file() or archive.is_symlink():
+        raise RuntimeError('Retained backup is missing')
+    with tarfile.open(archive, 'r:gz') as retained:
+        for required in ('source/.env', 'data/zero.sqlite'):
+            member = retained.getmember(required)
+            if not member.isfile() or member.size < 1:
+                raise RuntimeError('Retained backup is incomplete')
+    command('docker', 'image', 'inspect', previous['image'])
+    # Inspect the actual keep image before removing any other tags.
+    tags = command('docker', 'image', 'ls', '--format', '{{.Repository}}:{{.Tag}}').splitlines()
+    for tag in tags:
+        if re.fullmatch(r'ciro-downloader:backup-[0-9a-f]{12}-\d+', tag) and tag not in keep_images:
+            command('docker', 'image', 'rm', tag)  # never --force, never prune unrelated images
+    if BACKUPS.is_symlink():
+        raise RuntimeError('Unsafe backup directory')
+    for path in BACKUPS.iterdir():
+        if re.fullmatch(pattern, path.name) and path.name not in keep_backups and path.is_file() and not path.is_symlink():
+            path.unlink()
 
 
 def ui_definitions():
@@ -248,6 +292,20 @@ class Agent:
             raise RuntimeError('Telegram notification failed')
         return result['result']
 
+    def error_alert(self):
+        try:
+            with self.db() as db:
+                roots = tuple(self.admins)
+                placeholders = ','.join('(?)' for _ in roots)
+                admins = {int(row[0]) for row in db.execute('WITH RECURSIVE authorized(id) AS (VALUES ' + placeholders + ' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id) SELECT id FROM authorized', roots)}
+        except Exception:
+            admins = self.admins
+        for admin in admins:
+            try:
+                self.api('sendMessage', {'chat_id': admin, 'text': self.ui('admin_error_alert', service='updater', reason='process', sources=''), 'parse_mode': 'HTML'})
+            except Exception:
+                pass
+
     def sync_message(self):
         if not self.job or not self.job.get('id'):
             return
@@ -266,7 +324,7 @@ class Agent:
             self.api('editMessageText', params)
         except Exception:
             # A deleted progress message or temporary API outage must not abort recovery.
-            print('Progress notification unavailable', flush=True)
+            pass
 
     @staticmethod
     def bar(percent):
@@ -284,8 +342,8 @@ class Agent:
                     [[self.button('update_progress', 'update:progress', percent=number)]])
 
     def run(self, *args, timeout=900):
-        with tempfile.TemporaryFile() as output:
-            proc = subprocess.Popen(args, cwd=PROJECT, stdout=output, stderr=subprocess.STDOUT)
+        with open(os.devnull, 'wb') as output:
+            proc = subprocess.Popen(args, cwd=PROJECT, stdout=output, stderr=subprocess.DEVNULL)
             deadline = time.monotonic() + timeout
             try:
                 while proc.poll() is None:
@@ -510,11 +568,15 @@ class Agent:
         self.progress('update_health', 95)
         self.verify()
         # Update the next invocation of this agent only after the new application is healthy.
-        if (PROJECT / 'scripts/install-updater.sh').is_file():
+        if PROJECT == Path('/opt/ciro-downloader') and (PROJECT / 'scripts/install-updater.sh').is_file():
             self.run('bash', 'scripts/install-updater.sh', timeout=60)
         atomic_json(STATE / 'previous.json', previous)
         self.set('update_previous_version', previous['version'])
         recovery.unlink(missing_ok=True)
+        try:
+            prune_previous()
+        except Exception:
+            self.error_alert()  # Cleanup cannot roll back a verified healthy update.
         self.finish(self.ui('update_rollback_done' if self.job['action'] == 'rollback' else 'update_success'),
                     from_version=previous['version'] if self.job['action'] == 'update' else None)
 
@@ -532,6 +594,15 @@ class Agent:
             self.finish(self.ui('update_recovered'), failed=True)
             return
         self.refresh_completion()
+        if (STATE / 'previous.json').is_file() and not (STATE / 'retention-v1.json').is_file():
+            try:
+                prune_previous()
+            except Exception:
+                self.error_alert()
+            finally:
+                # One migration attempt, not a repeating error history/notification loop.
+                # A later successful update or explicit cleanup retries retention.
+                atomic_json(STATE / 'retention-v1.json', {'enabled': True})
         self.beat()
         with self.db() as db:
             # A crash before recovery.json exists has not modified code or image.
@@ -542,7 +613,7 @@ class Agent:
         try:
             self.execute()
         except Exception as exc:
-            print('Update failed: ' + type(exc).__name__, flush=True)
+            self.error_alert()
             if recovery.is_file():
                 try:
                     self.progress('update_restore', 95)
@@ -556,11 +627,54 @@ class Agent:
                 self.finish(self.ui('update_failed'), self.ui('update_failed_detail'), failed=True)
 
 
+class CliAgent(Agent):
+    """The root manager uses exactly the same backup, image, health and recovery flow."""
+    def notify(self, text, buttons=None):
+        # Console-only stage information, never a persistent manager log.
+        print('Update progress: ' + str(getattr(self, 'percent', 0)) + '%', flush=True)
+
+    def finish(self, title, detail='', failed=False, from_version=None):
+        self.set('update_in_progress', 0)
+        if failed:
+            self.error_alert()
+            raise RuntimeError('Update failed; recovery was attempted')
+        (STATE / 'completion-pending.json').unlink(missing_ok=True)
+
+    def cli_update(self):
+        recovery = STATE / 'recovery.json'
+        if recovery.exists():
+            saved = json.loads(recovery.read_text())
+            self.restore(saved['previous'])
+            with self.db() as db:
+                db.execute("UPDATE update_requests SET status='failed' WHERE id=?", (saved.get('job', {}).get('id', 0),))
+            recovery.unlink()
+        with self.db() as db:
+            if db.execute("SELECT 1 FROM update_requests WHERE status IN ('queued','running')").fetchone():
+                raise RuntimeError('A Telegram update request is pending')
+        self.job = {'id': 0, 'action': 'update', 'chat_id': min(self.admins), 'message_id': 0}
+        try:
+            self.execute()
+        except Exception:
+            self.error_alert()
+            if recovery.exists():
+                self.restore(json.loads(recovery.read_text())['previous'])
+                recovery.unlink()
+            self.set('update_in_progress', 0)
+            raise
+
+
 def main():
     if os.geteuid() != 0:
         raise RuntimeError('Run the host updater as root')
     os.umask(0o077)
     STATE.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if '--cli-update' in sys.argv:
+        # Manager holds this exact lock; a forged or unrelated inherited FD is insufficient.
+        fd = int(os.environ.get('CIRO_MANAGER_LOCK_FD', '-1'))
+        if fd < 0 or not os.path.samestat(os.fstat(fd), os.stat('/run/ciro-downloader-updater.lock')):
+            raise RuntimeError('Manager operation lock required')
+        CliAgent().cli_update()
+        return
     with open('/run/ciro-downloader-updater.lock', 'w') as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -574,6 +688,6 @@ if __name__ == '__main__':
         main()
     except Exception as error:
         # Never log urllib exceptions: their URLs contain the bot token.
-        print('Host updater error: ' + type(error).__name__, file=sys.stderr)
+        pass
         sys.exit(1)
 

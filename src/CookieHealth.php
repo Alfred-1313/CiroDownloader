@@ -114,8 +114,8 @@ final class CookieHealth
                 // A refusal of the cookie is the cookie's fault; "blocked" may be the server's address, so the jar is not blamed.
                 if($e->reason==='cookies') $pool->markFailed($jar['id']);
                 elseif($e->reason==='blocked') $blocked++;
-                error_log('YouTube cookie keep-alive: jar='.$jar['id'].' reason='.$e->reason);
-            } catch(\Throwable $e) { error_log('YouTube cookie keep-alive failed: '.get_class($e)); }
+                ErrorAlerts::event('YouTube cookie keep-alive: jar='.$jar['id'].' reason='.$e->reason);
+            } catch(\Throwable $e) { ErrorAlerts::event('YouTube cookie keep-alive failed: '.get_class($e)); }
             finally { Download::clean($folder); }
         }
         // Every jar that was tried got YouTube's bot check: the cookies are not the problem, the server's address is.

@@ -222,13 +222,11 @@ final class Spotify
                 $audio=$find();
                 // The search already compared lengths; this guards against a different file being served.
                 if(abs($audio['duration']-$meta['duration'])>30) throw new MediaFailure('format','Downloaded length does not match the track');
-                error_log('Spotify source='.$source);
                 if($source==='youtube') { if(is_file($flag)) @unlink($flag); @touch($this->config->storage.'/.youtube-ok'); }
                 break;
             } catch(MediaFailure $e) {
                 // Too big or no disk space is the same everywhere; anything else may work from another source.
                 if(in_array($e->reason,['size','storage'],true)) throw $e;
-                error_log('Spotify source='.$source.' failed reason='.$e->reason);
                 if($source==='youtube'&&$e->reason==='blocked') { @touch($flag); @unlink($this->config->storage.'/.youtube-ok'); }
                 $tried[$source]=$e->reason; $audio=null;
                 foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
@@ -244,7 +242,6 @@ final class Spotify
         $found=(int)round((hrtime(true)-$clock)/1e6);
         $media=Music::finish($this->config,$audio,$folder,$meta,'spotify');
         // Where the time goes: finding and downloading the audio, then the cover and the tags.
-        error_log('Spotify timings '.json_encode(['source_ms'=>$found,'tag_ms'=>(int)round((hrtime(true)-$clock)/1e6)-$found,'format'=>strtoupper(pathinfo($media['path'],PATHINFO_EXTENSION))]));
         return $media;
     }
 }

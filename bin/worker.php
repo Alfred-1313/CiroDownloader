@@ -6,7 +6,7 @@ require dirname(__DIR__).'/src/Download.php';
 require dirname(__DIR__).'/src/Worker.php';
 umask(0077);
 if(!function_exists('pcntl_fork')||!function_exists('posix_kill')) throw new RuntimeException('Worker requires the pcntl and posix PHP extensions; rebuild the application image.');
-$config=Zero\Config::load(); $store=new Zero\Store($config->storage);
+$config=Zero\Config::load(); $store=new Zero\Store($config->storage); Zero\ErrorAlerts::boot($config,$store);
 $lock=Zero\lockProcess($config->storage.'/worker.lock');
 new Zero\Radio($config,$store);
 $processor=new Zero\Worker($config,$store,new Zero\Telegram($config));
@@ -16,7 +16,7 @@ if(!is_dir($downloads)) mkdir($downloads,0700,true);
 // cannot recover their running jobs or erase their files while they are alive.
 foreach($store->query("SELECT * FROM jobs WHERE status='running'")->fetchAll() as $job) $processor->recover($job);
 foreach(glob($downloads.'/job-*')?:[] as $folder) Zero\Download::clean($folder);
-echo "Ciro Downloader worker started\n";
+
 pcntl_async_signals(true);
 $stopping=false; $children=[]; $lastHeartbeat=0;
 foreach([SIGTERM,SIGINT] as $signal) pcntl_signal($signal,static function() use (&$stopping): void { $stopping=true; });
@@ -44,7 +44,7 @@ try {
                         try {
                             $panelStore=new Zero\Store($config->storage);
                             (new Zero\RadioPlayerPanel(new Zero\Bot($config,$panelStore,new Zero\Telegram($config))))->refresh(); exit(0);
-                        } catch(Throwable $e) { error_log('Radio panel refresh failed: '.get_class($e)); exit(1); }
+                        } catch(Throwable $e) { Zero\ErrorAlerts::event('Radio panel refresh failed: '.get_class($e)); exit(1); }
                     } elseif($pid>0) $radioPanelPid=$pid;
                 }
             }
@@ -57,7 +57,7 @@ try {
                     $pid=pcntl_fork();
                     if($pid===0) {
                         try { Zero\TimedDeletes::run(new Zero\Store($config->storage),new Zero\Telegram($config)); exit(0); }
-                        catch(Throwable $e) { error_log('Timed deletion failed: '.get_class($e)); exit(1); }
+                        catch(Throwable $e) { Zero\ErrorAlerts::event('Timed deletion failed: '.get_class($e)); exit(1); }
                     } elseif($pid>0) $deletePid=$pid;
                 }
             }
@@ -74,7 +74,7 @@ try {
                     $pid=pcntl_fork();
                     if($pid===0) {
                         try { Zero\Download::pruneCache($config); $health=new Zero\CookieHealth($config,new Zero\Store($config->storage),new Zero\Telegram($config)); $health->keepAlive(); $health->sweep(); exit(0); }
-                        catch(Throwable $e) { error_log('Cookie health pass failed: '.get_class($e)); exit(1); }
+                        catch(Throwable $e) { Zero\ErrorAlerts::event('Cookie health pass failed: '.get_class($e)); exit(1); }
                     } elseif($pid>0) $healthPid=$pid;
                 }
                 $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
@@ -110,14 +110,14 @@ try {
                             (new Zero\Worker($config,$childStore,new Zero\Telegram($config)))->process($job);
                             exit(0);
                         } catch(Zero\WorkerStopped) { exit(0); }
-                        catch(Throwable $e) { error_log('Worker child failure: '.get_class($e)); exit(1); }
+                        catch(Throwable $e) { Zero\ErrorAlerts::event('Worker child failure: '.get_class($e)); exit(1); }
                     }
                     $children[$pid]=['lane'=>$lane,'job'=>$job]; $active++;
                     pcntl_sigprocmask(SIG_SETMASK,$previousMask);
                 }
             }
             usleep(100000);
-        } catch(Throwable $e) { error_log('Worker supervisor error: '.get_class($e)); if(!$stopping) usleep(500000); }
+        } catch(Throwable $e) { Zero\ErrorAlerts::event('Worker supervisor error: '.get_class($e)); if(!$stopping) usleep(500000); }
     }
 } finally {
     if(isset($radioPanelPid)) {

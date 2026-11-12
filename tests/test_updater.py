@@ -112,6 +112,33 @@ class UpdaterTests(unittest.TestCase):
             return subprocess.check_output(args, cwd=self.project, text=True).strip()
         return self.commands(*args, **kwargs)
 
+    def test_prune_happens_only_after_verified_update(self):
+        self.queue()
+        def prune():
+            self.assertIn(('verify', None), self.agent.calls)
+            self.assertTrue((self.state / 'previous.json').exists())
+            self.assertFalse((self.state / 'recovery.json').exists())
+        with patch.object(updater, 'command', self.commands), patch.object(updater, 'prune_previous', side_effect=prune) as cleaned:
+            self.agent.tick()
+        cleaned.assert_called_once()
+
+    def test_failed_update_never_prunes_old_recovery(self):
+        self.queue(); self.agent.fail_build = True
+        with patch.object(updater, 'command', self.commands), patch.object(updater, 'prune_previous') as cleaned:
+            self.agent.tick()
+        cleaned.assert_not_called()
+        self.assertTrue(self.agent.restored)
+
+    def test_cli_uses_same_verified_update_and_recovery_flow(self):
+        agent = self.agent
+        agent.notify = updater.CliAgent.notify.__get__(agent)
+        agent.finish = updater.CliAgent.finish.__get__(agent)
+        with patch.object(updater, 'command', self.commands), patch.object(updater, 'prune_previous') as cleaned:
+            updater.CliAgent.cli_update(agent)
+        self.assertIn(('verify', None), agent.calls)
+        self.assertTrue((self.state / 'previous.json').exists())
+        cleaned.assert_called_once()
+
     def test_python_import_cache_does_not_block_update(self):
         source = self.source_checkout()
         cache = Path(py_compile.compile(str(source), doraise=True))

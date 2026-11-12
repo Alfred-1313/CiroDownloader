@@ -53,8 +53,9 @@ try {
     $bot->health(42); $health=$api->last('sendMessage')['text'];
     $bot->handle(['callback_query'=>['id'=>'report','from'=>['id'=>42],'message'=>['message_id'=>70,'chat'=>['id'=>42,'type'=>'private']],'data'=>'rp:errors']]);
     $report=$api->last('editMessageText')['text'];
-    if(!str_contains($health,'CUSTOM STORAGE NOTICE')||!str_contains($report,'CUSTOM STORAGE NOTICE')||str_contains($health,'youporn=unknown')||str_contains($report,'youporn=unknown'))
-        throw new \RuntimeException('Health/recent errors obscured the storage reason');
-    echo "PASS health and recent errors explain disk failures without a misleading site-unknown suffix\n";
+    if(str_contains($health,'youporn=unknown')||str_contains($report,'youporn=unknown')||!str_contains($report,'ذخیره نمی‌شود'))
+        throw new \RuntimeException('Health exposed retired error history');
+    echo "PASS health and legacy reports expose no retained error history\n";
+
 } finally { Download::clean($temp); }
 

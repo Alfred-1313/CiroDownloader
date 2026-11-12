@@ -31,6 +31,6 @@ final class Reactions
         $emoji=self::selected($store,$music);
         if($message<1||$emoji==='') return;
         try { $api->call('setMessageReaction',['chat_id'=>$chat,'message_id'=>$message,'reaction'=>[['type'=>'emoji','emoji'=>$emoji]]]); }
-        catch(\Throwable $error) { error_log('Link reaction unavailable: code='.(int)$error->getCode()); }
+        catch(\Throwable $error) { ErrorAlerts::event('Link reaction unavailable: code='.(int)$error->getCode()); }
     }
 }

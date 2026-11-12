@@ -9,13 +9,12 @@ PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 LOG_DIR='/var/log/ciro-downloader'
 BACKUP_DIR='/var/backups/ciro-downloader'
 LOCK_FILE='/run/ciro-downloader-updater.lock'
-SECRET_TMP='' RUN_PID='' RUN_LOG_PID='' LAST_STEP_LOG=''
+SECRET_TMP='' RUN_PID=''
 STEP_TOTAL=1 STEP_DONE=0
 source "$PROJECT_DIR/scripts/manager-ui.sh"
 
 cleanup() {
   [[ -z $SECRET_TMP ]] || rm -f -- "$SECRET_TMP"
-  if [[ -n $RUN_LOG_PID ]]; then kill "$RUN_LOG_PID" 2>/dev/null || true; wait "$RUN_LOG_PID" 2>/dev/null || true; fi
   [[ ${UI_TTY:-0} == 0 ]] || printf '\033[?25h'
 }
 interrupted() { [[ -z $RUN_PID ]] || kill "$RUN_PID" 2>/dev/null || true; ui_error 'Operation interrupted. Check Status before retrying.'; exit 130; }
@@ -24,39 +23,14 @@ run_step() {
   local live=0
   if [[ ${1:-} == --live ]]; then live=1; shift; fi
   local label=$1; shift
-  [[ -d $LOG_DIR ]] || mkdir -m 700 -- "$LOG_DIR" || return
-  python3 -B "$PROJECT_DIR/scripts/bounded-log.py" --prune "$LOG_DIR" || return
-  LAST_STEP_LOG="$(mktemp "$LOG_DIR/step-XXXXXXXX.log")" || return
-  local started=$SECONDS result=0 frame=0 frames=('-' '\\' '|' '/')
+  local started=$SECONDS result=0
   ui_step_start "$label"
-  ui_note "Private log: $LAST_STEP_LOG"
-  local log_fd capture_pid
-  exec {log_fd}> >(python3 -B "$PROJECT_DIR/scripts/bounded-log.py" "$LAST_STEP_LOG")
-  capture_pid=$!
-  "$@" <&0 >&"$log_fd" 2>&1 & RUN_PID=$!
-  exec {log_fd}>&-
-  if ((live)); then
-    # Follow only explicitly selected output; configuration steps stay private.
-    tail --pid="$capture_pid" --sleep-interval=0.2 -n +1 -f -- "$LAST_STEP_LOG" & RUN_LOG_PID=$!
-  elif [[ $UI_TTY == 1 ]]; then
-    printf '\033[?25l'
-    while kill -0 "$RUN_PID" 2>/dev/null; do
-      printf '\r\033[K'
-      ui_step_progress "${frames[$frame]}" "$((SECONDS-started))"
-      frame=$(((frame+1)%4)); sleep 0.2
-    done
-    printf '\r\033[K\033[?25h'
-  fi
+  if ((live)); then "$@" <&0 & RUN_PID=$!
+  else "$@" <&0 >/dev/null 2>&1 & RUN_PID=$!; fi
   if wait "$RUN_PID"; then result=0; else result=$?; fi
   RUN_PID=''
-  wait "$capture_pid" || { ((result!=0)) || result=1; }
-  if [[ -n $RUN_LOG_PID ]]; then wait "$RUN_LOG_PID" || true; RUN_LOG_PID=''; fi
   ui_step_end "$label" "$result" "$((SECONDS-started))"
-  if ((result!=0)); then
-    ui_error 'This step failed. Completed steps may already have run.'
-    if ((!live)); then tail -n 8 -- "$LAST_STEP_LOG" >&2; fi
-    ui_note "Private log: $LAST_STEP_LOG"
-  fi
+  if ((result!=0)); then ui_error 'This step failed. Completed steps may already have run.'; fi
   return "$result"
 }
 
@@ -179,18 +153,12 @@ update_bot() {
   origin=$(git remote get-url origin) || return
   [[ ${origin%.git} == ${REPOSITORY_URL%.git} ]] || { ui_error 'This checkout points to a different repository.'; return 1; }
   require_docker || return; require_python || return
-  ui_plan 7
-  run_step 'Back up data and configuration' python3 scripts/maintenance.py backup || return
-  ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
-  run_step 'Fetch the latest release' git fetch origin main || return
-  run_step 'Apply the release' git merge --ff-only origin/main || return
-  run_step --live 'Build the new application' docker compose build --pull || return
-  run_step 'Verify the Telegram connection' validate_bot || return
-  run_step 'Start the new version' docker compose up -d --no-build || return
-  run_step 'Refresh Telegram updates' enable_telegram_updates || return
+  ui_plan 1
+  run_step --live 'Update with one previous version retained' python3 -B scripts/updater.py --cli-update || return
   install_shortcut || return
-  ui_ok 'Update complete. Your data and settings were kept.'
+  ui_ok 'Update complete. One previous version is retained for rollback.'
 }
+
 start_services() {
   require_no_api_migration || return
   ui_section 'Start services'; require_configuration || return; require_docker || return; ui_plan 1
@@ -209,10 +177,7 @@ restart_services() {
   ui_ok 'Services restarted.'
 }
 show_logs() {
-  ui_section 'Service logs'; docker_ready || { ui_warn 'Docker is unavailable.'; return 1; }
-  local service=${1:-all}
-  if [[ $service == all ]]; then docker compose logs --tail=100
-  else docker compose logs --tail=100 "$service"; fi
+  ui_note 'Persistent logs are disabled. Errors are sent privately to bot administrators.'
 }
 show_status() {
   ui_screen; ui_section 'Status'; render_status
@@ -220,15 +185,15 @@ show_status() {
   if command -v systemctl >/dev/null 2>&1; then
     ui_section 'Telegram updater'; systemctl status ciro-downloader-updater.timer --no-pager --lines=3 || true
   fi
-  ui_note "Project: $PROJECT_DIR"; ui_note "Backups: $BACKUP_DIR"; ui_note "Private logs: $LOG_DIR"
+  ui_note "Project: $PROJECT_DIR"; ui_note "Backups: $BACKUP_DIR"
 }
 backup_bot() {
   ui_screen; ui_section 'Backup'
   ui_note 'Briefly pauses this bot, then resumes the services that were running.'
   require_configuration || return; require_docker || return; require_python || return
   ui_plan 1
-  run_step 'Save database, cookies and configuration' python3 scripts/maintenance.py backup || return
-  ui_ok 'Backup complete.'; ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
+  run_step --live 'Save database, cookies and configuration' python3 scripts/maintenance.py backup || return
+  ui_ok 'Backup complete.'
 }
 restore_bot() {
   ui_screen; ui_section 'Restore'
@@ -243,8 +208,8 @@ restore_bot() {
   ui_note 'The archive is validated first. A recovery backup is kept before replacement.'
   ui_prompt 'Type RESTORE to continue: '; read -r confirmation || return 0
   [[ $confirmation == RESTORE ]] || { ui_note 'Nothing was changed.'; return 0; }
-  run_step 'Validate and restore the backup' python3 scripts/maintenance.py restore "$archive" || return
-  ui_ok 'Restore complete.'; ui_note "$(tail -n 1 "$LAST_STEP_LOG")"
+  run_step --live 'Validate and restore the backup' python3 scripts/maintenance.py restore "$archive" || return
+  ui_ok 'Restore complete.'
 }
 edit_setting() {
   local field=$1 value
@@ -321,7 +286,7 @@ doctor() {
 delete_bot() {
   ui_screen; ui_section 'Remove installation'; ui_plan 2
   ui_warn "Removes this bot's containers, image, data volume and local token file."
-  ui_note 'Source code, private logs and recovery backups stay on the server.'
+  ui_note 'Source code and recovery backups stay on the server.'
   local confirmation
   ui_prompt 'Type DELETE to continue (Enter to go back): '; read -r confirmation || return 0
   [[ $confirmation == DELETE ]] || { ui_note 'Nothing was changed.'; return 0; }
@@ -367,7 +332,7 @@ render_menu() {
   ui_row 1 Install 'set up or rebuild the bot'
   ui_row 2 Update 'newest code, keeps your data'
   ui_group 'OPERATIONS'
-  ui_row 4 Services 'start, stop, restart and logs'
+  ui_row 4 Services 'start, stop, restart and status'
   ui_row 5 Status 'bot, worker and updater health'
   ui_group 'DATA & SETTINGS'
   ui_row 6 Backup 'database, cookies and settings'
@@ -388,7 +353,7 @@ services_menu() {
   while true; do
     ui_screen; ui_section 'Main menu / Services'
     ui_row 1 Start 'start bot and worker'; ui_row 2 Stop 'keep all data and settings'; ui_row 3 Restart
-    ui_row 4 'All logs'; ui_row 5 'Bot logs'; ui_row 6 'Worker logs'; ui_row 7 Status; ui_row 0 Back; ui_rule
+    ui_row 7 Status; ui_row 0 Back; ui_rule
     ui_read_choice 7 choice || return 0
     case "$choice" in 1) with_lock start_services || true ;; 2) with_lock stop_services || true ;; 3) with_lock restart_services || true ;; 4) show_logs || true ;; 5) show_logs bot || true ;; 6) show_logs worker || true ;; 7) show_status ;; 0) return ;; *) ui_warn 'Choose a number shown above.' ;; esac
     ui_pause
@@ -422,8 +387,8 @@ diagnostics_menu() {
 show_help() {
   ui_screen; ui_section 'Commands'
   ui_kv 'Menu' 'CiroDownloader'; ui_kv 'Install' 'CiroDownloader install'; ui_kv 'Update' 'CiroDownloader update'
-  ui_kv 'Services' 'CiroDownloader start | stop | restart'; ui_kv 'Status' 'CiroDownloader status'; ui_kv 'Logs' 'CiroDownloader logs'
-  ui_kv 'Backup' 'CiroDownloader backup'; ui_kv 'Restore' 'CiroDownloader restore /absolute/backup.tar.gz'
+  ui_kv 'Services' 'CiroDownloader start | stop | restart'; ui_kv 'Status' 'CiroDownloader status'; ui_kv 'Errors' 'Private Telegram notifications'
+  ui_kv 'Cleanup' 'CiroDownloader stop; CiroDownloader cleanup; CiroDownloader start'; ui_kv 'Backup' 'CiroDownloader backup'; ui_kv 'Restore' 'CiroDownloader restore /absolute/backup.tar.gz'
   ui_kv 'Settings' 'CiroDownloader settings'; ui_kv 'Cookies' 'CiroDownloader cookies'; ui_kv 'Diagnostics' 'CiroDownloader doctor | diagnose'
   ui_kv 'Large files' 'CiroDownloader large-uploads'
   ui_kv 'Telegram' 'CiroDownloader telegram'; ui_kv 'Remove' 'CiroDownloader remove'
@@ -462,7 +427,7 @@ main() {
   case "$action" in
     menu) menu ;; install) with_lock install_bot ;; update) with_lock update_bot ;; remove) with_lock delete_bot ;;
     start) with_lock start_services ;; stop) with_lock stop_services ;; restart) with_lock restart_services ;;
-    logs) show_logs ;; status) show_status ;; backup) with_lock backup_bot ;; restore) with_lock restore_bot "${2:-}" ;;
+    cleanup) with_lock python3 -B scripts/cleanup.py --apply ;; logs) show_logs ;; status) show_status ;; backup) with_lock backup_bot ;; restore) with_lock restore_bot "${2:-}" ;;
     settings|config) settings_menu ;; cookies) with_lock import_youtube_cookies ;; diagnose) with_lock run_diagnostics ;; doctor) doctor ;;
     large-uploads) with_lock enable_large_uploads ;;
     telegram) ui_plan 1; with_lock run_step 'Enable Telegram updates' enable_telegram_updates ;;

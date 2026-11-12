@@ -18,7 +18,7 @@ final class Worker
     /** Fixture-only override for search-page retrieval. */
     public ?\Closure $xnxxSearchFetch=null;
     public ?\Closure $xvideosSearchFetch=null;
-    public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) {}
+    public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) { ErrorAlerts::bind($config,$store,$api); }
 
     public function recover(array $job): void
     {
@@ -117,7 +117,7 @@ final class Worker
                 $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
                 $this->noteSpeed($service,$mediaBytes,$timings);
                 $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
-                try { $bot->finishJob($job); } catch(Throwable) { error_log(ucfirst($service).' media delivered; status cleanup unavailable'); }
+                try { $bot->finishJob($job); } catch(Throwable) { ErrorAlerts::event(ucfirst($service).' media delivered; status cleanup unavailable'); }
                 return;
             }
             if($collection!==null) {
@@ -184,7 +184,6 @@ final class Worker
             else $sent=$api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
             if(is_array($sent)&&!empty($sent['message_id'])) Download::clean($folder);
-            if(!$audio&&in_array($adultSite,['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$adultSite]).' video cover prepared='.(isset($params['cover'])?'yes':'no').' acknowledged='.(!empty($sent['video']['cover'])?'yes':'no'));
             // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
             // so a restart in between does not leave it in the chat).
             if($adult&&$deleteAfter>0&&is_array($sent)) TimedDeletes::schedule($store,(int)$job['chat_id'],(int)($sent['message_id']??0),time()+$deleteAfter);
@@ -193,13 +192,12 @@ final class Worker
             $this->noteSpeed($label,$uploadBytes,$timings);
             $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
             try { $bot->finishJob($job); }
-            catch(Throwable) { error_log('Media delivered; status cleanup unavailable'); }
+            catch(Throwable) { ErrorAlerts::event('Media delivered; status cleanup unavailable'); }
         } catch(WorkerStopped $e) {
             throw $e;
         } catch(Throwable $e) {
             if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
             $detail=diagnosticMessage($e->getMessage());
-            error_log('Job '.$job['id'].' failed ['.$stage.']: '.get_class($e).': '.$detail);
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
@@ -220,7 +218,6 @@ final class Worker
                 $end=$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
                 if(in_array($end,['done','failed'],true)&&!($job['phase']==='inspect'&&$collection===null)) $store->record($label,$end==='done',$timings['total_ms']);
             } catch(Throwable) {}
-            error_log('Job '.$job['id'].' timings '.json_encode($timings,JSON_THROW_ON_ERROR));
             Download::clean($folder);
         }
     }
@@ -235,11 +232,9 @@ final class Worker
                 $edited=$this->api->call('editMessageCaption',['chat_id'=>(int)$params['chat_id'],'message_id'=>(int)$sent['message_id'],
                     'caption'=>$params['caption'],'parse_mode'=>'HTML']);
                 $repaired=$edited===true||(is_array($edited)&&preg_match('/[^\s\p{Z}\p{C}]/u',(string)($edited['caption']??''))===1);
-            } catch(Throwable $e) { error_log('Adult caption repair failed service='.$site.' code='.(int)$e->getCode()); }
+            } catch(Throwable $e) { ErrorAlerts::event('Adult caption repair failed service='.$site.' code='.(int)$e->getCode()); }
         }
         // Counts and flags only: never retain a caption, URL, chat ID or Telegram message ID in the log.
-        error_log('Adult delivery service='.$site.' caption_chars='.TextFormat::length(html_entity_decode(strip_tags($params['caption']),ENT_QUOTES|ENT_HTML5,'UTF-8'))
-            .' caption_ack='.($acknowledged?'yes':'no').' caption_repaired='.($repaired?'yes':'no').' delete_after='.$deleteAfter);
     }
 
     /**
@@ -315,7 +310,7 @@ final class Worker
         $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
         if($back) $menus->trackDelivered($menuId,(int)$job['user_id'],(int)$job['chat_id'],$audio);
         try { $bot->finishJob($job); }
-        catch(Throwable) { error_log(ucfirst($service).' audio delivered; status cleanup unavailable'); }
+        catch(Throwable) { ErrorAlerts::event(ucfirst($service).' audio delivered; status cleanup unavailable'); }
     }
 
     /**
@@ -340,7 +335,7 @@ final class Worker
                         $meta=array_diff_key($media,['path'=>1,'thumbnail'=>1])+['extension'=>$extension,'cover'=>$media['thumbnail']!==null];
                         file_put_contents($dir.'/'.$index.'.json',json_encode($meta,JSON_THROW_ON_ERROR));
                     } catch(Throwable $e) {
-                        error_log('Batch track '.($index+1).' skipped: '.($e instanceof MediaFailure?$e->reason:get_class($e)));
+                        ErrorAlerts::event('Batch track '.($index+1).' skipped: '.($e instanceof MediaFailure?$e->reason:get_class($e)));
                         // The reason and what each source said ("youtube=blocked, soundcloud=format"), never the raw message.
                         $sources=preg_match('/\[((?:[a-z]+=[a-z]+)(?:, [a-z]+=[a-z]+){0,4})\]/',$e->getMessage(),$said)?$said[1]:'';
                         file_put_contents($dir.'/'.$index.'.fail',json_encode(['reason'=>$e instanceof MediaFailure?$e->reason:'process','sources'=>$sources]));
@@ -485,7 +480,7 @@ final class Worker
             if(!$force&&microtime(true)-$sentShown<5.0) return;
             $sentShown=microtime(true);
             try { $bot->jobMessage($job,$bot->text('batch_sending',['sent'=>(string)$sent,'total'=>(string)count($good),'names'=>$this->failedBlock($bot,$failedNames())],['names'])); }
-            catch(Throwable $e) { error_log('Batch sending status not updated: '.get_class($e)); }
+            catch(Throwable $e) { ErrorAlerts::event('Batch sending status not updated: '.get_class($e)); }
         };
         $sending(0,true);
         $items=[];
@@ -543,8 +538,8 @@ final class Worker
             @touch($this->config->storage.'/.youtube-ok');
         } catch(MediaFailure $e) {
             if($e->reason==='blocked') { @touch($this->config->storage.'/.youtube-blocked'); @unlink($this->config->storage.'/.youtube-ok'); }
-            error_log('YouTube probe before a batch: reason='.$e->reason);
-        } catch(Throwable $e) { error_log('YouTube probe before a batch failed: '.get_class($e)); }
+            ErrorAlerts::event('YouTube probe before a batch: reason='.$e->reason);
+        } catch(Throwable $e) { ErrorAlerts::event('YouTube probe before a batch failed: '.get_class($e)); }
         finally { Download::clean($probe); }
     }
     /** A quote with the names of the tracks that could not be prepared and why (at most six), or nothing. */
@@ -606,10 +601,10 @@ final class Worker
                 if(!$ids) throw $e;
                 // Part of the album is already there: keep it, put the way back under the last track that arrived and
                 // tell the administrators what stopped the rest.
-                error_log('Batch delivery stopped after '.count($ids).' tracks: '.get_class($e).' '.diagnosticMessage($e->getMessage()));
+                ErrorAlerts::event('Batch delivery stopped after '.count($ids).' tracks: '.get_class($e).' '.diagnosticMessage($e->getMessage()));
                 try { $this->store->pushError('batch','upload',''); } catch(Throwable) {}
                 try { $this->api->call('editMessageReplyMarkup',['chat_id'=>(int)$job['chat_id'],'message_id'=>end($ids),'reply_markup'=>['inline_keyboard'=>array_merge($last!==null?[$shares->row($last)]:[],$back)]]); }
-                catch(Throwable) { error_log('Batch delivery: the way back could not be added to the last track'); }
+                catch(Throwable) { ErrorAlerts::event('Batch delivery: the way back could not be added to the last track'); }
                 return $ids;
             }
             $shares->fill($token,$result,$caption); $last=$token;
@@ -665,7 +660,7 @@ final class Worker
     private static function releaseMedia(array $item): void
     {
         foreach(array_unique(array_filter([$item['path']??null,$item['thumbnail']??null],'is_string')) as $path) {
-            if(is_file($path)&&!@unlink($path)) error_log('Delivered media cleanup unavailable');
+            if(is_file($path)&&!@unlink($path)) ErrorAlerts::event('Delivered media cleanup unavailable');
         }
     }
 

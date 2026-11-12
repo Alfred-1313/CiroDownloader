@@ -143,7 +143,6 @@ final class Download
         foreach($attempts as $jar) {
             try {
                 $access=$this->access($folder,$jar);
-                error_log('YouTube provider=yt-dlp cookies='.($jar?'yes':'no').($jar?' jar='.$jar['id']:'').$context);
                 $result=$this->run(array_merge($this->base(),$options,$access['args'],['--',$url]),$folder,$seconds);
             } catch(MediaFailure $e) {
                 $failure=$e;
@@ -187,7 +186,7 @@ final class Download
         $snapshot=$access['snapshot'];
         if($snapshot&&is_file($snapshot['path'])) {
             try { saveYouTubeCookies($this->config,(string)file_get_contents($snapshot['path']),$snapshot['hash'],$snapshot['jar']['path']); }
-            catch(\Throwable) { error_log('YouTube cookie refresh skipped: invalid jar or unavailable storage'); }
+            catch(\Throwable) { ErrorAlerts::event('YouTube cookie refresh skipped: invalid jar or unavailable storage'); }
         }
     }
     private function base(): array
@@ -293,7 +292,6 @@ final class Download
             if($poster===null) foreach(match($site) {'xvideos'=>['xvideos-cdn.com','xvideos.com'],'tikporn'=>['tik.porn'],'youporn'=>['ypncdn.com','youporn.com'],'eporner'=>['eporner.com'],default=>[]} as $host) {
                 if(($remote=self::trustedPoster($info,$host))!=='') break;
             }
-            if(in_array($site,['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover candidates='.count($info['thumbnails']??[]).' source='.($poster!==null?'file':($remote!==''?'remote':'none')));
             return ['title'=>mb_substr((string)($info['title']??'Video'),0,180),'options'=>$options,'poster'=>$remote,'poster_file'=>$poster,'duration'=>max(0,(int)ceil((float)($info['duration']??0)))];
         }
         $options=self::qualityOptions($info);

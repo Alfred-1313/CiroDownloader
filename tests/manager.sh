@@ -14,19 +14,19 @@ check() { if "$@"; then printf 'PASS %s\n' "$1"; else printf 'FAIL %s\n' "$*" >&
 printf 'COOKIE_INPUT_FIXTURE\n' >"$test_root/input"
 ui_plan 1
 run_step 'Read a supplied document' cat <"$test_root/input" >"$test_root/progress"
-check cmp -s "$test_root/input" "$LAST_STEP_LOG"
+check test ! -e "$test_root/logs"
 check grep -q '\[1/1\]' "$test_root/progress"
-check grep -q 'Private log:' "$test_root/progress"
+if grep -q 'Private log:' "$test_root/progress"; then exit 1; fi
 ui_plan 1
 run_step --live 'Live input fixture' cat <"$test_root/input" >"$test_root/live-progress"
-check cmp -s "$test_root/input" "$LAST_STEP_LOG"
+check test ! -e "$test_root/logs"
 check grep -q 'COOKIE_INPUT_FIXTURE' "$test_root/live-progress"
 check test "$STEP_DONE" -eq 1
 ui_plan 1
 if run_step 'Expected failure' bash -c 'printf "failure fixture\n" >&2; exit 7' >"$test_root/failure" 2>&1; then exit 1; else result=$?; fi
 check test "$result" -eq 7
 check grep -q 'This step failed' "$test_root/failure"
-check grep -q 'Private log:' "$test_root/failure"
+check test ! -e "$test_root/logs"
 
 # The terminal must receive output while the build is still running, and retain
 # the real command's failure code after the live log follower exits.

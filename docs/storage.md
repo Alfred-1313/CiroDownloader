@@ -1,16 +1,53 @@
 # Disk use and cleanup
 
-The application releases a single download's local media and artwork immediately after Telegram confirms delivery, before optional status-message cleanup or database bookkeeping. Its work directory is also cleaned on failure and interrupted-worker recovery. A validated video discards its downloaded source before upload, keeping the ready MP4 only. Generated thumbnails and covers live in the same temporary directory. No switch is needed for this cleanup.
+After Telegram confirms a delivery, the application removes its local file and artwork before optional status cleanup and bookkeeping. This applies to single video/audio, each track of a batch, and each completed ZIP. The source video is removed once the ready MP4 is validated. A failure, interrupted-worker recovery, or post-send metadata failure also clears the disposable work directory. Back/Share and previously viewed gallery slides reuse Telegram file IDs.
 
-- Music batches release each track and its cover immediately after that track's confirmed upload, while the remaining tracks are sent. ZIP mode releases source tracks after the completed archive owns their contents, then releases each archive after its confirmed upload. The batch folder is cleaned even if post-delivery bookkeeping fails. Back and Share use saved state and Telegram IDs, without local media. A deliberately stopped batch keeps its files so Continue works; old abandoned batches expire after 25 hours. A periodic worker pass also clears delivered batches from older versions without touching active or queued preparations.
-- Gallery slides are removed only after a valid Telegram file ID is persisted. Previous/Next uses that ID. Unsent slides remain private for the existing 24-hour navigation window. The worker also releases confirmed slides left by earlier versions. Missing/rejected Telegram IDs keep the local file until expiry so navigation is still possible.
-- Downloader stdout is bounded to 16 MiB and oversized metadata fails; stderr keeps only its last 64 KiB in memory. Both streams are drained continuously; no growing stdout/stderr log files are written per process. Error diagnostics retain the sanitized tail.
-- Docker service logs already rotate at 10 MiB × 3 files per container. Manager step logs now keep at most 2 MiB each, the 20 newest completed logs plus the current step, and expire after seven days when the manager runs again. Output is still displayed live and command failures retain their exit codes.
-- Idle worker lanes read the queue without taking a SQLite writer lock. The queue has a status/phase index so inactive waiting menus do not force a full scan each time.
-- Update backups exclude downloads, gallery page caches, music batches, downloader caches and radio runtime files/keys, like maintenance backups already did. They retain the consistent database snapshot, configuration and cookies. A failed update backup removes its incomplete archive. Previously created archives remain on the server until separately reviewed and removed.
+Unsent gallery slides remain for the 24-hour navigation window; deliberately paused batches remain for Continue and expire after 25 hours. Active radio/preparation files are not deleted while needed. These are pending work, not permanent copies of delivered files. Downloader output is bounded and drained in memory, without per-process log files.
 
-Low disk space is reported as a storage error, including for adult sites, rather than a generic processing failure or a misleading site refusal. Administrator reports use the same reason; the 256 MiB reserve is preserved. Files still being prepared or sent, unsent carousel slides, paused downloads and active radio playback need temporary space. This does not keep a permanent copy of delivered files.
+## Updates and rollback
 
-The local Telegram API owns a separate session/cache volume. [Shared local uploads](large-uploads.md#avoiding-a-second-upload-copy-on-existing-installations) avoid a second full upload copy for future requests after the shared mount is activated. These changes do not reclaim historical files in that separate volume, Docker build cache, administrator backups, or system journals. Inspect their size before a separate maintenance operation; never remove the database, cookies, radio keys or API session to free space.
+Both `CiroDownloader update` and Telegram updates use the same updater. Before replacing code or image it saves a consistent database/configuration/cookie archive and tags the current application image. Runtime downloads, media caches and radio keys are excluded. Only after the new application passes its health check is the recovery record switched to the immediately previous version. Older **automatic** `pre-update-*.tar.gz` archives and `ciro-downloader:backup-*` image tags are then removed. A failed update preserves recovery artifacts. Pending recovery/completion references remain protected. Missing or invalid recovery records prevent deletion instead of guessing.
 
-No deployment or server cleanup is performed by publishing code to GitHub. Apply the update on the deployment before expecting disk or performance changes there.
+Manual `ciro-backup-*`/pre-restore archives and unrelated Docker images/volumes are preserved. Older command-line-manager backups are indistinguishable from manual backups and must be reviewed separately. Docker build cache is separate; update retention does not run a system-wide Docker prune.
+
+## Errors without logs
+
+Docker logging is disabled for bot/worker/radio, the optional token provider and local API. The manager displays explicitly requested terminal output without creating step logs. The systemd updater discards stdout/stderr, and long builds no longer spool output to a temporary file. Recreate existing containers to apply Docker logging changes; restarting alone does not change their logging driver. Recreate the optional local API separately with its Compose file if used.
+
+Errors send a short private alert (service, reason, validated source causes) to current bootstrap-authorized bot administrators. No URLs, raw exception output, cookies or tokens enter those alerts. Error-history buttons are removed, old callbacks show the new policy, and the database migration removes legacy `recent_errors` and `last_job_*` diagnostic rows. In-flight error details and duplicate suppression live only in process memory. Ordinary success/debug/timing logs are removed; numeric aggregate statistics remain.
+
+Notifications are best-effort, bounded and not queued on disk. If Telegram or the network is unavailable, an alert can be lost; a failed alert never recursively creates another alert. Historical archives/system journals are not securely erased by the database migration or by disabling future logging.
+
+## Reclaim existing disposable files
+
+After updating the installed source, stop the application, run cleanup, then start it:
+
+```bash
+sudo CiroDownloader stop
+sudo CiroDownloader cleanup
+sudo CiroDownloader start
+```
+
+Cleanup shares the maintenance lock and refuses to run while bot, worker or radio is running. It deletes interrupted `downloads/job-*` folders, the regenerable `yt-cache`, historical manager `step-*.log` files, and obsolete automatic update artifacts under the retention rules above. It never removes the database, cookies, unsent galleries, paused batches, radio files, API sessions, or Docker volumes. `sudo python3 -B /opt/ciro-downloader/scripts/cleanup.py` previews disposable-file counts without deleting anything; `--apply` performs cleanup.
+
+If the disk is too full to build an update, first inspect its use:
+
+```bash
+df -h
+sudo docker system df
+sudo du -sh /var/backups/ciro-downloader /var/log/ciro-downloader /var/lib/docker
+```
+
+`sudo docker builder prune -f` removes unused build cache, not application volumes or databases, but subsequent builds may take longer. Run the update once enough space is available. If more emergency space is needed, stop Ciro and remove only interrupted job directories and regenerable cache using its current worker image:
+
+```bash
+cd /opt/ciro-downloader
+sudo CiroDownloader stop
+sudo docker compose run --rm --no-deps --entrypoint sh worker -c 'find /app/storage/downloads -mindepth 1 -maxdepth 1 -type d -name "job-*" -exec rm -rf -- {} +; rm -rf -- /app/storage/yt-cache'
+```
+
+Then run `sudo CiroDownloader update` and start services. Do not delete `zero.sqlite`, cookies, `.env`, radio keys, or Docker volumes to reclaim space. If backups dominate the disk, inspect the retained version record before deleting any historical archive manually.
+
+The local Telegram API has its own session/cache volume. Shared `/app/storage` uploads avoid a second upload copy when configured as described in [large uploads](large-uploads.md#avoiding-a-second-upload-copy-on-existing-installations). Application cleanup does not erase historical API caches or its session database. Report that volume's size separately before maintenance; never delete the whole API volume as a shortcut.
+
+Publishing code does not deploy it or reclaim space on the user's server.

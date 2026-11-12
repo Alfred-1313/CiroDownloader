@@ -32,7 +32,7 @@ final class Bot
     /** Set only by tests, which read music pages from local fixtures instead of the real sites. */
     public ?MusicCatalog $musicCatalog=null;
     public ?SoundCloud $musicSoundCloud=null;
-    public function __construct(public Config $config,public Store $store,public Api $api) { $this->ui=new Ui($store); }
+    public function __construct(public Config $config,public Store $store,public Api $api) { $this->ui=new Ui($store); ErrorAlerts::bind($config,$store,$api); }
     public function text(string $key,array $values=[],array $raw=[]): string { return $this->ui->text($key,$values,$raw); }
     public function label(string $key): string { return $this->ui->label($key); }
     public function admin(int $id): bool { return $this->store->isAdmin($id,$this->config->admins); }
@@ -134,7 +134,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A rejected thumbnail must not prevent choosing and downloading the video.
-            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover remote=telegram_400');
+            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) ErrorAlerts::event((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover remote=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
@@ -168,7 +168,7 @@ final class Bot
             }
             if($e->getCode()!==400) throw $e;
             // A refused picture must not prevent choosing and downloading the video.
-            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) error_log((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover upload=telegram_400');
+            if(in_array($site=adultService($job['url']),['xvideos','tikporn','youporn','eporner'],true)) ErrorAlerts::event((['xvideos'=>'XVideos','tikporn'=>'TikPorn','youporn'=>'YouPorn','eporner'=>'Eporner'][$site]).' quality cover upload=telegram_400');
             $this->jobMessage($job,$caption,$rows);
         }
     }
@@ -225,19 +225,7 @@ final class Bot
     }
     private function lastErrorMessage(): string
     {
-        $detail=$this->store->get('last_job_error');
-        if($detail==='') return $this->ui->plain('not_recorded');
-        $reason=$this->store->get('last_job_error_reason');
-        if($reason==='') {
-            require_once __DIR__.'/Download.php';
-            $reason=MediaFailure::process(1,$detail)->reason;
-        }
-        $service=$this->store->get('last_job_service');
-        $key=(in_array($service,[...galleryServices(),...musicServices(),...adultServices()],true)?$service.'_':'').'error_'.$reason;
-        if(!$this->ui->definition('text',$key)) $key='error_'.$reason;
-        // Only a clean list written by the bot itself ("youtube=blocked, soundcloud=format"), never raw downloader output.
-        $sources=$reason==='storage'?'':$this->store->get('last_job_sources');
-        return $this->ui->plain($this->ui->definition('text',$key)?$key:'failed').(preg_match('/^[a-z]+=[a-z]+(?:, [a-z]+=[a-z]+){0,4}$/D',$sources)===1?"\n".$sources:'');
+        return $this->ui->plain('errors_private_only');
     }
     public function qualityMenu(array $job,array $media): void
     {

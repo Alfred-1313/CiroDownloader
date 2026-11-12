@@ -33,7 +33,7 @@ try {
     };
     $startWorker=function() use($root,$config,$temp) {
         return proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file',$temp.'/worker.log','a']],$pipes,null,
-            ['PATH'=>getenv('PATH'),'BOT_TOKEN'=>'123:fixture','ADMIN_IDS'=>'42','STORAGE_DIR'=>$root,'BOT_API_URL'=>$config->api]);
+            ['PHPRC'=>(string)get_cfg_var('cfg_file_path'),'PATH'=>getenv('PATH'),'BOT_TOKEN'=>'123:fixture','ADMIN_IDS'=>'42','STORAGE_DIR'=>$root,'BOT_API_URL'=>$config->api]);
     };
     $view=new Zero\RadioPlayerPanel($bot); $view->show(-1001,42,0,$radio->station(-1001),321); $old=$current();
     $other=$view->show(-1002,42,0,$radio->station(-1002)); file_put_contents($temp.'/mode.json',json_encode(['missing_messages'=>[$old]]));

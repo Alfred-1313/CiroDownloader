@@ -15,7 +15,7 @@ require dirname(__DIR__).'/src/Radio.php';
 umask(0077);
 
 $chat=(int)($argv[1]??0);
-$config=Zero\Config::load(); $store=new Zero\Store($config->storage); $radio=new Zero\Radio($config,$store);
+$config=Zero\Config::load(); $store=new Zero\Store($config->storage); Zero\ErrorAlerts::boot($config,$store); $radio=new Zero\Radio($config,$store);
 $station=$radio->station($chat); $target=$radio->target($chat);
 if($station===null||$target===null||$chat===0) exit(0);
 $session=$radio->session($chat);
@@ -96,7 +96,7 @@ $openOutput=function() use (&$out,&$outPipes,$output,$target,&$restarts,&$videoP
 $drainErrors=function() use (&$outPipes,$redact): void {
     if(!isset($outPipes[2])||!is_resource($outPipes[2])) return;
     $text=(string)fread($outPipes[2],8192);
-    if($text!=='') error_log('Radio output: '.mb_substr($redact(trim($text)),0,300));
+    if($text!=='') Zero\ErrorAlerts::event('Radio output: '.mb_substr($redact(trim($text)),0,300));
 };
 /** Write bytes into the output, waiting for it to take them (it plays in real time). False when the output is gone. */
 $write=function(string $data) use (&$out,&$outPipes,$openOutput,$drainErrors,$redact,$feedVideo,&$stopping,&$clockStart,&$audioSent,$lead): bool {
@@ -106,7 +106,7 @@ $write=function(string $data) use (&$out,&$outPipes,$openOutput,$drainErrors,$re
     while($written<$length) {
         if(!is_resource($out)||!(proc_get_status($out)['running']??false)) {
             // It ended: everything it said before ending is read (with the address removed) before it is replaced.
-            if(isset($outPipes[2])&&is_resource($outPipes[2])) { stream_set_blocking($outPipes[2],true); $said=(string)stream_get_contents($outPipes[2],8192); if($said!=='') error_log('Radio output: '.mb_substr($redact(trim($said)),0,300)); }
+            if(isset($outPipes[2])&&is_resource($outPipes[2])) { stream_set_blocking($outPipes[2],true); $said=(string)stream_get_contents($outPipes[2],8192); if($said!=='') Zero\ErrorAlerts::event('Radio output: '.mb_substr($redact(trim($said)),0,300)); }
             if(is_resource($out)) { @fclose($outPipes[0]); @fclose($outPipes[3]); proc_close($out); }
             if(!$openOutput()) return false;
         }
@@ -121,7 +121,7 @@ $write=function(string $data) use (&$out,&$outPipes,$openOutput,$drainErrors,$re
     return true;
 };
 
-if(!$openOutput()) { error_log('Radio: ffmpeg could not start'); exit(1); }
+if(!$openOutput()) { Zero\ErrorAlerts::event('Radio: ffmpeg could not start'); exit(1); }
 $silence=str_repeat("\0",$chunk); $idle=0.0; $failed=false;
 $store->query("UPDATE radio_stations SET now='',command=CASE command WHEN 'skip' THEN '' ELSE command END WHERE chat_id=?",[$chat]);
 /** The raw-audio decoder of one queued song; started ahead of time so the next song follows the last without a gap. */
@@ -260,7 +260,7 @@ if(is_resource($out)) {
     @proc_terminate($out); @proc_close($out);
 }
 if($failed) {
-    error_log('Radio: the stream output failed; the session ended');
+    Zero\ErrorAlerts::event('Radio: the stream output failed; the session ended');
     // Whoever queued the song is told once, privately, that the stream could not be reached.
     try {
         if(($adder??0)>0&&$testOutput==='') (new Zero\Telegram($config))->call('sendMessage',['chat_id'=>$adder,'parse_mode'=>'HTML','text'=>(new Zero\Ui($store))->text('radio_output_failed',['chat'=>(string)$station['title']])]);

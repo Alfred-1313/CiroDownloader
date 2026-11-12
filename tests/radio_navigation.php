@@ -62,7 +62,7 @@ try {
     $save=function() use($store,&$snapshot): void { $snapshot['at']=microtime(true); $store->set('radio.progress.-1001',json_encode($snapshot)); }; $save();
     $store->set('cookies.keepalive','0'); $store->set('cookies.alerts','0');
     $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file','/dev/null','w'],2=>['file',$temp.'/worker.log','w']],$pipes,null,
-        ['PATH'=>getenv('PATH'),'BOT_TOKEN'=>'123:fixture','ADMIN_IDS'=>'42','STORAGE_DIR'=>$root,'BOT_API_URL'=>$config->api]);
+        ['PHPRC'=>(string)get_cfg_var('cfg_file_path'),'PATH'=>getenv('PATH'),'BOT_TOKEN'=>'123:fixture','ADMIN_IDS'=>'42','STORAGE_DIR'=>$root,'BOT_API_URL'=>$config->api]);
     $count=count($method('editMessageCaption'));
     navigationWait(fn()=>count($method('editMessageCaption'))>$count,'the worker refreshes the photo caption automatically with no radio service or user click');
     $edits=$method('editMessageCaption'); $first=end($edits); $snapshot['elapsed']=65; $save(); $count=count($edits);

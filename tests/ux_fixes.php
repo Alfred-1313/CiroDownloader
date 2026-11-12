@@ -56,14 +56,14 @@ try {
     foreach(['done','done','failed'] as $index=>$status) $store->query('INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(?,?,?,?,?,?)',[100+$index,7,7,'https://youtu.be/oXWMmELDOq0',$status,time()]);
     $store->set('last_job_error','Job 1 [download]: cookies are no longer valid. Sign in to confirm you are not a bot.');
     $bot->handle(uxMessage(42,'/health')); $health=end($api->calls)[1]['text'];
-    uxCheck(str_contains($health,'کوکی')&&str_contains($health,'ایمپورت')&&!str_contains($health,'Sign in')&&!str_contains($health,'Job 1'),'legacy cookie diagnostics are presented as a useful Persian explanation');
+    uxCheck(str_contains($health,'تاریخچهٔ خطا ذخیره نمی‌شود')&&!str_contains($health,'Sign in')&&!str_contains($health,'Job 1'),'legacy diagnostic details never appear in health reports');
     uxCheck(str_contains($health,'کاربران ثبت‌شده: <b>3</b>')&&str_contains($health,'7 روز اخیر: <b>2</b>')&&str_contains($health,'7 روز اخیر: <b>1</b>'),'health reports unique registered users and accurately bounded seven-day delivery statistics');
     $store->set('last_job_error','YouTube cookie file is unreadable or too large');
     $bot->handle(uxMessage(42,'/health'));
-    uxCheck(str_contains(end($api->calls)[1]['text'],'ایمپورت'),'an unreadable legacy cookie file is also identified as a cookie problem');
+    uxCheck(str_contains(end($api->calls)[1]['text'],'تاریخچهٔ خطا ذخیره نمی‌شود'),'legacy cookie details are not retained in the status panel');
     $store->set('last_job_error','Job 2 [upload]: transport failed'); $store->set('last_job_error_reason','upload');
     $bot->handle(uxMessage(42,$bot->label('health')));
-    uxCheck(str_contains(end($api->calls)[1]['text'],'ارسال به تلگرام')&&!str_contains(end($api->calls)[1]['text'],'transport failed'),'structured upload failures also have Persian health text');
+    uxCheck(str_contains(end($api->calls)[1]['text'],'تاریخچهٔ خطا ذخیره نمی‌شود')&&!str_contains(end($api->calls)[1]['text'],'transport failed'),'health explains private alerts and never exposes request diagnostics');
     $bot->handle(uxCallback(7,'health',1));
     uxCheck(end($api->calls)[0]==='answerCallbackQuery'&&!empty(end($api->calls)[1]['show_alert']),'public users cannot open administrator statistics');
 

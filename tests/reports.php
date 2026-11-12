@@ -30,15 +30,14 @@ try {
     $store->record('youtube',true,1000);
     rpCheck((int)$store->query("SELECT ok FROM stats WHERE service='youtube' AND day=?",[gmdate('Y-m-d')])->fetchColumn()===3,'the same day and service accumulate in one row');
     for($i=0;$i<12;$i++) $store->pushError($i%2?'spotify':'youtube',$i%2?'format':'blocked',$i===11?'youtube=blocked, soundcloud=format':'');
-    $errors=json_decode($store->get('recent_errors'),true);
-    rpCheck(count($errors)===10&&$errors[0]['s']==='spotify'&&$errors[0]['c']==='youtube=blocked, soundcloud=format'&&!isset($errors[0]['url']),'the last ten failures are kept, newest first, without any link');
+    rpCheck($store->get('recent_errors')===''&&(int)$store->query("SELECT COUNT(*) FROM settings WHERE key='recent_errors'")->fetchColumn()===0,'failures are never retained as an error history');
 
     // Entry point: the existing status message gets the report buttons.
     $store->query('INSERT INTO users(id,last_request) VALUES(1,0),(2,0),(3,0)');
     $store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(1,1,1,'https://example.invalid/a','done',?),(2,2,2,'https://example.invalid/b','failed',?),(3,3,3,'https://example.invalid/c','done',?)",[time()-100,time()-3*86400,time()-20*86400]);
     $bot->handle(['message'=>['message_id'=>5,'from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
     $home=$api->last('sendMessage');
-    rpCheck(str_contains($home['text'],'📊 وضعیت ربات')&&rpActions($home)===['rp:stats','rp:services','rp:cookies','rp:errors','rp:server','rp:speed','rp:x'],'the status message keeps its text and offers the six reports and Close');
+    rpCheck(str_contains($home['text'],'📊 وضعیت ربات')&&rpActions($home)===['rp:stats','rp:services','rp:cookies','rp:server','rp:speed','rp:x'],'the status message keeps its text and offers the five reports and Close');
 
     // Each report is edited into the same message.
     $bot->handle(rpClick('rp:stats',777)); $edit=$api->last('editMessageText');
@@ -54,13 +53,9 @@ try {
     rpCheck(str_contains($edit['text'],'<b>🧩 وضعیت سرویس‌ها</b>')&&str_contains($edit['text'],'<b>یوتیوب</b>')&&str_contains($edit['text'],'✅ 3 · ❌ 1 · 75٪'),'services list their successes, failures and rate');
     rpCheck(str_contains($edit['text'],'<b>اینستاگرام</b>')&&str_contains($edit['text'],'<b>پینترست</b>')&&substr_count($edit['text'],'در ۷ روز اخیر درخواستی نبوده')>=3&&!str_contains($edit['text'],'تیک‌تاک</b>'."\n".'✅'),'a service without requests says so and a request older than a week is not counted');
 
+    $store->set('recent_errors','sensitive legacy error');
     $bot->handle(rpClick('rp:errors',777)); $edit=$api->last('editMessageText');
-    rpCheck(str_contains($edit['text'],'<b>🚨 آخرین خطاها</b>')&&str_contains($edit['text'],'<code>format</code>')&&str_contains($edit['text'],'youtube=blocked, soundcloud=format')&&substr_count($edit['text'],'🕒')===10,'the errors list the service, short reason and source results');
-    $store->set('recent_errors',json_encode([['t'=>time(),'s'=>'youtube','r'=>'<b>x</b>','c'=>'<script>']]));
-    $bot->handle(rpClick('rp:errors',777)); $edit=$api->last('editMessageText');
-    rpCheck(!str_contains($edit['text'],'<script>')&&!str_contains($edit['text'],'<code><b>x')&&str_contains($edit['text'],'&lt;b&gt;x&lt;/b&gt;'),'stored text never turns into markup');
-    $store->set('recent_errors','[]');
-    $bot->handle(rpClick('rp:errors',777)); rpCheck(str_contains($api->last('editMessageText')['text'],'خطایی ثبت نشده'),'an empty list says no error was recorded');
+    rpCheck(str_contains($edit['text'],'لاگ و تاریخچهٔ خطا ذخیره نمی‌شود')&&!str_contains($edit['text'],'sensitive'),'legacy error callback explains private alerts without exposing retained history');
 
     // Cookies: counts, failures, expiry, interval.
     $pool=Zero\Instagram::pool($config); $soon=time()+5*86400;

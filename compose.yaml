@@ -21,10 +21,7 @@ x-common: &common
   security_opt: [no-new-privileges:true]
   stop_grace_period: 15s
   logging:
-    driver: json-file
-    options:
-      max-size: 10m
-      max-file: '3'
+    driver: none
 services:
   bot:
     <<: *common
@@ -52,10 +49,7 @@ services:
     mem_limit: 512m
     pids_limit: 128
     logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: '3'
+      driver: none
 volumes:
   data:
   telegram-api-data:

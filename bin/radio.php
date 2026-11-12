@@ -8,7 +8,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Radio.php';
 umask(0077);
-$config=Zero\Config::load(); $store=new Zero\Store($config->storage);
+$config=Zero\Config::load(); $store=new Zero\Store($config->storage); Zero\ErrorAlerts::boot($config,$store);
 $lock=Zero\lockProcess($config->storage.'/radio.lock');
 $radio=new Zero\Radio($config,$store);
 $limit=max(1,min(6,(int)(getenv('RADIO_STATIONS')?:3)));
@@ -61,7 +61,7 @@ while(!$stopping) {
             $process=proc_open([$php,__DIR__.'/radio-prepare.php',(string)$next],[0=>$null,1=>['file','/dev/null','w'],2=>$log],$pipes,dirname(__DIR__),$env);
             if(is_resource($process)) $preparing[]=['id'=>(int)$next,'process'=>$process]; else $store->query("UPDATE radio_queue SET status='pending' WHERE id=?",[$next]);
         }
-    } catch(Throwable $e) { error_log('Radio supervisor: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage())); sleep(2); }
+    } catch(Throwable $e) { Zero\ErrorAlerts::event('Radio supervisor: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage())); sleep(2); }
     usleep(500000);
 }
 // Keep the supervisor lock until helpers have closed their decoders and download groups.

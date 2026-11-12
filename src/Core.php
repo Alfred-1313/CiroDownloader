@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 namespace Zero;
+require_once __DIR__.'/ErrorAlerts.php';
 require_once __DIR__.'/Ui.php';
 require_once __DIR__.'/CookiePool.php';
 
@@ -251,6 +252,16 @@ final class Telegram implements FileApi
         $markup['inline_keyboard'] = $rows;
         return $markup;
     }
+    /** Alerts use a separate bounded request: no upload retry or disk-backed queue. */
+    public function alert(array $params): void
+    {
+        $ch=curl_init($this->config->api.'/bot'.$this->config->token.'/sendMessage');
+        try {
+            curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$params,CURLOPT_RETURNTRANSFER=>true,
+                CURLOPT_CONNECTTIMEOUT=>2,CURLOPT_TIMEOUT=>3]);
+            curl_exec($ch);
+        } finally { curl_close($ch); }
+    }
     public function call(string $method, array $params = []): mixed
     {
         $params=$this->localFiles($params);
@@ -276,7 +287,6 @@ final class Telegram implements FileApi
             $wait = (int)($result['parameters']['retry_after'] ?? 0);
             if (!($result['ok'] ?? false) && (int)($result['error_code'] ?? 0) === 429 && $method !== 'setMessageReaction'
                 && $wait > 0 && $wait <= ($upload || str_starts_with($method, 'send') ? 90 : 20) && $attempt < 4) {
-                error_log('Telegram flood control on '.$method.': waiting '.$wait.' s');
                 sleep($wait + 1); continue;
             }
             break;
@@ -358,12 +368,14 @@ final class Telegram implements FileApi
 final class Store
 {
     public \PDO $db;
+    private array $diagnostics=[];
+    private const DIAGNOSTICS=['last_job_error','last_job_sources','last_job_error_reason','last_job_service'];
     public function __construct(string $directory)
     {
         if (!is_dir($directory)) mkdir($directory, 0700, true);
         $this->db = new \PDO('sqlite:' . $directory . '/zero.sqlite', null, null,
             [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION, \PDO::ATTR_DEFAULT_FETCH_MODE => \PDO::FETCH_ASSOC]);
-        $this->db->exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL;');
+        $this->db->exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA secure_delete=ON;');
         $this->db->exec("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS states (user_id INTEGER PRIMARY KEY, key TEXT NOT NULL, expires INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS help_messages (chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,
@@ -447,6 +459,10 @@ final class Store
             }
             $this->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+        if($this->get('error_history_removed','0')!=='1') {
+            $this->query("DELETE FROM settings WHERE key IN ('recent_errors','last_job_error','last_job_sources','last_job_error_reason','last_job_service')");
+            $this->set('error_history_removed','1');
+        }
     }
     public function query(string $sql, array $args = []): \PDOStatement
     {
@@ -454,11 +470,15 @@ final class Store
     }
     public function get(string $key, string $default = ''): string
     {
+        if($key==='recent_errors') return $default;
+        if(in_array($key,self::DIAGNOSTICS,true)) return $this->diagnostics[$key]??$default;
         $v = $this->query('SELECT value FROM settings WHERE key=?', [$key])->fetchColumn();
         return $v === false ? $default : (string)$v;
     }
     public function set(string $key, string $value): void
     {
+        if($key==='recent_errors') return;
+        if(in_array($key,self::DIAGNOSTICS,true)) { $this->diagnostics[$key]=$value; return; }
         $this->query('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', [$key,$value]);
     }
     public function enabled(): bool { return $this->get('enabled', '1') === '1'; }
@@ -508,12 +528,10 @@ final class Store
         $this->query('INSERT INTO stats(day,service,ok,failed,ms) VALUES(?,?,?,?,?) ON CONFLICT(day,service) DO UPDATE SET ok=ok+excluded.ok,failed=failed+excluded.failed,ms=ms+excluded.ms',[$day,$service,$ok?1:0,$ok?0:1,max(0,$ms)]);
         if(random_int(1,50)===1) $this->query('DELETE FROM stats WHERE day<?',[gmdate('Y-m-d',time()-90*86400)]);
     }
-    /** The last ten failures, newest first: [time, service, reason, sources]. */
+    /** Notify now; never retain an error history. */
     public function pushError(string $service,string $reason,string $sources=''): void
     {
-        $list=json_decode($this->get('recent_errors','[]'),true); $list=is_array($list)?$list:[];
-        array_unshift($list,['t'=>time(),'s'=>$service,'r'=>$reason,'c'=>$sources]);
-        $this->set('recent_errors',json_encode(array_slice($list,0,10),JSON_THROW_ON_ERROR));
+        ErrorAlerts::report($service,$reason,$sources);
     }
     /**
      * The last ten delivered files of each service, newest first: [time, service, bytes, prepare ms, upload ms]. It holds

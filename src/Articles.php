@@ -42,7 +42,6 @@ final class Articles
                 // Transport failures and 5xx responses must never trigger a retry.
                 if($this->lastHttpStatus!==412||$this->fallbackMediaHost===null) throw $failure;
                 $fallback=true;
-                error_log('Article provider=catbox operation=upload HTTP=412 fallback=quax');
             }
         }
         if(!$authorized()) throw new MediaFailure('restricted','Article publication no longer authorized');

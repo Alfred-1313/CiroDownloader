@@ -124,7 +124,7 @@ final class RadioPanel
             }
             $this->status($chat,$user,$message,$station,$thread);
         } catch(\Throwable $e) {
-            error_log('Radio callback failed: '.get_class($e).' (code '.(int)$e->getCode().')');
+            ErrorAlerts::event('Radio callback failed: '.get_class($e).' (code '.(int)$e->getCode().')');
             $this->answer($cb,'radio_failed',[],true);
         }
     }
@@ -196,7 +196,7 @@ final class RadioPanel
         if(!$this->radio->mayControl($this->bot->api,$chat,$user,$this->bot->admin($user))) { $this->bot->send($chat,$this->bot->text($this->refusal()),[],0,$thread); return; }
         try { (new RadioPlayerPanel($this->bot))->show($chat,$user,0,$station,$thread,'menu'); }
         catch(\Throwable $e) {
-            error_log('Radio group panel failed: '.get_class($e).' (code '.(int)$e->getCode().')');
+            ErrorAlerts::event('Radio group panel failed: '.get_class($e).' (code '.(int)$e->getCode().')');
             $params=['chat_id'=>$chat,'text'=>$this->bot->ui->plain('radio_failed')];
             if($thread>0) $params['message_thread_id']=$thread;
             try { $this->bot->api->call('sendMessage',$params); } catch(\Throwable) {}

@@ -80,6 +80,7 @@ jobs:
           php tests/reports.php
           php tests/pornhub.php
           php tests/adult_captions.php
+          php tests/error_alerts.php
           YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/xnxx.php
           php tests/xnxx_search.php
           YTDLP_TEST_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/xvideos.php

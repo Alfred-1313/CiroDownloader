@@ -10,7 +10,7 @@ require dirname(__DIR__).'/src/Download.php';
 require dirname(__DIR__).'/src/Worker.php';
 umask(0077);
 $id=(int)($argv[1]??0);
-$config=Zero\Config::load(); $store=new Zero\Store($config->storage); $radio=new Zero\Radio($config,$store);
+$config=Zero\Config::load(); $store=new Zero\Store($config->storage); Zero\ErrorAlerts::boot($config,$store); $radio=new Zero\Radio($config,$store);
 $item=$store->query("SELECT * FROM radio_queue WHERE id=? AND status='preparing'",[$id])->fetch();
 if(!$item) exit(0);
 $downloads=$config->storage.'/downloads'; if(!is_dir($downloads)) mkdir($downloads,0700,true);
@@ -42,6 +42,6 @@ try {
     if($changed&&isset($destination)) { @unlink($destination); @unlink($radio->root().'/files/'.$id.'.jpg'); }
 } catch(Throwable $e) {
     // A passing failure (network, a busy source) gets one more try; then the song is skipped.
-    error_log('Radio song '.$id.' not prepared: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage()));
+    Zero\ErrorAlerts::event('Radio song '.$id.' not prepared: '.get_class($e).': '.Zero\diagnosticMessage($e->getMessage()));
     $store->query("UPDATE radio_queue SET status=?,tries=tries+1 WHERE id=?",[(int)$item['tries']>=1?'failed':'pending',$id]);
 } finally { Zero\Download::clean($folder); }

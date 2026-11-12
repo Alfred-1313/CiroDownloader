@@ -104,7 +104,7 @@ class Maintenance:
                                 stderr=subprocess.PIPE, timeout=timeout)
         if result.returncode:
             # Docker/HTTP error bodies can include credentials; keep them out of output.
-            raise MaintenanceError('The ' + args[0] + ' operation failed. Check the service logs.')
+            raise MaintenanceError('The ' + args[0] + ' operation failed. Check service status.')
         return (result.stdout or b'').decode('utf-8', errors='replace').strip()
 
     def check_project(self):

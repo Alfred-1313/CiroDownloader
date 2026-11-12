@@ -112,7 +112,6 @@ final class SoundCloud
             // read its details and find the same recording exactly as for a Spotify track: YouTube, then another
             // upload of it on SoundCloud (never the locked original again).
             foreach(glob($folder.'/{source.*,ready.mp3}',GLOB_BRACE)?:[] as $leftover) @unlink($leftover);
-            error_log('SoundCloud direct download failed reason='.$direct->reason.'; trying the same recording on YouTube');
             try {
                 $info=$runner->soundCloudInfo($track,$folder);
                 $meta=self::metadata($info);

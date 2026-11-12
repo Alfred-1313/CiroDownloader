@@ -113,7 +113,7 @@ class GalleryPages
             if(is_file($path)) @unlink($path);
         }
         // Finish this claim's status before releasing the cursor for another click.
-        if($initial) try { $bot->finishJob($job); } catch(\Throwable) { error_log('Gallery page delivered; status cleanup unavailable'); }
+        if($initial) try { $bot->finishJob($job); } catch(\Throwable) { ErrorAlerts::event('Gallery page delivered; status cleanup unavailable'); }
         $state['message']=(int)$result['message_id']; $state['current']=$index; $state['target']=$index; $state['revision']=$revision;
         $this->store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['pages'=>$state],JSON_THROW_ON_ERROR),$job['id']]);
         // Persist the Telegram ID first. Previous/Next reuses it without keeping a second local copy.

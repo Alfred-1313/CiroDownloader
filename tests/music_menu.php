@@ -212,7 +212,7 @@ try {
     @unlink($temp.'/refuse.count'); file_put_contents($mode,json_encode(['refuse_after'=>1])); file_put_contents($log,'');
     $tap('mm:'.$id.':a:each',12); $job=$run('media'); $marks=$called('editMessageReplyMarkup');
     $firstId=(int)json_decode((string)$store->query('SELECT data FROM music_menus WHERE id=?',[$id])->fetchColumn(),true)['batch']['delivered'][0];
-    menuCheck($job['status']==='done'&&$marks&&(int)end($marks)['params']['message_id']===$firstId&&str_contains((string)end($marks)['params']['reply_markup'],'mm:'.$id.':r')&&$anchor($id)===$firstId&&json_decode($store->get('recent_errors'),true)[0]['r']==='upload','when Telegram refuses a later track, the tracks that arrived stay with the way back under the last one');
+    menuCheck($job['status']==='done'&&$marks&&(int)end($marks)['params']['message_id']===$firstId&&str_contains((string)end($marks)['params']['reply_markup'],'mm:'.$id.':r')&&$anchor($id)===$firstId&&$store->get('recent_errors')==='','when Telegram refuses a later track, the tracks that arrived stay with the way back under the last one');
     file_put_contents($mode,'{}'); $tap('mm:'.$id.':r',12,$anchor($id)); $menuMessage=$anchor($id);
     // While tracks are being prepared the status moves on its own: elapsed time and the tracks in work.
     file_put_contents($mode,json_encode(['slow'=>'Album Cut Two'])); file_put_contents($log,'');
@@ -268,8 +268,7 @@ try {
     menuCheck($job['status']==='done'&&count($media)===3&&str_contains($lastCaption,'Fixture Artist - Album Cut Three')&&!str_contains($lastCaption,'Missing Song')&&!str_contains($lastCaption,'⚠️'),'the found tracks are sent together and the missing one is not in the caption');
     $note=(string)($notes[0]['params']['caption']??$notes[0]['params']['text']);
     menuCheck($notes&&str_contains($note,'• <b>Missing Song</b> — یوتیوب: نسخهٔ مطمئنی نداشت، ساوندکلاود: نسخهٔ مطمئنی نداشت')&&str_contains($note,'<blockquote>'),'the status message names the track that could not be found and why, per source, in a quote');
-    $recent=json_decode($store->get('recent_errors','[]'),true);
-    menuCheck($recent&&$recent[0]['s']==='batch'&&$recent[0]['r']==='format'&&$recent[0]['c']==='youtube=format, soundcloud=format','the missing track is in the administrators\' list of recent errors with what each source said');
+    menuCheck($store->get('recent_errors')==='','missing tracks leave no persistent error history');
     $fresh(); $send('https://open.spotify.com/album/'.$albumId,13); $run('inspect'); $album=$lastMenu();
     menuCheck($album['photo']==='https://image-cdn-fa.spotifycdn.com/image/album-'.$albumId&&!array_filter($album['data'],fn($value)=>str_contains($value,':t:'))&&in_array('mm:'.(int)$store->query('SELECT id FROM music_menus')->fetchColumn().':a:zip',$album['data'],true),'an album page opens with its cover, its tracks and "download all"');
 

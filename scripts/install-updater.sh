@@ -25,6 +25,8 @@ User=root
 UMask=0077
 ExecStart=/usr/bin/python3 /usr/local/lib/ciro-downloader/updater.py
 TimeoutStartSec=50min
+StandardOutput=null
+StandardError=null
 UNIT
 cat > /etc/systemd/system/ciro-downloader-updater.timer <<'UNIT'
 [Unit]

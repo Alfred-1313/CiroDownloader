@@ -315,7 +315,7 @@ final class MusicMenu
                 $data['views']=array_slice(array_filter($data['views'],fn($key)=>in_array($key,$keep,true),ARRAY_FILTER_USE_KEY),-self::VIEWS,null,true);
             } else { $this->answer($cb); return; }
         } catch(MediaFailure|\RuntimeException $e) {
-            error_log('Music menu '.$id.' action '.$op.' failed: '.diagnosticMessage($e->getMessage()));
+            ErrorAlerts::event('Music menu '.$id.' action '.$op.' failed: '.diagnosticMessage($e->getMessage()));
             $this->answer($cb,'menu_failed',true); return;
         }
         $menu=$this->save($menu,$data,$view);

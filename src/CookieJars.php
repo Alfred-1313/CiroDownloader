@@ -86,7 +86,7 @@ final class CookieJars
             $notice=$this->result($code,$summary);
         } catch(\InvalidArgumentException) { $notice=$bot->text('cookie_file_invalid'); }
         catch(\Throwable $e) {
-            error_log('Cookie import failure: '.get_class($e));
+            ErrorAlerts::event('Cookie import failure: '.get_class($e));
             if($explain) $notice=$explain($e);
             // A refused live check with logged-out cookies is explained by that, not only by the server.
             try { if($pool&&isset($message['text'])&&$pool->isGuest($pool->normalize((string)$message['text']))) $notice.="\n\n".$bot->text('cookie_guest_hint'); }
