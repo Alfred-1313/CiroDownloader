@@ -60,8 +60,8 @@ try {
     $description="متن اصلی پست\n<script>alert('fixture')</script> & عکس‌ها";
     $requests=fn()=>array_map(fn($line)=>json_decode($line,true),file($log,FILE_IGNORE_NEW_LINES));
     $counter=0;
-    $process=function(array $kinds,bool $group=false,bool $music=true,bool $missing=false,bool $withAudio=false) use(&$counter,$mode,$trace,$description,$bot,$store,$worker,$log,$temp): array {
-        $id=++$counter; file_put_contents($mode,json_encode(['kinds'=>$kinds,'description'=>$description,'music'=>$music,'missing'=>$missing])); file_put_contents($log,''); file_put_contents($trace,'');
+    $process=function(array $kinds,bool $group=false,bool $music=true,bool $missing=false,bool $withAudio=false,?string $captionText=null) use(&$counter,$mode,$trace,$description,$bot,$store,$worker,$log,$temp): array {
+        $id=++$counter; file_put_contents($mode,json_encode(['kinds'=>$kinds,'description'=>$captionText??$description,'music'=>$music,'missing'=>$missing])); file_put_contents($log,''); file_put_contents($trace,'');
         if(is_file($temp.'/with-audio')) unlink($temp.'/with-audio');
         if($withAudio) touch($temp.'/with-audio');
         $user=10+$id; $chat=$group?-100123:$user;
@@ -76,6 +76,7 @@ try {
     $photos=array_values(array_filter($calls,fn($call)=>$call['method']==='sendPhoto'));
     igMediaCheck(count($photos)===1&&$photos[0]['uploads']['photo']['hash']===hash_file('sha256',$photo),'a single Instagram photo uploads its real bytes directly without quality selection');
     igMediaCheck(json_decode($photos[0]['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($photos[0]['params']['caption'],'href=')&&!str_contains($photos[0]['params']['caption'],'مشاهده'),'a default photo caption has no original-post link and its source button is off');
+    igMediaCheck(str_contains($photos[0]['params']['caption'],'متن اصلی پست')&&str_contains($photos[0]['params']['caption'],'&lt;script&gt;')&&str_contains($photos[0]['params']['caption'],'&amp; عکس‌ها'),'a single Instagram photo includes the escaped original post caption');
     igMediaCheck(count(file($trace))===1&&!in_array('--cookies',json_decode(file($trace)[0],true)['args'],true),'the actual gallery-dl CLI handles a cookie-free post in one invocation');
     igMediaCheck(end($calls)['method']==='deleteMessage'&&!array_filter($calls,fn($call)=>$call['method']==='editMessageMedia'),'single-file delivery cleans up its one status and never shows a quality poster');
     $cookies="# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t2147483647\tsessionid\tFAKE_SESSION\n"; Zero\Instagram::saveCookies($config,$cookies);
@@ -85,10 +86,21 @@ try {
     igMediaCheck(count($videos)===1&&$videos[0]['uploads']['video']['mime']==='video/mp4'&&(int)$videos[0]['params']['chat_id']===-100123&&(int)$videos[0]['params']['message_thread_id']===321,'a silent Instagram video is prepared and delivered to the original group topic');
     igMediaCheck($invocation['cookie_mode']===0600&&file_get_contents($config->instagramCookiePath())===$cookies,'Instagram downloads use private cookie copies without refreshing the shared jar');
     igMediaCheck(json_decode($videos[0]['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($videos[0]['params']['caption'],'href='),'a default video also has no caption link or source button');
+    igMediaCheck(str_contains($videos[0]['params']['caption'],'متن اصلی پست')&&str_contains($videos[0]['params']['caption'],'&lt;script&gt;'),'a single Instagram Reel includes the original caption in the group topic');
     $job=$process(['video'],music:false,withAudio:true);
     igMediaCheck($job['status']==='done','Reels without a separate music record still deliver normally');
     $info=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$temp.'/delivered.mp4'],$temp,30),true);
     igMediaCheck(in_array('audio',array_column($info['streams'],'codec_type'),true),'the video keeps its own soundtrack when standalone music records are excluded');
+    $store->set('text.instagram_caption','<b>سفارشی</b> <blockquote>{description}</blockquote>');
+    $job=$process(['photo']); $sent=array_values(array_filter($requests(),fn($call)=>$call['method']==='sendPhoto'))[0];
+    igMediaCheck(str_starts_with($sent['params']['caption'],'<b>سفارشی</b>')&&str_contains($sent['params']['caption'],'&lt;script&gt;')&&!str_contains($sent['params']['caption'],'{description}'),'a saved single-post caption can insert the description without losing its own formatting');
+    $store->query('DELETE FROM settings WHERE key=?',['text.instagram_caption']);
+    $job=$process(['photo'],captionText:str_repeat('متن 😎 <b>نوشته</b> & ',1000));
+    $sent=array_values(array_filter($requests(),fn($call)=>$call['method']==='sendPhoto'))[0];
+    $caption=$sent['params']['caption']; Zero\TextFormat::validate($caption,1024);
+    igMediaCheck($job['status']==='done'&&str_contains($caption,'متن 😎')&&str_contains($caption,'&lt;b&gt;')&&Zero\TextFormat::length(html_entity_decode(strip_tags($caption),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=1024,'long original captions stay within Telegram UTF-16 limits and remain escaped');
+    $job=$process(['photo'],captionText:''); $sent=array_values(array_filter($requests(),fn($call)=>$call['method']==='sendPhoto'))[0];
+    igMediaCheck($job['status']==='done'&&str_contains($sent['params']['caption'],'اینستاگرام')&&!str_contains($sent['params']['caption'],'{description}'),'a post with no original text retains the normal single-post caption');
     $job=$process(['photo','video','photo'],true); $calls=$requests();
     $slides=array_values(array_filter($calls,fn($call)=>in_array($call['method'],['sendPhoto','sendVideo'],true)));
     $state=json_decode($job['options'],true)['pages']; $firstMessage=$state['message']; $cache=$storage.'/instagram-pages/'.$state['folder'];

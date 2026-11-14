@@ -52,6 +52,18 @@ try {
     $instagramStore->set('text.instagram_caption','<b>Custom Instagram caption</b>');
     uxCheck((new Zero\Ui(new Zero\Store($instagram)))->template('instagram_caption')==='<b>Custom Instagram caption</b>','later restarts preserve a customized Instagram caption');
 
+    $singleDefault='<b>📷 اینستاگرام · {index}/{count}</b>';
+    foreach([$singleDefault,Zero\Ui::escape($singleDefault),'<b>کپشن دلخواه</b> {description}'] as $index=>$saved) {
+        $path=$temp.'/instagram-single-'.$index; $upgrading=new Zero\Store($path);
+        $upgrading->set('text.instagram_caption',$saved); $upgrading->set('text.instagram_page_caption','<b>اسلاید سفارشی</b>'); $upgrading->set('instagram.source_button','1');
+        $upgrading->query('DELETE FROM settings WHERE key=?',['ui_instagram_caption_v1']);
+        $reopened=new Zero\Store($path); $singleUi=new Zero\Ui($reopened);
+        uxCheck($index<2?$singleUi->template('instagram_caption')===Zero\Ui::definitions()['texts']['instagram_caption']['value']:$singleUi->template('instagram_caption')===$saved,'single-post caption upgrade replaces only an exact historical default: '.$index);
+        uxCheck($singleUi->template('instagram_page_caption')==='<b>اسلاید سفارشی</b>'&&$singleUi->instagramSourceEnabled(),'single-post upgrade preserves carousel caption and explicit source setting: '.$index);
+        $reopened->set('text.instagram_caption','<b>کپشن پس از ارتقا</b>');
+        uxCheck((new Zero\Ui(new Zero\Store($path)))->template('instagram_caption')==='<b>کپشن پس از ارتقا</b>','caption migration does not repeat after a later custom edit: '.$index);
+    }
+
     foreach([42,7,8] as $id) $store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$id]);
     foreach(['done','done','failed'] as $index=>$status) $store->query('INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(?,?,?,?,?,?)',[100+$index,7,7,'https://youtu.be/oXWMmELDOq0',$status,time()]);
     $store->set('last_job_error','Job 1 [download]: cookies are no longer valid. Sign in to confirm you are not a bot.');

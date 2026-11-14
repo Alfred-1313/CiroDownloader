@@ -1,6 +1,8 @@
 {
   "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg","xnxx":"XNXX","xvideos":"XVideos","tikporn":"TikPorn","youporn":"YouPorn","eporner":"Eporner","youtube":"یوتیوب"},
   "texts": {
+    "custom_caption_prompt":{"audience":"admin","label":"درخواست کپشن جدید","group":"custom","variables":["title","variables"],"value":"<blockquote><b>✏️ {title}</b></blockquote>\n\n✏️ کپشن جدید رو بفرست ✍️\n\n🗑 برای برگشت به کپشن پیش‌فرض، دکمه ریست رو بزن\n\n{variables}\n\nبرای لغو /cancel را بزن."},
+    "custom_formatting_guide":{"audience":"admin","label":"راهنمای فرمت‌بندی کپشن‌ها","group":"custom","value":"📌 <b>راهنمای فرمت‌بندی</b>\nبه‌جای X متن دلخواه خودتان را بگذارید:\n\n🔹 <b>استایل متن</b>\n• پررنگ: <code>&lt;b&gt;X&lt;/b&gt;</code>\n• کج: <code>&lt;i&gt;X&lt;/i&gt;</code>\n• زیرخط‌دار: <code>&lt;u&gt;X&lt;/u&gt;</code>\n• خط‌خورده: <code>&lt;s&gt;X&lt;/s&gt;</code>\n\n🔹 <b>بلوک‌های خاص</b>\n• مونو: <code>&lt;code&gt;X&lt;/code&gt;</code>\n• قابل‌کپی: <code>&lt;pre&gt;X&lt;/pre&gt;</code>\n• نقل‌قول: <code>&lt;blockquote&gt;X&lt;/blockquote&gt;</code>\n\n🔹 <b>لینک</b>\n• لینک: <code>&lt;a href=\"آدرس\"&gt;X&lt;/a&gt;</code>\n\n🔹 <b>ایموجی پریمیوم</b>\n• به خاطر محدودیت تلگرام، ایموجی پریمیوم رو فقط ابتدای متن (سمت راست برای فارسی) بفرست"},
     "hub_cover_info":{"audience":"admin","label":"hub_cover_info","group":"custom","value":"<blockquote><b>🖼 کاور و انتخاب کیفیت {title}</b></blockquote>\nکپشن پیام انتخاب کیفیت، نام و ظاهر هر دکمه و چیدمان آن‌ها را از اینجا جدا تنظیم کن. رنگ پیش‌فرض دکمه‌های کیفیت و صدا سفید است؛ رنگ دلخواه را از صفحهٔ هر دکمه انتخاب کن.","variables":["title"]},
     "hint_hub_cover":{"audience":"admin","label":"hint_hub_cover","group":"custom","value":"کپشن پیام انتخاب کیفیت، دکمه‌های کیفیت و صدا و چیدمان آن‌ها؛ مخصوص همین سرویس."},
     "hint_hub_quality":{"audience":"admin","label":"hint_hub_quality","group":"custom","value":"نام هر کیفیت و صدا، رنگ، ایموجی معمولی یا پریمیوم، حالت بدون ایموجی و نمایش دکمه."},
@@ -180,7 +182,7 @@
     "instagram_queued":{"audience":"user","label":"ثبت درخواست اینستاگرام","group":"instagram","value":"⏳ لینک اینستاگرام ثبت شد؛ وضعیت دریافت و آماده‌سازی در همین پیام نمایش داده می‌شود."},
     "instagram_downloading":{"audience":"user","label":"دریافت محتوای اینستاگرام","group":"instagram","value":"⏳ در حال دریافت و آماده‌سازی عکس‌ها و ویدیوهای اینستاگرام…"},
     "instagram_uploading":{"audience":"user","label":"وضعیت ارسال اسلایدها","group":"instagram","value":"📤 در حال ارسال به تلگرام؛ {sent} از {count} مورد ارسال شده است.","variables":["sent","count"]},
-    "instagram_caption":{"audience":"user","label":"کپشن محتوای اینستاگرام","group":"instagram","value":"<b>📷 اینستاگرام · {index}/{count}</b>","caption":true,"variables":["index","count","url"],"legacy_values":["<b>📷 اینستاگرام · {index}/{count}</b>\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>"]},
+    "instagram_caption":{"audience":"user","label":"کپشن محتوای اینستاگرام","group":"instagram","value":"<b>📷 اینستاگرام · {index}/{count}</b>\n\n{description}","caption":true,"variables":["index","count","description","url"],"legacy_values":["<b>📷 اینستاگرام · {index}/{count}</b>\n<a href=\"{url}\">مشاهدهٔ پست اصلی</a>","<b>📷 اینستاگرام · {index}/{count}</b>"]},
     "instagram_error_cookies":{"audience":"user","label":"خطای کوکی اینستاگرام","group":"instagram","value":"🍪 کوکی اینستاگرام معتبر یا قابل خواندن نیست؛ مدیر باید فایل تازه را از «ایمپورت کوکی ← اینستاگرام» وارد کند."},
     "instagram_error_blocked":{"audience":"user","label":"خطای دسترسی اینستاگرام","group":"instagram","value":"⚠️ اینستاگرام دسترسی به این پست را نپذیرفت. ورود به حساب، خصوصی‌بودن پست یا محدودیت اتصال سرور می‌تواند علت باشد؛ مدیر باید کوکی و دسترسی حساب را بررسی کند."},
     "instagram_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال اینستاگرام","group":"instagram","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
@@ -229,7 +231,7 @@
     "pinterest_queued":{"audience":"user","label":"ثبت درخواست پینترست","group":"pinterest","value":"⏳ لینک پینترست ثبت شد؛ وضعیت دریافت و آماده‌سازی در همین پیام نمایش داده می‌شود."},
     "pinterest_downloading":{"audience":"user","label":"دریافت محتوای پینترست","group":"pinterest","value":"⏳ در حال دریافت و آماده‌سازی عکس‌ها و ویدیوهای پینترست…"},
     "pinterest_uploading":{"audience":"user","label":"وضعیت ارسال اسلایدها","group":"pinterest","value":"📤 در حال ارسال به تلگرام؛ {sent} از {count} مورد ارسال شده است.","variables":["sent","count"]},
-    "pinterest_caption":{"audience":"user","label":"کپشن محتوای پینترست","group":"pinterest","value":"<b>📷 پینترست · {index}/{count}</b>","caption":true,"variables":["index","count","url"]},
+    "pinterest_caption":{"audience":"user","label":"کپشن محتوای پینترست","group":"pinterest","value":"<b>📷 پینترست · {index}/{count}</b>","caption":true,"variables":["index","count","description","url"]},
     "pinterest_error_cookies":{"audience":"user","label":"خطای کوکی پینترست","group":"pinterest","value":"🍪 کوکی پینترست معتبر یا قابل خواندن نیست؛ مدیر باید فایل تازه را از «ایمپورت کوکی ← پینترست» وارد کند."},
     "pinterest_error_blocked":{"audience":"user","label":"خطای دسترسی پینترست","group":"pinterest","value":"⚠️ پینترست دسترسی به این پست را نپذیرفت. ورود به حساب، خصوصی‌بودن پست یا محدودیت اتصال سرور می‌تواند علت باشد؛ مدیر باید کوکی و دسترسی حساب را بررسی کند."},
     "pinterest_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال پینترست","group":"pinterest","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
@@ -267,7 +269,7 @@
     "tiktok_queued":{"audience":"user","label":"ثبت درخواست تیک‌تاک","group":"tiktok","value":"⏳ لینک تیک‌تاک ثبت شد؛ وضعیت دریافت و آماده‌سازی در همین پیام نمایش داده می‌شود."},
     "tiktok_downloading":{"audience":"user","label":"دریافت محتوای تیک‌تاک","group":"tiktok","value":"⏳ در حال دریافت و آماده‌سازی عکس‌ها و ویدیوهای تیک‌تاک…"},
     "tiktok_uploading":{"audience":"user","label":"وضعیت ارسال اسلایدها","group":"tiktok","value":"📤 در حال ارسال به تلگرام؛ {sent} از {count} مورد ارسال شده است.","variables":["sent","count"]},
-    "tiktok_caption":{"audience":"user","label":"کپشن محتوای تیک‌تاک","group":"tiktok","value":"<b>🎵 تیک‌تاک · {index}/{count}</b>","caption":true,"variables":["index","count","url"]},
+    "tiktok_caption":{"audience":"user","label":"کپشن محتوای تیک‌تاک","group":"tiktok","value":"<b>🎵 تیک‌تاک · {index}/{count}</b>","caption":true,"variables":["index","count","description","url"]},
     "tiktok_error_cookies":{"audience":"user","label":"خطای کوکی تیک‌تاک","group":"tiktok","value":"🍪 کوکی تیک‌تاک معتبر یا قابل خواندن نیست؛ مدیر باید فایل تازه را از «ایمپورت کوکی ← تیک‌تاک» وارد کند."},
     "tiktok_error_blocked":{"audience":"user","label":"خطای دسترسی تیک‌تاک","group":"tiktok","value":"⚠️ تیک‌تاک دسترسی به این پست را نپذیرفت. ورود به حساب، خصوصی‌بودن پست یا محدودیت اتصال سرور می‌تواند علت باشد؛ مدیر باید کوکی و دسترسی حساب را بررسی کند."},
     "tiktok_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال تیک‌تاک","group":"tiktok","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
@@ -305,7 +307,7 @@
     "twitter_queued":{"audience":"user","label":"ثبت درخواست X","group":"twitter","value":"⏳ لینک X ثبت شد؛ وضعیت دریافت و آماده‌سازی در همین پیام نمایش داده می‌شود."},
     "twitter_downloading":{"audience":"user","label":"دریافت محتوای X","group":"twitter","value":"⏳ در حال دریافت و آماده‌سازی عکس‌ها و ویدیوهای X…"},
     "twitter_uploading":{"audience":"user","label":"وضعیت ارسال اسلایدها","group":"twitter","value":"📤 در حال ارسال به تلگرام؛ {sent} از {count} مورد ارسال شده است.","variables":["sent","count"]},
-    "twitter_caption":{"audience":"user","label":"کپشن محتوای X","group":"twitter","value":"<b>𝕏 X · {index}/{count}</b>","caption":true,"variables":["index","count","url"]},
+    "twitter_caption":{"audience":"user","label":"کپشن محتوای X","group":"twitter","value":"<b>𝕏 X · {index}/{count}</b>","caption":true,"variables":["index","count","description","url"]},
     "twitter_error_cookies":{"audience":"user","label":"خطای کوکی X","group":"twitter","value":"🍪 کوکی X معتبر یا قابل خواندن نیست؛ مدیر باید فایل تازه را از «ایمپورت کوکی ← X» وارد کند."},
     "twitter_error_blocked":{"audience":"user","label":"خطای دسترسی X","group":"twitter","value":"⚠️ X دسترسی به این پست را نپذیرفت. ورود به حساب، خصوصی‌بودن پست یا محدودیت اتصال سرور می‌تواند علت باشد؛ مدیر باید کوکی و دسترسی حساب را بررسی کند."},
     "twitter_error_restricted":{"audience":"user","label":"توقف دسترسی ارسال X","group":"twitter","value":"⚠️ دسترسی ارسال این درخواست تغییر کرده است؛ ارسال متوقف شد."},
@@ -737,6 +739,7 @@
     "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← 🔞 سایت‌های بزرگسال ← Beeg ← ⚙️ تنظیمات این سرویس»."}
   },
   "buttons": {
+    "caption_reset":{"audience":"admin","label":"ریست کپشن","group":"custom","value":"🗑 ریست کپشن"},
     "hub_cover":{"audience":"admin","label":"hub_cover","group":"custom","value":"🖼 کاور و انتخاب کیفیت"},
     "hub_edit_cover":{"audience":"admin","label":"hub_edit_cover","group":"custom","value":"🖼 ویرایش کاور و انتخاب کیفیت"},
     "hub_quality":{"audience":"admin","label":"hub_quality","group":"custom","value":"🎞 دکمه‌های کیفیت و صدا"},

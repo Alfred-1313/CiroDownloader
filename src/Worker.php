@@ -687,7 +687,10 @@ final class Worker
         $item=$media[0];
         $bot->jobMessage($job,$bot->text($service.'_uploading',['sent'=>0,'count'=>1]));
         if($this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($item['path'])+268435456);
-        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text($service.'_caption',['index'=>1,'count'=>1,'url'=>$job['url']])),'parse_mode'=>'HTML'];
+        // Match the carousel's description budget; Ui escapes upstream text before inserting it into HTML.
+        $description=(string)($item['description']??'');
+        while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
+        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text($service.'_caption',['index'=>1,'count'=>1,'url'=>$job['url'],'description'=>$description])),'parse_mode'=>'HTML'];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         if($item['type']==='video') $params+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($item['path'],$item['type']==='photo'?'image/jpeg':'video/mp4',$item['type']==='photo'?'photo.jpg':'video.mp4');

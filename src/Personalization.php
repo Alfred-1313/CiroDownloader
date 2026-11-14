@@ -541,8 +541,12 @@ final class Personalization
         if(!$ui->customizable($base,$key)) { $this->home($chat,$message); return; }
         $variables=empty($definition['variables'])?'':$ui->text('custom_variables',['variables'=>implode(', ',array_map(fn($name)=>'{'.$name.'}',$definition['variables']))]);
         if(!empty($definition['inline'])) $variables.="\n".$ui->text('custom_inline_hint');
-        $text=$kind==='icon'?$ui->text('custom_icon_prompt'):($kind==='emoji'?$ui->text('custom_emoji_prompt'):$ui->text('custom_prompt',['title'=>$definition['label'],'variables'=>$variables],['variables']));
-        $message=$this->send($chat,$text,[[$ui->button('cancel','custom:item:'.$base.':'.$key)]],$message);
+        $caption=$kind==='text'&&UiRegistry::category('text',$definition+['key'=>$key])==='caption';
+        $text=$kind==='icon'?$ui->text('custom_icon_prompt'):($kind==='emoji'?$ui->text('custom_emoji_prompt'):$ui->text($caption?'custom_caption_prompt':'custom_prompt',['title'=>$definition['label'],'variables'=>$variables],['variables']));
+        if($kind==='text') $text.="\n\n".$ui->text('custom_formatting_guide');
+        $rows=$caption?[[$ui->button('caption_reset','custom:reset:text:'.$key)]]:[];
+        $rows[]=[$ui->button('cancel','custom:item:'.$base.':'.$key)];
+        $message=$this->send($chat,$text,$rows,$message);
         $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>$kind,'key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
     }
     private function commit(int $chat,string $kind,string $key,int $message,array $values,array $remove=[]): bool
