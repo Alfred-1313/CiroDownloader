@@ -87,7 +87,7 @@ try {
     check($bot->label('help')==='Guide','edit button label');
     $bot->handle(cb(42,'reset:button:help')); check($bot->label('help')===$bot->catalog('button')['help'][1],'reset label');
     $bot->handle(cb(42,'edit:text:video_caption')); $bot->handle(msg(42,'Title: {title}'));
-    check($bot->text('video_caption')==='Title: {title}','custom caption persists');
+    check($bot->ui->forService('youtube')->template('video_caption')==='Title: {title}','custom caption persists');
     $bot->handle(cb(42,'edit:text:welcome')); $bot->handle(msg(42,'/cancel')); $bot->handle(msg(42,'Ignored text'));
     check($bot->text('welcome')===$bot->catalog('text')['welcome'][1],'cancel editing');
     $bot->handle(cb(42,'edit:button:help')); $bot->handle(msg(42,str_repeat('x',49)));
@@ -96,7 +96,7 @@ try {
     $bot->handle(msg(1,$url,20)); $bot->handle(msg(1,$url,20)); $bot->handle(msg(1,$url,21));
     check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===1,'deduplicate updates and active jobs');
     $job=$store->claim(); check($job!==null&&$store->claim()===null,'claim only queued job');
-    $reopen=new Zero\Store($temp); check($reopen->get('text.video_caption')==='Title: {title}','settings survive reload');
+    $reopen=new Zero\Store($temp); check($reopen->get('text.youtube__video_caption')==='Title: {title}','settings survive reload');
     $store->query("UPDATE jobs SET status='done'");
     $store->set('update_in_progress','1');
     check($store->enqueue(999,999,999,$url)==='updating'&&$store->claim()===null,'updater pauses new jobs atomically');

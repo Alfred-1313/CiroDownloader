@@ -25,7 +25,7 @@ try {
     $click=function(string $action,int $user=42,int $chat=42,int $message=700) use($bot): void {
         $bot->handle(['update_id'=>random_int(1,999999),'callback_query'=>['id'=>'access'.random_int(1,999999),'from'=>['id'=>$user,'is_bot'=>false],'message'=>['message_id'=>$message,'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private']],'data'=>$action]]);
     };
-    $click('custom:features'); $rows=$api->last('editMessageText')['reply_markup']['inline_keyboard']; $buttons=array_merge(...$rows);
+    $click('custom:section:radio'); $rows=$api->last('editMessageText')['reply_markup']['inline_keyboard']; $buttons=array_merge(...$rows);
     $switch=array_values(array_filter($buttons,fn($b)=>($b['callback_data']??'')==='custom:radioaccess'))[0]??[];
     accessCheck(str_contains($switch['text']??'','❌')&&str_contains($switch['text']??'','کاربران'),'Personalization shows the all-users switch as off by default');
     $click('custom:radioaccess',66,66); accessCheck(!Zero\Radio::allUsers($store),'an ordinary user cannot change the access switch');

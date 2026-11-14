@@ -87,10 +87,11 @@ class GalleryPages
         $description=$state['description'];
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
         $caption=Ui::fitCaption($bot->text($this->service.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description]));
-        $navigation=[]; $revision=(int)$state['revision']+1;
-        if($index>1) $navigation[]=$bot->ui->button($this->service.'_prev',(galleryPrefix($this->service).'page:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
-        if($index<$count) $navigation[]=$bot->ui->button($this->service.'_next',(galleryPrefix($this->service).'page:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
-        $rows=array_merge([$navigation],$bot->ui->gallerySourceRows($this->service,$job['url']));
+        $revision=(int)$state['revision']+1;
+        $slots=['prev'=>[],'next'=>[],'source'=>array_merge(...($bot->ui->gallerySourceRows($this->service,$job['url'])?:[[]]))];
+        if($index>1) $slots['prev'][]=$bot->ui->button($this->service.'_prev',(galleryPrefix($this->service).'page:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
+        if($index<$count) $slots['next'][]=$bot->ui->button($this->service.'_next',(galleryPrefix($this->service).'page:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
+        $rows=$bot->ui->layout($this->service,'slides',$slots,[['prev','next'],['source']]);
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
         $media=['type'=>$item['type'],'media'=>$cached?$item['file_id']:'attach://slide','caption'=>$caption,'parse_mode'=>'HTML'];
         if($item['type']==='video') $media+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];

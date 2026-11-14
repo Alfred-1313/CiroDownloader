@@ -3,6 +3,7 @@ declare(strict_types=1);
 require dirname(__DIR__).'/src/Core.php';
 require dirname(__DIR__).'/src/Bot.php';
 require dirname(__DIR__).'/src/Download.php';
+require __DIR__.'/fixtures/editor_actions.php';
 
 final class UiApi implements Zero\Api {
     public array $calls=[]; public bool $failDelete=false;
@@ -17,7 +18,7 @@ function uiClick(string $data,int $user=42): array { return ['callback_query'=>[
 function uiInput(string $text,int $user=42): array { return ['update_id'=>random_int(1,1000000),'message'=>['from'=>['id'=>$user],'chat'=>['id'=>$user,'type'=>'private'],'text'=>$text]]; }
 function uiRows(UiApi $api): array { return end($api->calls)[1]['reply_markup']['inline_keyboard']??[]; }
 function uiButtons(UiApi $api): array { return array_merge(...uiRows($api)); }
-function uiFind(UiApi $api,string $action): ?array { foreach(uiButtons($api) as $button) if(($button['callback_data']??'')===$action) return $button; return null; }
+function uiFind(UiApi $api,string $action): ?array { $action=currentEditorAction($action); foreach(uiButtons($api) as $button) if(($button['callback_data']??'')===$action) return $button; return null; }
 function uiText(UiApi $api): string { return (string)(end($api->calls)[1]['text']??''); }
 $temp=sys_get_temp_dir().'/ciro-ui-'.bin2hex(random_bytes(6)); mkdir($temp,0700);
 try {
@@ -26,9 +27,9 @@ try {
     // Main screen: white titles, one entry per screen, legend, reset and close.
     $bot->handle(uiInput('/customize'));
     $titles=array_values(array_filter(uiButtons($api),fn($b)=>str_starts_with($b['callback_data']??'','custom:hint:')));
-    uiCheck(count($titles)===6&&!array_filter($titles,fn($b)=>isset($b['style'])),'the main screen has six white title buttons');
-    foreach(['cover','video','audio','instagram','pinterest','tiktok','twitter','pornhub','beeg','xnxx','xvideos','spotify','soundcloud','menu','batch','search','radio','radio_player','help','group','access','progress','errors'] as $section) uiCheck(uiFind($api,'custom:section:'.$section)!==null,'one entry opens each screen: '.$section);
-    uiCheck(uiFind($api,'custom:features')!==null&&uiFind($api,'custom:resetall')!==null&&uiFind($api,'custom:close')!==null,'the main screen offers features, reset-all and close');
+    uiCheck(count($titles)===4&&!array_filter($titles,fn($b)=>isset($b['style'])),'the main screen has four white category title buttons');
+    foreach(['youtube',...Zero\galleryServices(),...Zero\musicServices()] as $service) uiCheck(uiFind($api,'custom:service:'.$service)!==null,'one entry opens each downloader: '.$service);
+    uiCheck(uiFind($api,'custom:category:general')!==null&&uiFind($api,'custom:resetall')!==null&&uiFind($api,'custom:close')!==null,'the main screen offers features, reset-all and close');
     uiCheck(str_contains(uiText($api),'🔵')&&str_contains(uiText($api),'⬜️')&&str_contains(uiText($api),'✏️')&&str_contains(uiText($api),'🔘')&&!str_contains(uiText($api),'🟢'),'a legend explains white titles, blue buttons and the markers');
     uiCheck(!uiFind($api,'custom:groups:text')&&!uiFind($api,'custom:groups:button')&&!uiFind($api,'custom:sections'),'the old parallel text, caption and button trees are gone from the main screen');
     uiCheck(!array_filter(uiButtons($api),fn($b)=>in_array($b['style']??'',['success','danger'],true))&&count(array_filter(uiButtons($api),fn($b)=>($b['style']??'')==='primary'&&!str_starts_with($b['callback_data']??'','custom:hint:')))===count(array_filter(uiButtons($api),fn($b)=>!str_starts_with($b['callback_data']??'','custom:hint:'))),'one colour rule: titles are white and every other button is blue; no green or red'); 
@@ -56,11 +57,11 @@ try {
     $mark=uiFind($api,'custom:item:text:welcome');
     uiCheck(($mark['style']??'')==='primary'&&str_starts_with($mark['text'],'✏️'),'a changed text is marked with ✏️ in its list and is blue like every selectable button');
     $bot->handle(uiClick('custom:home'));
-    uiCheck((uiFind($api,'custom:section:help')['style']??'')==='primary'&&(uiFind($api,'custom:section:cover')['style']??'')==='primary','every screen entry is blue, changed or not');
+    uiCheck((uiFind($api,'custom:category:general')['style']??'')==='primary'&&(uiFind($api,'custom:service:youtube')['style']??'')==='primary','every screen entry is blue, changed or not');
 
     // A saved text that loses a placeholder is kept, with a warning.
     $bot->handle(uiClick('custom:edit:text:video_title')); $bot->handle(uiInput('عنوان بدون متغیر'));
-    uiCheck($store->get('text.video_title')==='عنوان بدون متغیر'&&str_contains(uiText($api),'{title}'),'a missing placeholder is saved but reported');
+    uiCheck($store->get('text.youtube__video_title')==='عنوان بدون متغیر'&&str_contains(uiText($api),'{title}'),'a missing placeholder is saved but reported');
     $bot->handle(uiClick('custom:edit:text:video_title')); $bot->handle(uiInput('عنوان {title}'));
     uiCheck(!str_contains(uiText($api),'دیگر در متن نیستند'),'no warning appears when every placeholder is present');
 

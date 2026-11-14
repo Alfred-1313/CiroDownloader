@@ -36,6 +36,7 @@ jobs:
           php tests/customization.php
           php tests/personalization_recovery.php
           php tests/personalization_sections.php
+          php tests/service_customization.php
           php tests/personalization_ui.php
           php tests/personalization_buttons.php
           php tests/update_ui.php
@@ -100,6 +101,8 @@ jobs:
           php tests/quality_worker.php
           php tests/quality_worker.php --audio
           php tests/quality_worker.php --custom-parts
+          php tests/quality_worker.php --custom-parts --scoped
+          php tests/quality_worker.php --audio --custom-parts --scoped
           php tests/quality_worker.php --audio --custom-parts
           php tests/quality_worker.php --shorts
           php tests/quality_worker.php --legacy-caption

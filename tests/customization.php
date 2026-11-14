@@ -71,11 +71,11 @@ try {
     Zero\TextFormat::validate($html,700);
     $bot->handle(click(42,'custom:edit:text:video_caption'));
     $bot->handle($formatted);
-    ensure($bot->text('video_caption')===$html,'captions preserve native premium emoji and bold formatting');
-    $before=$bot->text('video_caption');
+    ensure($bot->ui->forService('youtube')->template('video_caption')===$html,'captions preserve native premium emoji and bold formatting');
+    $before=$bot->ui->forService('youtube')->template('video_caption');
     $bot->handle(click(42,'custom:edit:text:video_caption'));
     $bot->handle(input(42,'<b>bad</i>'));
-    ensure($bot->text('video_caption')===$before,'invalid HTML cannot replace a working caption');
+    ensure($bot->ui->forService('youtube')->template('video_caption')===$before,'invalid HTML cannot replace a working caption');
     $store->query('DELETE FROM states');
     $store->set('text.help','<blockquote><b>CUSTOM_HELP</b></blockquote>');
     $bot->handle(input(7,$bot->label('help')));
@@ -149,6 +149,6 @@ try {
     $bot->handle(click(42,'custom:edit:text:audio_caption'));
     $bot->handle(input(42,'<blockquote><b>{title}</b></blockquote> {format}'));
     $bot->handle(click(42,'custom:setcolor:extract_audio:danger'));
-    ensure($store->get('button.style.extract_audio')==='danger'&&str_contains($bot->text('audio_caption',['title'=>'Test','format'=>'MP3']),'MP3'),'audio captions and button styles use the shared Personalization editor');
+    ensure($store->get('button.style.youtube__extract_audio')==='danger'&&str_contains($bot->ui->forService('youtube')->text('audio_caption',['title'=>'Test','format'=>'MP3']),'MP3'),'audio captions and button styles use the shared Personalization editor');
 } finally { Zero\Download::clean($temp); }
 

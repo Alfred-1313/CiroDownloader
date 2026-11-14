@@ -55,16 +55,16 @@ $cases=[
                 recoveryCheck($store->get('button.icon.'.$key)==='5368324170671202286','button emoji saves: '.$key);
             }
             $bot->handle(recoveryClick('custom:reset:'.$kind.':'.$key));
-            recoveryCheck($store->get($kind.'.'.$key,'absent')==='absent','reset removes the override: '.$kind.'.'.$key);
-            if($kind==='button') recoveryCheck($store->get('button.style.'.$key,'absent')==='absent'&&$store->get('button.icon.'.$key,'absent')==='absent','reset also clears button color and emoji: '.$key);
+            recoveryCheck(isset(Zero\Ui::definitions()[$kind==='button'?'buttons':'texts'][$key]['service'])?($kind==='text'?$bot->ui->template($key):$bot->ui->label($key))===Zero\Ui::definitions()[$kind==='button'?'buttons':'texts'][$key]['value']:$store->get($kind.'.'.$key,'absent')==='absent','reset restores the default: '.$kind.'.'.$key);
+            if($kind==='button') recoveryCheck(isset(Zero\Ui::definitions()['buttons'][$key]['service'])?empty($bot->ui->button($key)['icon_custom_emoji_id']):($store->get('button.style.'.$key,'absent')==='absent'&&$store->get('button.icon.'.$key,'absent')==='absent'),'reset also restores button color and emoji: '.$key);
         }
     },
     'return to the selected catalog page'=>function($bot,$store,$api) {
-        $bot->handle(recoveryClick('custom:list:text:errors:1'));
+        $bot->handle(recoveryClick('custom:list:text:youtube:1'));
         $item=current(array_filter(recoveryActions($api),fn($action)=>str_starts_with($action,'custom:item:')));
         recoveryCheck(is_string($item)&&str_contains(end($api->calls)[1]['text'],'<b>2 /'),'a second catalog page is exercised');
         $bot->handle(recoveryClick($item));
-        recoveryCheck(in_array('custom:list:text:errors:1',recoveryActions($api),true),'Back preserves the page containing the selected item');
+        recoveryCheck(in_array('custom:list:text:youtube:1',recoveryActions($api),true),'Back preserves the page containing the selected item');
     },
     'repair a rejected saved button'=>function($bot,$store,$api) {
         $store->set('button.icon.help','5368324170671202286');

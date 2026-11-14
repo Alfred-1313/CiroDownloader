@@ -100,18 +100,19 @@ try {
     phCheck($jobs()===1,'and in a group');
     $store->query('DELETE FROM jobs'); $store->query('UPDATE users SET last_request=0'); $store->set('adult.admins_only','1');
 
-    // 4. The switches on the features page, administrators only.
+    // 4. Independent site settings and shared access/deletion filters, administrators only.
     $click=function(string $data,int $user) use($bot,&$update) { $update++; $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'c'.$update,'from'=>['id'=>$user,'is_bot'=>false],'message'=>['message_id'=>900,'chat'=>['id'=>$user,'type'=>'private']],'data'=>$data]]); };
     $store->set('adult.pornhub','0');
-    $click('custom:features',42);
+    $click('custom:category:adult',42);
     $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
-    phCheck(in_array('custom:adultpage',array_column($buttons,'callback_data'),true)&&!in_array('custom:adult',array_column($buttons,'callback_data'),true),'the features page has one entry for the 18+ site instead of a row of switches');
-    $click('custom:adultpage',42);
+    phCheck(in_array('custom:adultpage',array_column($buttons,'callback_data'),true)&&!in_array('custom:adult',array_column($buttons,'callback_data'),true),'the adult category separates shared filters from individual site hubs');
+    $click('custom:settings:pornhub',42);
     $edit=$api->called('editMessageText'); $buttons=array_merge(...(end($edit)[1]['reply_markup']['inline_keyboard']??[[]]));
     $switch=array_values(array_filter($buttons,fn($b)=>($b['callback_data']??'')==='custom:adult'))[0]??null;
     $titles=array_filter($buttons,fn($b)=>str_starts_with($b['callback_data']??'','custom:hint:'));
-    phCheck($switch!==null&&str_contains($switch['text'],'❌')&&($switch['style']??'')==='primary'&&in_array('custom:adultadmins',array_column($buttons,'callback_data'),true)&&count($titles)===2&&!array_filter($titles,fn($b)=>isset($b['style'])),'its own page: two white titles, the Pornhub switch (❌ while off) and "administrators only", all other buttons blue');
+    phCheck($switch!==null&&str_contains($switch['text'],'❌')&&($switch['style']??'')==='primary'&&in_array('custom:adultpage',array_column($buttons,'callback_data'),true)&&count($titles)===1&&!array_filter($titles,fn($b)=>isset($b['style'])),'site settings have a white title, independent blue Pornhub switch and a shared-filter entry');
     $click('custom:adult',42); phCheck($store->get('adult.pornhub')==='1','one tap turns it on');
+    $click('custom:adultpage',42);
     $click('custom:adultadmins',42); phCheck($store->get('adult.admins_only')==='0','and "administrators only" off');
     $click('custom:adult',7); $click('custom:adultadmins',7);
     phCheck($store->get('adult.pornhub')==='1'&&$store->get('adult.admins_only')==='0','an ordinary user cannot flip either');

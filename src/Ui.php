@@ -1,20 +1,44 @@
 <?php
 declare(strict_types=1);
 namespace Zero;
+require_once __DIR__.'/UiRegistry.php';
 
 final class Ui
 {
     public const REPLY_KEYS=['help','admin','health','update','cookies','cookie_settings','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_mode','cookie_guide','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now','cookie_back_youtube','cookie_back_admin','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back','cookie_pinterest','pin_cookie_upload','pin_cookie_view','pin_cookie_export','pin_cookie_remove','pin_cookie_confirm','pin_cookie_back','cookie_tiktok','tt_cookie_upload','tt_cookie_view','tt_cookie_export','tt_cookie_remove','tt_cookie_confirm','tt_cookie_back','cookie_twitter','x_cookie_upload','x_cookie_view','x_cookie_export','x_cookie_remove','x_cookie_confirm','x_cookie_back'];
     private static ?array $definitions=null;
     private array $preview=[];
+    private string $service='';
     public function __construct(private Store $store) {}
     public function preview(array $values): void { $this->preview=$values; }
     /** A setting as it would be shown now, including a pending preview. */
-    public function setting(string $key,string $default=''): string { return $this->get($key,$default); }
-    private function get(string $key,string $default=''): string { return array_key_exists($key,$this->preview)?$this->preview[$key]:$this->store->get($key,$default); }
+    public function setting(string $key,string $default=''): string {
+        if(preg_match('/^button\.(?:(style|icon|emoji|pos|plain|hidden)\.)?([a-z0-9_]+)$/D',$key,$m)&&$this->definition('button',$m[2])) return $this->buttonSetting($this->key('button',$m[2]),$m[1]??'',$default);
+        if(str_starts_with($key,'text.')) {
+            $field=$this->key('text',substr($key,5)); $item=$this->definition('text',$field);
+            return $this->get('text.'.$field,isset($item['inherits'])?$this->unscoped()->setting('text.'.$item['inherits'],$default):$default);
+        }
+        return $this->get($key,$default);
+    }
+    public function localSetting(string $key,string $default=''): string { return $this->get($key,$default); }
+    private function buttonSetting(string $key,string $part,string $default): string {
+        $item=$this->definition('button',$key); $parent=$item['inherits']??'';
+        if($part==='style'&&($item['inherit_style']??true)===false) $default=$item['style']??'';
+        elseif($parent!=='') $default=$this->buttonSetting($parent,$part,$default);
+        return $this->get('button.'.($part!==''?$part.'.':'').$key,$default);
+    }
+    private function get(string $key,string $default=''): string {
+        if($this->service!==''&&(str_starts_with($key,'cover.')||str_starts_with($key,'media.'))) {
+            $scoped='service.'.$this->service.'.'.$key;
+            return $this->preview[$scoped]??$this->store->get($scoped,$this->preview[$key]??$this->store->get($key,$default));
+        }
+        return array_key_exists($key,$this->preview)?$this->preview[$key]:$this->store->get($key,$default);
+    }
+    public function forService(string $service): self { $copy=clone $this; $copy->service=in_array($service,UiRegistry::services(),true)?$service:''; return $copy; }
+    private function key(string $kind,string $key): string { return $this->service!==''?UiRegistry::key($this->service,$kind,$key):$key; }
     public static function definitions(): array
     {
-        return self::$definitions??=json_decode((string)file_get_contents(dirname(__DIR__).'/resources/ui.json'),true,512,JSON_THROW_ON_ERROR);
+        return self::$definitions??=UiRegistry::expand(json_decode((string)file_get_contents(dirname(__DIR__).'/resources/ui.json'),true,512,JSON_THROW_ON_ERROR));
     }
     public function definition(string $kind,string $key): ?array { return self::definitions()[$kind==='button'?'buttons':'texts'][$key]??null; }
     public function customizable(string $kind,string $key): bool
@@ -26,14 +50,18 @@ final class Ui
     public function catalog(string $kind): array
     {
         $result=[];
-        foreach(self::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) if($this->customizable($kind,$key)) $result[$key]=[$item['label'],$item['value']];
+        foreach(self::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) if($this->customizable($kind,$key)&&UiRegistry::legacy($kind,$key)===$key) {
+            $label=isset($item['service'])?(self::definitions()['groups'][$item['service']].' · '.$item['label']):$item['label'];
+            $result[$key]=[$label,$item['value']];
+        }
         return $result;
     }
     public function template(string $key): string
     {
+        $key=$this->key('text',$key);
         $item=$this->definition('text',$key);
         if(!$item) throw new \RuntimeException('Unregistered UI text: '.$key);
-        return $this->get('text.'.$key,$item['value']);
+        return $this->get('text.'.$key,isset($item['inherits'])?$this->unscoped()->template($item['inherits']):$item['value']);
     }
     public function text(string $key,array $values=[],array $raw=[],bool $nonempty=false): string
     {
@@ -66,11 +94,12 @@ final class Ui
     }
     public function label(string $key,array $values=[]): string
     {
+        $key=$this->key('button',$key);
         $item=$this->definition('button',$key);
         if(!$item) throw new \RuntimeException('Unregistered UI button: '.$key);
         $replace=[];
         foreach($values as $name=>$value) $replace['{'.$name.'}']=(string)$value;
-        $fallback=isset($item['inherits'])?$this->get('button.'.$item['inherits'],$item['value']):$item['value'];
+        $fallback=isset($item['inherits'])?$this->unscoped()->label($item['inherits'],$values):$item['value'];
         return strtr($this->get('button.'.$key,$fallback),$replace);
     }
     public function replyAction(string $text): ?string
@@ -116,26 +145,34 @@ final class Ui
     }
     public function button(string $key,?string $data=null,array $values=[]): array
     {
+        $key=$this->key('button',$key);
         $item=$this->definition('button',$key);
         $button=['text'=>$this->label($key,$values)];
         if($data!==null) $button['callback_data']=$data;
-        $parent=$item['inherits']??'';
-        $style=$this->get('button.style.'.$key,$parent!==''?$this->get('button.style.'.$parent,$this->definition('button',$parent)['style']??''):($item['style']??''));
+        $parent=$item['inherits']??''; $inherited=$parent!==''?$this->unscoped()->button($parent):[];
+        $style=$this->get('button.style.'.$key,($item['inherit_style']??true)?($inherited['style']??($item['style']??'')):($item['style']??''));
         if(in_array($style,['primary','success','danger'],true)) $button['style']=$style;
-        $icon=$this->get('button.icon.'.$key,$parent!==''?$this->get('button.icon.'.$parent):'');
+        $icon=$this->get('button.icon.'.$key,$inherited['icon_custom_emoji_id']??'');
         $premium=preg_match('/^\d{5,24}$/D',$icon)===1;
         if($premium) $button['icon_custom_emoji_id']=$icon;
         // Reply-keyboard labels are matched against what Telegram sends back, so only inline buttons are restyled.
         if(!in_array($key,self::REPLY_KEYS,true)) {
-            $plain=$this->get('button.plain.'.$key)==='1'; $emoji=self::singleEmoji($this->get('button.emoji.'.$key));
-            if($plain) $button['text']=self::stripEmoji($button['text']);
+            $plain=$this->buttonSetting($key,'plain','')==='1'; $emoji=self::singleEmoji($this->buttonSetting($key,'emoji',''));
+            if($plain) {
+                $text=preg_replace('/'.self::EMOJI.'/u',' ',$button['text'])??$button['text'];
+                $text=preg_replace('/\(\s*\)|\[\s*\]/u','',$text)??$text;
+                $button['text']=trim(preg_replace('/[\s\p{Z}]+/u',' ',$text)??$text);
+                if($button['text']==='') $button['text']=self::stripEmoji($item['label']);
+                unset($button['icon_custom_emoji_id']);
+            }
             elseif($premium) $button['text']=self::stripEmoji($button['text']);
-            elseif($emoji!==null) $button['text']=$this->get('button.pos.'.$key,'start')==='end'?self::stripEmoji($button['text']).' '.$emoji:$emoji.' '.self::stripEmoji($button['text']);
+            elseif($emoji!==null) $button['text']=$this->buttonSetting($key,'pos','start')==='end'?self::stripEmoji($button['text']).' '.$emoji:$emoji.' '.self::stripEmoji($button['text']);
         }
         // Telegram::call removes hidden buttons just before sending, so every screen honours the switch.
-        if(!$this->required($key)&&$this->get('button.hidden.'.$key)==='1') $button['_hidden']=true;
+        if(!$this->required($key)&&$this->buttonSetting($key,'hidden','')==='1') $button['_hidden']=true;
         return $button;
     }
+    private function unscoped(): self { $copy=clone $this; $copy->service=''; return $copy; }
     public function instagramSourceEnabled(): bool { return $this->gallerySourceEnabled('instagram'); }
     public function instagramSourceRows(string $url): array { return $this->gallerySourceRows('instagram',$url); }
     public function gallerySourceEnabled(string $service): bool { return $this->get($service.'.source_button','0')==='1'; }
@@ -143,12 +180,11 @@ final class Ui
     {
         if(!$this->gallerySourceEnabled($service)) return [];
         $button=$this->button('source_'.$service); $button['url']=$url;
-        return [[$button]];
+        return $this->layout($service,'delivery',['source'=>[$button]],[['source']]);
     }
     public function coverCaption(string $title,string $maxSize): string
     {
-        $mode=$this->get('cover.parts','');
-        if($mode==='legacy'||($mode===''&&$this->store->get('text.quality_prompt','')!=='')) return $this->text('quality_prompt',['title'=>$title,'max_size'=>$maxSize]);
+        if($this->captionMode('cover')==='legacy') return $this->text('quality_prompt',['title'=>$title,'max_size'=>$maxSize]);
         return $this->text('cover_title',['title'=>$title])."\n\n".$this->text('cover_instruction')."\n".$this->text('cover_limit',['max_size'=>$maxSize]);
     }
     public function coverPartsFit(string $maxSize): bool
@@ -162,10 +198,14 @@ final class Ui
     }
     public function mediaCaption(string $kind,array $values): string
     {
-        $mode=$this->get('media.'.$kind.'.parts','');
-        if($mode==='legacy'||($mode===''&&$this->store->get('text.'.$kind.'_caption','')!=='')) return $this->text($kind.'_caption',$values);
+        if($this->captionMode($kind)==='legacy') return $this->text($kind.'_caption',$values);
         $detail=$kind==='video'?'video_quality':'audio_format';
         return $this->text($kind.'_title',$values)."\n\n<blockquote>".$this->text($detail,$values)."\n".$this->text($kind.'_duration',$values).'</blockquote>';
+    }
+    public function captionMode(string $kind): string
+    {
+        $mode=$this->get($kind==='cover'?'cover.parts':'media.'.$kind.'.parts',''); $field=$kind==='cover'?'quality_prompt':$kind.'_caption';
+        return $mode==='legacy'||($mode===''&&$this->get('text.'.$this->key('text',$field),$this->store->get('text.'.$field,''))!=='')?'legacy':'parts';
     }
     public function mediaPartsFit(string $kind): bool
     {
@@ -178,12 +218,36 @@ final class Ui
     public function coverOrder(): array
     {
         $default=['360','480','720','1080','audio'];
-        $order=json_decode($this->store->get('cover.order',''),true);
+        $order=json_decode($this->get('cover.order',''),true);
         if(!is_array($order)||count($order)!==count($default)||count(array_unique($order,SORT_REGULAR))!==count($default)) return $default;
         foreach($order as $key) if(!is_string($key)||!in_array($key,$default,true)) return $default;
         return $order;
     }
     public static function qualityKey(string $quality): string { return $quality==='1080'?'quality_high':'quality_'.$quality; }
+    public function layoutRows(string $service,string $layout,?array $defaults=null): array
+    {
+        $slots=UiRegistry::layouts($service)[$layout]??[];
+        if($defaults===null&&$layout==='quality') {
+            $order=$this->forService($service)->coverOrder(); if(isset($slots['240'])) array_unshift($order,'240');
+            if(isset($slots['native'])) { $at=array_search('audio',$order,true); array_splice($order,$at===false?count($order):$at,0,['native']); }
+            $defaults=[]; $row=[]; $columns=max(1,min(3,(int)$this->forService($service)->setting('cover.per_row','2')));
+            foreach($order as $id) { if($id==='audio') { if($row) $defaults[]=$row; $row=[]; $defaults[]=['audio']; } else { $row[]=$id; if(count($row)===$columns) { $defaults[]=$row; $row=[]; } } }
+            if($row) $defaults[]=$row;
+        }
+        $defaults??=UiRegistry::rows($service,$layout);
+        $saved=json_decode($this->get('layout.'.$service.'.'.$layout,'null'),true);
+        return is_array($saved)?UiRegistry::normalize($saved,array_map('strval',array_keys($slots)),$defaults):$defaults;
+    }
+    /** @param array<string,list<array>> $slots available buttons, with their original callback/URL and owner binding */
+    public function layout(string $service,string $layout,array $slots,array $defaults): array
+    {
+        $rows=[];
+        foreach($this->layoutRows($service,$layout,$defaults) as $ids) {
+            $row=[]; foreach($ids as $id) foreach($slots[(string)$id]??[] as $button) $row[]=$button;
+            if($row) array_push($rows,...array_chunk($row,8));
+        }
+        return $rows;
+    }
 }
 
 final class TextFormat

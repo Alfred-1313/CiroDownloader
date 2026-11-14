@@ -29,7 +29,7 @@ try {
         $bot->handle(scopeCallback('custom:groups:'.$kind)); $pending=[];
         foreach(scopeActions($api) as $action) if(str_starts_with($action,'custom:list:')) {
             $group=explode(':',$action)[3];
-            scopeCheck(in_array($group,['public','download','instagram','pinterest','tiktok','twitter','pornhub','beeg','xnxx','xvideos','tikporn','youporn','eporner','spotify','soundcloud','menu','radio','errors'],true),'only user groups appear in '.$kind.': '.$group);
+            scopeCheck(in_array($group,['public','download','menu','radio','errors',...Zero\UiRegistry::services()],true),'only user groups appear in '.$kind.': '.$group);
             $pending[]=$action;
         }
         $visited=[];
@@ -46,10 +46,10 @@ try {
             }
         }
     }
-    foreach(['welcome','help','offline','admin_only_notice','quality_prompt','video_caption','audio_caption','error_cookies'] as $key) scopeCheck(isset($found['text'][$key]),'user-visible text remains editable: '.$key);
-    foreach(['help','quality_360','quality_480','quality_720','quality_high','extract_audio','source_video'] as $key) scopeCheck(isset($found['button'][$key]),'user-visible button remains editable: '.$key);
-    foreach(['admin','health','cookies','update','customize','back_custom','download','quality'] as $key) scopeCheck(!isset($found['button'][$key])&&!isset($bot->catalog('button')[$key]),'administration or retired button is absent from all catalogs: '.$key);
-    foreach(['health','admin_panel','cookie_import','custom_panel','update_menu','delivered','audio_delivered','cancelled'] as $key) scopeCheck(!isset($found['text'][$key])&&!isset($bot->catalog('text')[$key]),'administration or retired text is absent from all catalogs: '.$key);
+    foreach(['welcome','help','offline','admin_only_notice','quality_prompt','video_caption','audio_caption','error_cookies'] as $key) scopeCheck(isset($found['text'][Zero\UiRegistry::legacy('text',$key)]),'user-visible text remains editable: '.$key);
+    foreach(['help','quality_360','quality_480','quality_720','quality_high','extract_audio','source_video'] as $key) scopeCheck(isset($found['button'][Zero\UiRegistry::legacy('button',$key)]),'user-visible button remains editable: '.$key);
+    foreach(['admin','health','cookies','update','customize','back_custom','download','quality'] as $key) scopeCheck(!isset($found['button'][Zero\UiRegistry::legacy('button',$key)])&&!isset($bot->catalog('button')[$key]),'administration or retired button is absent from all catalogs: '.$key);
+    foreach(['health','admin_panel','cookie_import','custom_panel','update_menu','delivered','audio_delivered','cancelled'] as $key) scopeCheck(!isset($found['text'][Zero\UiRegistry::legacy('text',$key)])&&!isset($bot->catalog('text')[$key]),'administration or retired text is absent from all catalogs: '.$key);
 
     $saved=['button.health'=>'Saved administrator label','button.style.health'=>'success','button.icon.health'=>'5368324170671202286','text.health'=>'Saved administrator status',
         'text.welcome'=>'<b>Saved welcome</b>','text.video_caption'=>'<b>{title}</b> <blockquote>{duration}</blockquote>','button.source_video'=>'Saved source link'];
@@ -73,7 +73,7 @@ try {
     $bot->handle(scopeCallback('custom:list:button:admin:0'));
     scopeCheck(!in_array('custom:item:button:health',scopeActions($api),true)&&in_array('custom:list:button:public:0',scopeActions($api),true),'an old administration group returns to the user-only group selector');
     $bot->handle(scopeCallback('custom:setcolor:source_video:danger'));
-    scopeCheck($store->get('button.style.source_video')==='danger','user button color edits still work');
+    scopeCheck($store->get('button.style.youtube__source_video')==='danger','user button color edits still work');
     $bot->handle(scopeCallback('custom:edit:text:admin_only_notice'));
     $bot->handle(scopeMessage('<blockquote><b>Custom private notice</b></blockquote>'));
     $bot->handle(scopeCallback('custom:access'));

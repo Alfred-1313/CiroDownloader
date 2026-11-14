@@ -51,10 +51,10 @@ try {
     $custom=new Zero\Personalization($bot); $custom->home(42);
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
-        if(($button['callback_data']??'')==='custom:hint:home_social') $header=!isset($button['style']);
-        if(($button['callback_data']??'')==='custom:section:instagram') $control=true;
+        if(($button['callback_data']??'')==='custom:hint:hub_downloaders') $header=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:service:instagram') $control=true;
     }
-    igCheck($header&&$control,'Personalization lists Instagram under a white social-networks title');
+    igCheck($header&&$control,'Personalization lists Instagram under a white downloaders title');
     $toggle=fn(int $user=42)=>$bot->handle(['callback_query'=>['id'=>'ig-source','from'=>['id'=>$user],'message'=>['message_id'=>700,'chat'=>['id'=>$user,'type'=>'private']],'data'=>'custom:igsource']]);
     $toggle(7);
     igCheck(!$bot->ui->instagramSourceEnabled(),'the Instagram source button defaults off and ordinary users cannot enable it');

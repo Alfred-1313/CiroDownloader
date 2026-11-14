@@ -11,6 +11,7 @@ $audio=in_array('--audio',$argv,true);
 $shorts=in_array('--shorts',$argv,true);
 $legacy=in_array('--legacy-caption',$argv,true);
 $customParts=in_array('--custom-parts',$argv,true);
+$scoped=in_array('--scoped',$argv,true);
 $cleanupFailure=in_array('--cleanup-failure',$argv,true);
 $anonymous=in_array('--anonymous',$argv,true);
 $group=in_array('--group',$argv,true); $disabled=$group&&in_array('--disabled',$argv,true);
@@ -68,11 +69,17 @@ try {
     }
     if($customParts) {
         $kind=$audio?'audio':'video';
-        $store->set('media.'.$kind.'.parts','parts');
-        $store->set('text.'.$kind.'_title','<b>{title}</b> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
-        $store->set('text.'.$kind.'_duration','<b>CUSTOM {duration}</b>');
-        $store->set('button.source_'.$kind,'CUSTOM SOURCE');
-        $store->set('button.style.source_'.$kind,'danger');
+        $store->set(($scoped?'service.youtube.':'').'media.'.$kind.'.parts','parts');
+        $store->set('text.'.($scoped?'youtube__':'').$kind.'_title','<b>{title}</b> <tg-emoji emoji-id="5368324170671202286">😎</tg-emoji>');
+        $store->set('text.'.($scoped?'youtube__':'').$kind.'_duration','<b>CUSTOM {duration}</b>');
+        $store->set('button.'.($scoped?'youtube__':'').'source_'.$kind,'CUSTOM SOURCE');
+        $store->set('button.style.'.($scoped?'youtube__':'').'source_'.$kind,'danger');
+    }
+    if($scoped) {
+        $store->set('layout.youtube.quality','[["audio"],["1080","720","360","480"]]');
+        $store->set('button.style.youtube__quality_360','primary');
+        $store->set('button.style.quality_720','success'); // An inherited global green must no longer colour quality buttons.
+        $store->set('button.icon.youtube__extract_audio','543210987654321');
     }
     $bot->handle(['update_id'=>1,'message'=>['from'=>['id'=>7],'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$thread,'text'=>$shorts?'https://www.youtube.com/shorts/ybNMMK5Q318':'https://youtu.be/ybNMMK5Q318']]);
     if($disabled) $store->set('groups_enabled','0');
@@ -106,9 +113,15 @@ try {
     qualityCheck(count($invocations)===1&&in_array('--dump-single-json',$invocations[0],true),'no video is downloaded before the user chooses a quality');
     qualityCheck(in_array('--cookies',$invocations[0],true)===!$anonymous,'inspection uses a private cookie jar only when one is saved');
     $keyboard=json_decode($records[2]['params']['reply_markup'],true)['inline_keyboard'];
-    qualityCheck($keyboard[0][0]['text']==='🎬 360p (⌛)'&&$keyboard[0][1]['text']==='🎬 720p (⌛)'&&$keyboard[1][0]['text']==='🎬 1080p','only available quality buttons are shown under the status message');
-    qualityCheck(count($keyboard[2])===1&&$keyboard[2][0]['text']==='🎶 Audio'&&$keyboard[2][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
-    qualityCheck(count($keyboard)===3&&(int)$job['expires']===0,'quality selection has no deadline and no cancel button');
+    if($scoped) {
+        qualityCheck($keyboard[0][0]['callback_data']==='quality:'.$job['id'].':audio'&&$keyboard[0][0]['icon_custom_emoji_id']==='543210987654321','the real worker uses the service-specific audio icon and first row');
+        qualityCheck(array_column($keyboard[1],'callback_data')===array_map(fn($q)=>'quality:'.$job['id'].':'.$q,['1080','720','360']),'the real quality menu applies the saved service layout and omits unavailable choices');
+        qualityCheck(($keyboard[1][2]['style']??'')==='primary'&&!isset($keyboard[1][1]['style'])&&!isset($keyboard[0][0]['style']),'scoped colours are applied while inherited green and default audio remain white');
+    } else {
+        qualityCheck($keyboard[0][0]['text']==='🎬 360p (⌛)'&&$keyboard[0][1]['text']==='🎬 720p (⌛)'&&$keyboard[1][0]['text']==='🎬 1080p','only available quality buttons are shown under the status message');
+        qualityCheck(count($keyboard[2])===1&&$keyboard[2][0]['text']==='🎶 Audio'&&$keyboard[2][0]['callback_data']==='quality:'.$job['id'].':audio','audio extraction has its own row below the video qualities');
+    }
+    qualityCheck(count($keyboard)===($scoped?2:3)&&(int)$job['expires']===0,'quality selection has no deadline and no cancel button');
     $bot->handle(['callback_query'=>['id'=>'local-test','from'=>['id'=>7],'message'=>['message_id'=>501,'chat'=>['id'=>$chat,'type'=>$group?'supergroup':'private'],'message_thread_id'=>$thread],'data'=>'quality:'.$job['id'].($audio?':audio':':360')]]);
     $afterChoice=recorded($log); $selected=end($afterChoice);
     qualityCheck($selected['method']==='editMessageCaption'&&json_decode($selected['params']['reply_markup'],true)['inline_keyboard']===[]&&!str_contains($selected['params']['caption'],'<blockquote>'),'choosing media uses a simple status caption and removes every button');

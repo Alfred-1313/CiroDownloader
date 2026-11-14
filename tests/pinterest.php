@@ -53,10 +53,10 @@ try {
     $custom=new Zero\Personalization($bot); $custom->home(42);
     $rows=end($api->calls)[1]['reply_markup']['inline_keyboard']; $header=false; $control=false;
     foreach($rows as $row) foreach($row as $button) {
-        if(($button['callback_data']??'')==='custom:hint:home_social') $header=!isset($button['style']);
-        if(($button['callback_data']??'')==='custom:section:pinterest') $control=true;
+        if(($button['callback_data']??'')==='custom:hint:hub_downloaders') $header=!isset($button['style']);
+        if(($button['callback_data']??'')==='custom:service:pinterest') $control=true;
     }
-    pinCheck($header&&$control,'Personalization lists Pinterest under a white social-networks title');
+    pinCheck($header&&$control,'Personalization lists Pinterest under a white downloaders title');
     $toggle=fn(int $user=42)=>$bot->handle(['callback_query'=>['id'=>'pin-source','from'=>['id'=>$user],'message'=>['message_id'=>700,'chat'=>['id'=>$user,'type'=>'private']],'data'=>'custom:pinsource']]);
     $toggle(7);
     pinCheck(!$bot->ui->gallerySourceEnabled('pinterest'),'the Pinterest source button defaults off and ordinary users cannot enable it');

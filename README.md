@@ -26,3 +26,5 @@ For uploads over 50 MB, obtain a Telegram **API ID** and **API hash**, then enab
 Cookies per service (computer and phone guide): [docs/cookie-guide.md](docs/cookie-guide.md); several accounts, ZIP import and rotation: [docs/cookies.md](docs/cookies.md).
 
 Proxy and PO Token options: [docs/network.md](docs/network.md). Spotify and SoundCloud tracks (no cookies needed): [docs/spotify.md](docs/spotify.md), [docs/soundcloud.md](docs/soundcloud.md); artist, album and playlist menus: [docs/music-menu.md](docs/music-menu.md). Search by name with `/music` and `/spotify`: [docs/music-search.md](docs/music-search.md). Live radio in groups and channels: [docs/radio.md](docs/radio.md). Administrator commands: [docs/admin-commands.md](docs/admin-commands.md); status reports and statistics: [docs/reports.md](docs/reports.md).
+
+Captions, quality controls and button layouts are editable independently for each downloader: [Personalization guide](docs/personalization.md).

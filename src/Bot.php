@@ -229,11 +229,12 @@ final class Bot
     }
     public function qualityMenu(array $job,array $media): void
     {
+        $service=adultService($job['url'])??'youtube'; $ui=$this->ui->forService($service);
         $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=0 WHERE id=?",
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),$job['id']]);
-        $rows=[]; $row=[]; $perRow=max(1,min(3,(int)$this->store->get('cover.per_row','2')));
+        $rows=[]; $row=[]; $slots=[]; $perRow=max(1,min(3,(int)$ui->setting('cover.per_row','2')));
         // 240p exists only on sites with a lower ladder (Pornhub); it leads the menu when offered.
-        $order=$this->ui->coverOrder(); if(!empty($media['options']['240'])) array_unshift($order,'240');
+        $order=$ui->coverOrder(); if(!empty($media['options']['240'])) array_unshift($order,'240');
         if(in_array(adultService($job['url']),['tikporn','eporner'],true)) foreach(array_keys($media['options']) as $height) {
             $height=(string)$height;
             if(!ctype_digit($height)||in_array($height,$order,true)) continue;
@@ -245,15 +246,20 @@ final class Bot
             if(empty($media['options'][$height])) continue;
             if($height==='audio') {
                 if($row) { $rows[]=$row; $row=[]; }
-                $rows[]=[$this->button('extract_audio','quality:'.$job['id'].':audio')];
+                $slots['audio']=[$ui->button('extract_audio','quality:'.$job['id'].':audio')]; $rows[]=['audio'];
                 continue;
             }
             $key=Ui::qualityKey($height);
-            $row[]=$this->ui->button($this->ui->definition('button',$key)?$key:'quality_native','quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
+            $native=!$ui->definition('button',$key);
+            $button=$ui->button($native?'quality_native':$key,'quality:'.$job['id'].':'.$height,['quality'=>$height.'p']);
+            $slots[$height]=[$button]; if($native) $slots['native'][]=$button;
+            $row[]=$height;
             if(count($row)===$perRow) { $rows[]=$row; $row=[]; }
         }
         if($row) $rows[]=$row;
-        $caption=$this->ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));
+        $rows=$ui->layout($service,'quality',$slots,$rows);
+        if($rows&&!array_filter(array_merge(...$rows),fn($button)=>empty($button['_hidden']))) unset($rows[0][0]['_hidden']);
+        $caption=$ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));
         if(!empty($media['poster_file'])) $this->jobPosterFile($job,(string)$media['poster_file'],$caption,$rows);
         elseif(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);
@@ -262,13 +268,15 @@ final class Bot
     private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
     {
         $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
+        $context=$this->store->query('SELECT url FROM jobs WHERE id=? AND user_id=? AND chat_id=?',[(int)$parts[1],$user,$chat])->fetchColumn();
+        $ui=$this->ui->forService(is_string($context)?(adultService($context)??'youtube'):'');
         $job=$this->store->choose((int)$parts[1],$user,$chat,$quality);
         $waiting=!$job&&$this->store->query("SELECT 1 FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[(int)$parts[1],$user,$chat])->fetchColumn();
         $notice=$waiting?($this->store->busy($user,$chat)?'quality_busy':($this->store->full()?'queue_full':'quality_expired')):'quality_expired';
-        $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$this->ui->plain($notice),'show_alert'=>!$job,'cache_time'=>0]);
+        $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$ui->plain($notice),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;
         try {
-            $this->jobMessage($job,$this->text($quality===null?'cancelled':($quality==='audio'?'audio_downloading':'downloading')));
+            $this->jobMessage($job,$this->ui->forService(adultService($job['url'])??'youtube')->text($quality===null?'cancelled':($quality==='audio'?'audio_downloading':'downloading')));
             if($quality!==null) $this->store->query("UPDATE jobs SET status='queued' WHERE id=? AND status='confirming'",[$job['id']]);
         } catch(\Throwable $e) {
             $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
@@ -381,7 +389,7 @@ final class Bot
             if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
             $service=galleryService($url)??$phase??musicService($url);
-            try { $collection=$service?null:collectionUrl($url); $this->jobMessage($job,$this->text($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'))); }
+            try { $collection=$service?null:collectionUrl($url); $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':'')); $this->jobMessage($job,$ui->text($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'))); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
             if(!$deleteSource) Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
@@ -500,6 +508,7 @@ final class Bot
             } else {
                 // Old administration buttons remain usable after upgrading.
                 [$op,$kind,$key]=array_pad(explode(':',$action),3,'');
+                $key=UiRegistry::legacy($kind,$key);
                 if($op==='list'&&$this->catalog($kind)) $custom->groups($chat,$kind,$menu);
                 elseif(isset($this->catalog($kind)[$key])) {
                     if($op==='item') $custom->item($chat,$kind,$key,$menu);

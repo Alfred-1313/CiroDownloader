@@ -218,7 +218,7 @@ try {
     $health=new SpotifyUiApi(); $admin=new Zero\Bot($config,$store,$health);
     $admin->handle(['update_id'=>9001,'message'=>['message_id'=>1,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
     $report=(string)end($health->calls)[1]['text'];
-    spotifyCheck(str_contains($report,'youtube=blocked, soundcloud=format')&&str_contains($report,'ساوندکلاود هم نسخهٔ مطمئنی'),'the administrator\'s health report shows the reason and what the user was told');
+    spotifyCheck(str_contains($report,$admin->ui->plain('errors_private_only'))&&!str_contains($report,'youtube=blocked, soundcloud=format')&&(int)$store->query("SELECT COUNT(*) FROM settings WHERE key IN ('last_job_error','last_job_sources','recent_errors')")->fetchColumn()===0,'health keeps the existing private-alert policy without persistent source diagnostics');
     file_put_contents($mode,'{}');
     // The radio prepares regular track links from Spotify's current coverArt.sources payload too.
     file_put_contents($mode,json_encode(['page'=>'cover-art']));

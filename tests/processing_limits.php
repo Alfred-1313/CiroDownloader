@@ -59,7 +59,7 @@ try {
     foreach($home as $row) foreach($row as $button) {
         if(str_starts_with($button['callback_data'],'custom:hint:')) { $titles++; limitCheck(!isset($button['style']),'section titles are white and only explain themselves'); }
     }
-    limitCheck($titles>=5&&in_array('custom:features',limitActions($api),true),'the main screen groups sections under white titles and links to the features page');
+    limitCheck($titles===4&&in_array('custom:category:general',limitActions($api),true),'the main screen groups sections under white titles and links to the general settings category');
     $bot->handle(limitClick('custom:features'));
     $switches=[]; foreach(limitRows($api) as $row) foreach($row as $button) if(in_array($button['callback_data'],['custom:groups_mode','custom:access'],true)) $switches[$button['callback_data']]=$button['style']??'';
     limitCheck($switches==['custom:groups_mode'=>'primary','custom:access'=>'primary'],'feature switches are blue; their state is the ✅ / ❌ in the text');

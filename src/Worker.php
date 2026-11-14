@@ -52,6 +52,7 @@ final class Worker
         $collection=$job['phase']==='inspect'?collectionUrl($job['url']):null;
         $adultSite=adultService($job['url']); $adult=$adultSite!==null;
         $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':($adult?$adultSite:'youtube'))));
+        $bot->ui=$bot->ui->forService($gallery?$service:($music??($adult?$adultSite:($collection===null&&$job['phase']!=='batch'?'youtube':''))));
         $started=hrtime(true); $timings=[];
         try {
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
@@ -96,7 +97,7 @@ final class Worker
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
                     Download::clean($folder);
                     $button=$bot->ui->button('open_'.$service.'_article'); $button['url']=$url;
-                    $bot->jobMessage($job,$bot->text($service.'_article_ready',['count'=>count($media),'page_url'=>$url,'url'=>$job['url']]),[[$button]]);
+                    $bot->jobMessage($job,$bot->text($service.'_article_ready',['count'=>count($media),'page_url'=>$url,'url'=>$job['url']]),$bot->ui->layout($service,'article',['article'=>[$button]],[['article']]));
                     $store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode(['article_url'=>$url],JSON_THROW_ON_ERROR),$job['id']]);
                     $timings['publish_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
                     // The upload here goes to the public file host, not to Telegram, so the article has its own line.
@@ -170,7 +171,7 @@ final class Worker
                     'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Ui::duration($media['duration']),'url'=>$job['url']]);
                 $link=$bot->ui->button($audio?'source_audio':'source_video'); $link['url']=$job['url'];
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
-                    'reply_markup'=>['inline_keyboard'=>[[$link]]]];
+                    'reply_markup'=>['inline_keyboard'=>$bot->ui->layout('youtube',$audio?'audio':'video',['source'=>[$link]],[['source']])]];
             }
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             if(!$audio&&!empty($media['thumbnail'])) {
@@ -263,6 +264,7 @@ final class Worker
      */
     private function sendTrack(array $job,Bot $bot,string $service,array $media,string $source,string $album='',array $back=[],?array $radio=null): int
     {
+        $bot->ui=$bot->ui->forService($service);
         $config=$this->config;
         if($config->api==='http://ciro-telegram-api:8081'&&!$config->localApiSharedStorage) Download::ensureSpace('/telegram-api',(int)filesize($media['path'])+268435456);
         $title=mb_substr($media['title'],0,100);
@@ -275,7 +277,9 @@ final class Worker
         $shares=new Shares($bot); $token=$shares->reserve();
         // Under the share button, the radio's play button when this chat (or this person) has a radio.
         $panel=new RadioPanel($bot); $play=$radio!==null&&$panel->available((int)$job['chat_id'],(int)$job['user_id'])?[$panel->row($radio,(string)$media['title'],(string)$media['performer'],(int)($media['length']??$media['duration']??0))]:[];
-        $rows=array_merge($bot->ui->gallerySourceRows($service,$media['page']??$source),$token!==null?[$shares->row($token)]:[],$play,$back);
+        $slots=['source'=>array_merge(...($bot->ui->gallerySourceRows($service,$media['page']??$source)?:[[]])),
+            'share'=>$token!==null?$shares->row($token):[],'radio'=>$play?array_merge(...$play):[],'back'=>$back?array_merge(...$back):[]];
+        $rows=$bot->ui->layout($service,'delivery',$slots,[['source'],['share'],['radio'],['back']]);
         if($rows) $params['reply_markup']=['inline_keyboard'=>$rows];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call('sendAudio',$params);
@@ -373,7 +377,8 @@ final class Worker
         // The notice is a delivery rule, not an optional part of a saved caption template.
         // Prefix it ourselves so older/custom templates without {notice} cannot hide the active deletion notice.
         $notice=$deleteAfter>0?$ui->text($site.'_notice',['seconds'=>(string)$deleteAfter],nonempty:true)."\n\n":'';
-        $render=fn(string $tags)=>$notice.$ui->text($site.'_caption',['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
+        $captionKey=$site.($audio&&$ui->definition('text',$site.'_audio_caption')?'_audio_caption':'_caption');
+        $render=fn(string $tags)=>$notice.$ui->text($captionKey,['title'=>mb_substr($media['title'],0,150),'quality'=>$audio?'MP3':($media['quality']??''),'duration'=>Ui::duration($media['duration']),
             'people'=>$who!==''?"\n".$ui->text($site.'_people',['people'=>$who],['people']):'','views'=>$views>0?' · '.$ui->plainWith($site.'_views',['n'=>number_format($views)]):'',
             'tags'=>$tags!==''?"\n".$ui->text($site.'_tags',['tags'=>$tags],['tags']):'',
             'notice'=>''],['people','views','tags','notice'],nonempty:true);
