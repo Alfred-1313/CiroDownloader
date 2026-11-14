@@ -89,7 +89,7 @@ final class Bot
     public function sendKeyboard(int $chat,string $text,array $rows): void
     {
         $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,
-            'reply_markup'=>['keyboard'=>$rows,'resize_keyboard'=>true,'is_persistent'=>true]]);
+            'reply_markup'=>['keyboard'=>$rows,'resize_keyboard'=>true,'one_time_keyboard'=>false,'is_persistent'=>false]]);
     }
     public function jobMessage(array $job,string $text,array $rows=[]): void
     {
