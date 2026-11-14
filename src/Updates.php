@@ -37,6 +37,16 @@ final class Updates
         return is_readable($file)?trim((string)file_get_contents($file)):'نامشخص';
     }
 
+    public static function revision(): string
+    {
+        $entries=json_decode((string)@file_get_contents(dirname(__DIR__).'/CHANGELOG.json'),true);
+        foreach(is_array($entries)?$entries:[] as $entry) if(($entry['version']??'')===self::version()) {
+            $value=$entry['revision']??'';
+            return is_string($value)&&preg_match('/^[a-z0-9][a-z0-9_.-]{0,99}$/D',$value)?$value:'';
+        }
+        return '';
+    }
+
     private function active(): array|false
     {
         return $this->store->query("SELECT * FROM update_requests WHERE status IN ('queued','running') ORDER BY id LIMIT 1")->fetch();
@@ -73,7 +83,7 @@ final class Updates
     {
         // Rollback metadata is not a reliable record of the version being upgraded.
         $data=json_decode($this->store->get('update_new_changes'),true);
-        if(!is_array($data)||($data['to']??'')!==self::version()||!is_array($data['changes']??null)) return [];
+        if(!is_array($data)||($data['to']??'')!==self::version()||($data['to_revision']??'')!==self::revision()||!is_array($data['changes']??null)) return [];
         return array_values(array_filter($data['changes'],fn($item)=>is_string($item)||(is_array($item)&&is_string($item['title']??null)&&$item['title']!=='')));
     }
     /** One entry of the what's-new list: what it is, an example, its default and the steps to find it. */
@@ -88,9 +98,9 @@ final class Updates
         if($steps) $lines[]=$ui->text('update_item_path',['path'=>implode($ui->plain('update_path_sep'),$steps)],['path']);
         return implode("\n",array_filter($lines,fn($line)=>trim(strip_tags($line))!==''));
     }
-    public static function renderChanges(Ui $ui,array $changes,int $limit=6): string
+    public static function renderChanges(Ui $ui,array $changes,int $limit=3,int $offset=0): string
     {
-        $blocks=[]; foreach(array_slice($changes,0,$limit) as $index=>$change) $blocks[]=self::renderChange($ui,$change,$index+1);
+        $blocks=[]; foreach(array_slice($changes,0,$limit) as $index=>$change) $blocks[]=self::renderChange($ui,$change,$offset+$index+1);
         return implode("\n\n",$blocks);
     }
     private function resume(array $active,int $chat,int $user,int $message,bool $fresh): void
@@ -116,7 +126,6 @@ final class Updates
         if($active&&(int)$active['user_id']===$user&&(int)$active['chat_id']===$chat&&(int)($active['thread_id']??0)===($chat<0?max(0,$this->thread):0)) {
             $this->resume($active,$chat,$user,$message,$fresh); return;
         }
-        if($fresh) $this->store->set('update_new_changes','');
         $notice=$notice!==''?$this->ui->text('update_notice',['title'=>$notice,'detail'=>''],['title']):'';
         $previous=$this->store->get('update_previous_version');
         $text=$this->ui->text('update_menu',['version'=>self::version(),'checked'=>$this->store->get('last_update_at',$this->ui->plain('not_checked')),'notice'=>$notice,'previous'=>$previous!==''?$previous:$this->ui->plain('update_none')],['notice']);
@@ -132,13 +141,22 @@ final class Updates
         $this->view($chat,$user,$text,$rows,$message,$fresh&&$message===0);
     }
 
-    public function changes(int $chat, int $user, int $message): void
+    public function changes(int $chat, int $user, int $message,int $page=0): void
     {
         if(!$this->authorized($chat,$user)) return;
         if($this->active()) return;
         $notes=$this->freshChanges();
-        $text=$notes?$this->ui->text('update_whatsnew',['changes'=>self::renderChanges($this->ui,$notes)],['changes']):$this->ui->text('update_no_changes');
-        $this->view($chat,$user,$text,[[$this->ui->button('back_update','update:menu'),$this->ui->button('update_close','update:close')]],$message);
+        $pages=max(1,(int)ceil(count($notes)/3)); $page=max(0,min($pages-1,$page));
+        $text=$notes?$this->ui->text('update_whatsnew',['changes'=>self::renderChanges($this->ui,array_slice($notes,$page*3,3),3,$page*3)],['changes']):$this->ui->text('update_no_changes');
+        $rows=[];
+        if($pages>1) {
+            $text.="\n\n".$this->ui->text('update_changes_page',['page'=>$page+1,'pages'=>$pages]); $nav=[];
+            if($page>0) $nav[]=$this->ui->button('previous','update:changes:'.($page-1));
+            if($page+1<$pages) $nav[]=$this->ui->button('next','update:changes:'.($page+1));
+            $rows[]=$nav;
+        }
+        $rows[]=[$this->ui->button('back_update','update:menu'),$this->ui->button('update_close','update:close')];
+        $this->view($chat,$user,$text,$rows,$message);
     }
 
     public function confirmRollback(int $chat, int $user, int $message): void
@@ -167,7 +185,6 @@ final class Updates
             $this->store->db->exec('COMMIT');
         } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
         if($active) return;
-        $this->store->set('update_new_changes','');
         $this->store->set('update_percent','0');
         $this->store->set('update_stage','update_wait');
         try {

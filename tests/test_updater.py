@@ -443,16 +443,16 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(updater.changes_since('1.10.0', '1.10.0'), [])
         self.assertEqual(updater.changes_since('1.10.0', '1.1.0'), [])
 
-    def test_latest_version_does_not_repeat_old_feature_announcements(self):
+    def test_recheck_keeps_last_report_without_announcing_it_again(self):
         self.queue()
         self.agent.claim()
         self.agent.set('update_new_changes', json.dumps({'from': '1.0.0', 'to': '1.1.0', 'changes': ['old feature']}))
         self.agent.finish('')
         edits = [params for method, params in self.agent.calls if method == 'editMessageText']
         self.assertNotIn('old feature', edits[-1]['text'])
-        self.assertNotIn('update:changes', json.dumps(edits[-1]['reply_markup']))
+        self.assertIn('update:changes', json.dumps(edits[-1]['reply_markup']))
         with self.agent.db() as db:
-            self.assertEqual(db.execute("SELECT value FROM settings WHERE key='update_new_changes'").fetchone()[0], '')
+            self.assertEqual(json.loads(db.execute("SELECT value FROM settings WHERE key='update_new_changes'").fetchone()[0])['changes'], ['old feature'])
 
     def test_actual_upgrade_only_announces_the_new_version_range(self):
         self.queue()

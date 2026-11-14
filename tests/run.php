@@ -72,11 +72,13 @@ try {
     $store->query("DELETE FROM settings WHERE key='update_new_changes'");
     $bot->handle(cb(42,'update:changes',$menu));
     check(str_contains(end($api->calls)[1]['text'],'قابلیت تازه‌ای'),'unknown upgrade history never replays installed features from rollback metadata');
-    $store->set('update_new_changes',json_encode(['from'=>'1.1.2','to'=>Zero\Updates::version(),'changes'=>['NEW_FEATURE_ONLY']],JSON_THROW_ON_ERROR));
+    $store->set('update_new_changes',json_encode(['from'=>'1.1.2','to'=>Zero\Updates::version(),'to_revision'=>Zero\Updates::revision(),'changes'=>['NEW_FEATURE_ONLY']],JSON_THROW_ON_ERROR));
     $bot->handle(cb(42,'update:changes',$menu));
     check(str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'changes view shows the recorded additions from this upgrade');
-    $bot->handle(msg(42,'/update')); $menu=(int)$store->get('update_menu.42'); $bot->handle(cb(42,'update:changes',$menu));
-    check(!str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'reopening the menu does not repeat the previous feature announcement');
+    $bot->handle(msg(42,'/update')); $menu=(int)$store->get('update_menu.42');
+    check(!str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'reopening the menu does not replay the previous inline announcement');
+    $bot->handle(cb(42,'update:changes',$menu));
+    check(str_contains(end($api->calls)[1]['text'],'NEW_FEATURE_ONLY'),'the recorded report remains available when explicitly opened after a menu reopen');
     $bot->handle(cb(1,'set:off')); check($store->enabled(),'forged admin callback denied');
     $bot->handle(cb(42,'set:off')); check(!$store->enabled(),'admin turns bot off');
     $bot->handle(msg(1,$url,10)); check((int)$store->query('SELECT count(*) FROM jobs')->fetchColumn()===0,'offline denies downloads');

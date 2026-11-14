@@ -430,7 +430,8 @@ final class Bot
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
             $isPage=preg_match('/^(?:ig|pin|tt|x)page:(\d+):([1-9][0-9]?)(?::(\d+))?$/D',$action,$page)===1;
             $pageCounter=$action==='igpage:noop';
-            $groupUpdate=$group&&in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:changes','update:back','update:close'],true);
+            $changePage=preg_match('/^update:changes(?::(\d{1,4}))?$/D',$action,$changeMatch)===1;
+            $groupUpdate=$group&&(in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:back','update:close'],true)||$changePage);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
@@ -451,7 +452,7 @@ final class Bot
                 elseif($action==='update:start') $updater->request($chat,$user,'update',$menu);
                 elseif($action==='update:rollback') $updater->confirmRollback($chat,$user,$menu);
                 elseif($action==='update:rollback:confirm') $updater->request($chat,$user,'rollback',$menu);
-                elseif($action==='update:changes') $updater->changes($chat,$user,$menu);
+                elseif($changePage) $updater->changes($chat,$user,$menu,(int)($changeMatch[1]??0));
                 elseif(in_array($action,['update:back','update:close'],true)) $updater->close($chat,$user,$menu);
                 return;
             }
@@ -498,7 +499,7 @@ final class Bot
             elseif($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',$menu);
             elseif($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,$menu);
             elseif($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback',$menu);
-            elseif($action==='update:changes') (new Updates($this->config,$this->store,$this->api))->changes($chat,$user,$menu);
+            elseif($changePage) (new Updates($this->config,$this->store,$this->api))->changes($chat,$user,$menu,(int)($changeMatch[1]??0));
             elseif($action==='update:close') (new Updates($this->config,$this->store,$this->api,$thread))->close($chat,$user,$menu);
             elseif($action==='update:back') {
                 if($this->store->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) return;

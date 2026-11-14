@@ -60,9 +60,17 @@ try {
     $sends=array_values(array_filter($api->calls,fn($call)=>$call[0]==='sendMessage'));
     updateGroupCheck($resumed!==$new&&(int)$job['message_id']===$resumed&&str_contains(end($sends)[1]['text'],'65%'),'an explicit reopen resumes the same request in the same topic');
     $store->query("UPDATE update_requests SET status='done'");
-    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'changes'=>['Group update fixture']]));
+    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'to_revision'=>Zero\Updates::revision(),'changes'=>['Group update fixture']]));
     $before=count($api->calls); $bot->handle(updateGroupCallback('update:changes',$resumed));
     updateGroupCheck(end($api->calls)[0]==='editMessageText'&&end($api->calls)[1]['message_id']===$resumed&&str_contains(end($api->calls)[1]['text'],'Group update fixture'),'the completion changes view edits the same group message');
+    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'to_revision'=>Zero\Updates::revision(),'changes'=>array_map(fn($i)=>'Group change '.$i,range(0,6))]));
+    $before=count($api->calls);
+    $bot->handle(updateGroupCallback('update:changes:1',$resumed,7));
+    $bot->handle(updateGroupCallback('update:changes:1',$resumed,42,-100123,18));
+    $bot->handle(updateGroupCallback('update:changes:1',$resumed,42,-100999,17));
+    updateGroupCheck(!array_filter(array_slice($api->calls,$before),fn($call)=>$call[0]==='editMessageText'),'paged change callbacks preserve administrator, chat and topic ownership');
+    $bot->handle(updateGroupCallback('update:changes:1',$resumed));
+    updateGroupCheck(end($api->calls)[0]==='editMessageText'&&end($api->calls)[1]['message_id']===$resumed&&str_contains(end($api->calls)[1]['text'],'Group change 3'),'paged reports edit the original authorized group message');
     $bot->handle(updateGroupCallback('update:back',$resumed));
     updateGroupCheck(end($api->calls)[0]==='deleteMessage'&&$store->get($key)==='0'&&end($api->calls)[1]['chat_id']===-100123&&end($api->calls)[1]['message_id']===$resumed,'Close deletes the entire update menu message from its group');
     $store->set('groups_enabled','0'); $before=count($api->calls); $bot->handle(updateGroupMessage('/update'));

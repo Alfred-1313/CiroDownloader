@@ -64,6 +64,18 @@ try {
         uxCheck((new Zero\Ui(new Zero\Store($path)))->template('instagram_caption')==='<b>کپشن پس از ارتقا</b>','caption migration does not repeat after a later custom edit: '.$index);
     }
 
+    $welcomeDefault=Zero\Ui::definitions()['texts']['welcome']['value'];
+    Zero\TextFormat::validate($welcomeDefault,3900);
+    uxCheck(str_contains($welcomeDefault,'⚡️ <b>سیرو دانلودر آماده است!</b>')&&str_contains($welcomeDefault,'<b>لینک بفرستید فایل دریافت کنید</b>')&&str_contains($welcomeDefault,'<code>/music نام آهنگ</code>'),'the compact welcome contains the requested heading, bold instruction and search command');
+    uxCheck(str_contains($welcomeDefault,'<tg-spoiler><b>سایت‌های بزرگسالان (+18)</b></tg-spoiler>')&&preg_match('~<blockquote expandable><tg-spoiler>(.*?)</tg-spoiler></blockquote>~su',$welcomeDefault,$hidden)===1&&count(explode("\n",$hidden[1]))===7,'adult names remain inside a collapsed quote and spoiler');
+    $welcomeLegacy=Zero\Ui::definitions()['texts']['welcome']['legacy_values']; $oldWelcome=end($welcomeLegacy);
+    foreach([$oldWelcome,'<b>خوش‌آمدگویی دلخواه مدیر</b>'] as $index=>$saved) {
+        $path=$temp.'/welcome-'.$index; $upgrading=new Zero\Store($path); $upgrading->set('text.welcome',$saved);
+        $upgrading->query('DELETE FROM settings WHERE key=?',['ui_welcome_compact_v1']);
+        $reopened=new Zero\Ui(new Zero\Store($path));
+        uxCheck($reopened->template('welcome')===($index===0?$welcomeDefault:$saved),'welcome upgrade replaces only the exact old default: '.$index);
+    }
+
     foreach([42,7,8] as $id) $store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$id]);
     foreach(['done','done','failed'] as $index=>$status) $store->query('INSERT INTO jobs(update_id,user_id,chat_id,url,status,created) VALUES(?,?,?,?,?,?)',[100+$index,7,7,'https://youtu.be/oXWMmELDOq0',$status,time()]);
     $store->set('last_job_error','Job 1 [download]: cookies are no longer valid. Sign in to confirm you are not a bot.');

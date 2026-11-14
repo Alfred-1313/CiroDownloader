@@ -52,7 +52,7 @@ try {
     $bot->handle(uiClick('custom:edit:text:welcome')); $bot->handle(uiInput('<b>سلام تازه</b>'));
     uiCheck($store->get('text.welcome')==='<b>سلام تازه</b>'&&str_contains(uiText($api),'سفارشی'),'saving a text redraws the same screen as customized');
     $bot->handle(uiClick('custom:default:text:welcome'));
-    uiCheck(str_contains(uiText($api),strip_tags(Zero\Ui::definitions()['texts']['welcome']['value'])===''?'':mb_substr(trim(strip_tags(Zero\Ui::definitions()['texts']['welcome']['value'])),0,12))&&$store->get('text.welcome')==='<b>سلام تازه</b>','the default view shows the original text without changing the saved one');
+    uiCheck(str_contains(html_entity_decode(strip_tags(uiText($api)),ENT_QUOTES|ENT_HTML5,'UTF-8'),strip_tags(Zero\Ui::definitions()['texts']['welcome']['value'])===''?'':mb_substr(trim(strip_tags(Zero\Ui::definitions()['texts']['welcome']['value'])),0,12))&&$store->get('text.welcome')==='<b>سلام تازه</b>','the default view shows the original text without changing the saved one');
     $bot->handle(uiClick('custom:section:help'));
     $mark=uiFind($api,'custom:item:text:welcome');
     uiCheck(($mark['style']??'')==='primary'&&str_starts_with($mark['text'],'✏️'),'a changed text is marked with ✏️ in its list and is blue like every selectable button');

@@ -455,6 +455,12 @@ final class Store
                 if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.instagram_caption']);
                 $this->set('ui_instagram_caption_v1','1');
             }
+            if($this->get('ui_welcome_compact_v1','0')!=='1') {
+                $legacy=Ui::definitions()['texts']['welcome']['legacy_values']??[];
+                $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.welcome'])->fetchColumn();
+                if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.welcome']);
+                $this->set('ui_welcome_compact_v1','1');
+            }
             if($this->get('ui_adult_notice_v1','0')!=='1') {
                 // The deletion notice moved to the top of the caption as a quote: a saved copy of the earlier defaults follows the new one.
                 foreach(['pornhub_caption','pornhub_notice'] as $key) {

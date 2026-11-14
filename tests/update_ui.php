@@ -39,16 +39,32 @@ try {
 
     // What's new: structured entries written for a beginner.
     $changes=[['title'=>'ویرایشگر دکمه‌ها','what'=>'هر دکمه ایموجی دارد.','example'=>'Audio را آبی کن.','default'=>'off','path'=>['🎨 شخصی‌سازی','کاور','Audio']],['title'=>'دوم','what'=>'توضیح','default'=>'on'],'یادداشت ساده <b>'];
-    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'changes'=>$changes],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
+    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'to_revision'=>Zero\Updates::revision(),'changes'=>$changes],JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR));
     $updater->menu(42,42);
     updCheck(in_array('update:changes',updActions($api),true),'the menu offers the what\'s-new button when there is something new');
+    updCheck($ui->label('update_changes')==='✨ تازه‌ها','the report button keeps a plain, readable label');
     $store->set('update_menu.42','801'); $menuId=801;
     $bot->handle(updClick('update:changes',$menuId));
     $text=updText($api);
-    updCheck(str_contains($text,'✨ <b>تازه‌های این نسخه</b>')&&str_contains($text,'<b>1️⃣ ویرایشگر دکمه‌ها</b>')&&str_contains($text,'💡 مثال: Audio را آبی کن.')&&str_contains($text,'🔘 پیش‌فرض: <b>خاموش'),'each entry says what it is, gives an example and its default');
+    updCheck(str_contains($text,'✨ <b>تازه‌های این به‌روزرسانی</b>')&&str_contains($text,'<b>1️⃣ ویرایشگر دکمه‌ها</b>')&&str_contains($text,'💡 مثال: Audio را آبی کن.')&&str_contains($text,'🔘 پیش‌فرض: <b>خاموش'),'each entry says what it is, gives an example and its default');
     updCheck(str_contains($text,'📍 مسیر: 1️⃣ 🎨 شخصی‌سازی ← 2️⃣ کاور ← 3️⃣ Audio')&&str_contains($text,'<b>2️⃣ دوم</b>')&&str_contains($text,'🔘 پیش‌فرض: <b>روشن</b>'),'the path is numbered step by step and the second entry is numbered too');
     updCheck(str_contains($text,'• یادداشت ساده &lt;b&gt;')&&substr_count($text,'📍')===1,'a plain note stays a bullet and nothing is injected into the HTML');
     updCheck(updActions($api)===['update:menu','update:close'],'the what\'s-new screen has Back and Close');
+    $beforeReport=$store->get('update_new_changes');
+    $updater->menu(42,42,0,'',true); $menuId=(int)$store->get('update_menu.42');
+    updCheck($store->get('update_new_changes')===$beforeReport&&in_array('update:changes',updActions($api),true),'reopening /update preserves the last installed-change report');
+    $long=[]; for($i=0;$i<7;$i++) $long[]=['title'=>'Entry '.$i,'what'=>str_repeat('توضیح ',45),'example'=>str_repeat('مثال ',40),'default'=>'on','path'=>array_fill(0,6,str_repeat('مسیر ',10))];
+    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'to_revision'=>Zero\Updates::revision(),'changes'=>$long],JSON_UNESCAPED_UNICODE));
+    $bot->handle(updClick('update:changes:1',$menuId)); $text=updText($api); Zero\TextFormat::validate($text,3900);
+    updCheck(str_contains($text,'<b>4️⃣ Entry 3</b>')&&str_contains($text,'صفحهٔ 2 از 3')&&in_array('update:changes:0',updActions($api),true)&&in_array('update:changes:2',updActions($api),true),'long reports are paged, globally numbered and fit Telegram text limits');
+    $bot->handle(updClick('update:changes:2',$menuId));
+    updCheck(str_contains(updText($api),'Entry 6')&&!in_array('update:changes:3',updActions($api),true),'the final page exposes every remaining change without an extra empty page');
+    $store->set('updater_heartbeat',(string)time()); $updater->request(42,42,'update',$menuId);
+    updCheck(json_decode($store->get('update_new_changes'),true)['changes']===$long,'starting another update retains the existing report until a successful replacement');
+    $store->query("UPDATE update_requests SET status='failed'");
+    $store->set('update_new_changes',json_encode(['to'=>Zero\Updates::version(),'to_revision'=>'other-main-revision','changes'=>$long]));
+    $updater->menu(42,42);
+    updCheck(!in_array('update:changes',updActions($api),true),'a report from another main revision is hidden even when VERSION is unchanged');
     $store->set('update_new_changes','');
     $updater->menu(42,42);
     updCheck(!in_array('update:changes',updActions($api),true),'no what\'s-new button without new entries');

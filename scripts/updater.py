@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Root host agent. Telegram can request only update/rollback, never shell commands."""
 import contextlib
+import errno
 import fcntl
 import html
 import json
@@ -14,6 +15,7 @@ import tarfile
 import tempfile
 import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -26,11 +28,77 @@ IMAGE = 'ciro-downloader:local'
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
+def operation_name(args):
+    if args[:3] == ('docker', 'compose', 'build'):
+        return 'build'
+    if args[:3] == ('docker', 'compose', 'up'):
+        return 'start'
+    if args[:3] == ('docker', 'compose', 'stop'):
+        return 'stop'
+    if args[:3] == ('docker', 'image', 'rm'):
+        return 'cleanup_image'
+    if args[:3] == ('docker', 'image', 'inspect'):
+        return 'backup'
+    if args[:2] == ('git', 'fetch'):
+        return 'fetch'
+    if args[:2] in (('git', 'merge'), ('git', 'checkout')):
+        return 'checkout'
+    if args[:1] == ('git',):
+        return 'source'
+    if args[:1] == ('bash',):
+        return 'agent'
+    return 'server'
+
+
+def output_reason(output):
+    text = output.decode('utf-8', errors='replace').lower() if isinstance(output, bytes) else ''
+    for reason, pattern in (
+        ('storage', r'no space left|disk quota|not enough (?:disk|space)'),
+        ('permission', r'permission denied|operation not permitted|access is denied'),
+        ('image_used', r'image is being used|image is referenced|must be forced|conflict: unable to delete'),
+        ('image_missing', r'no such image|image does not exist|no such object'),
+        ('network', r'could not resolve|connection (?:refused|reset)|network is unreachable|tls handshake|certificate|timed out|timeout|temporary failure|failed to fetch'),
+        ('local_changes', r'local changes|untracked working tree|would be overwritten|not possible to fast-forward|divergent branches'),
+    ):
+        if re.search(pattern, text):
+            return reason
+    return 'process'
+
+
+class UpdateFailure(RuntimeError):
+    def __init__(self, operation, reason='process', code=None):
+        self.operation, self.reason, self.code = operation, reason, code
+        super().__init__('Update operation failed: ' + operation + ' (' + reason + ')')
+
+
+def failure_info(error):
+    if isinstance(error, UpdateFailure):
+        return error.operation, error.reason, error.code
+    if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)):
+        return 'server', 'timeout', None
+    if isinstance(error, OSError) and error.errno == errno.ENOSPC:
+        return 'server', 'storage', None
+    if isinstance(error, PermissionError):
+        return 'server', 'permission', None
+    if isinstance(error, (tarfile.TarError, KeyError, json.JSONDecodeError)):
+        return 'backup', 'backup_invalid', None
+    known = {'Local source changes prevent an update': ('source', 'local_changes'),
+             'Unexpected repository origin': ('source', 'origin'),
+             'Retained backup is missing': ('backup', 'backup_missing'),
+             'Retained backup is incomplete': ('backup', 'backup_invalid'),
+             'Invalid retained version': ('backup', 'backup_invalid'),
+             'Invalid pending recovery': ('backup', 'backup_invalid'),
+             'Unsafe backup directory': ('backup', 'backup_invalid'),
+             'Bot startup health check failed': ('start', 'health')}
+    operation, reason = known.get(str(error), ('server', 'process'))
+    return operation, reason, None
+
+
 def command(*args, timeout=90):
     # No shell, interpolation, or arguments supplied by Telegram.
     result = subprocess.run(args, cwd=PROJECT, capture_output=True, timeout=timeout)
     if result.returncode:
-        raise RuntimeError('Server operation failed: ' + args[0])
+        raise UpdateFailure(operation_name(args), output_reason(result.stderr[-16384:]), result.returncode)
     return result.stdout.decode('utf-8', errors='replace').strip()
 
 
@@ -90,6 +158,74 @@ def changes_since(installed, target, project=None):
             if version > first and normalized not in known:
                 additions.append(change)
             known.add(normalized)
+    return additions
+
+
+def change_key(change):
+    title = change.get('title') if isinstance(change, dict) else change
+    if not isinstance(title, str) or not title.strip():
+        return ''
+    if isinstance(change, dict) and re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,99}', str(change.get('id', ''))):
+        return change['id']
+    return ' '.join(title.split()).casefold()
+
+
+def manifest_changes(document):
+    entries = document if isinstance(document, list) else []
+    return [item for entry in entries if isinstance(entry, dict) and isinstance(entry.get('changes'), list) for item in entry['changes']
+            if change_key(item)]
+
+
+def release_revision(project=None):
+    try:
+        entries = json.loads(((project or PROJECT) / 'CHANGELOG.json').read_text())
+        version = release_notes(project)[0]
+        revision = next(entry.get('revision', '') for entry in entries if entry.get('version') == version)
+        return revision if isinstance(revision, str) and re.fullmatch(r'[a-z0-9][a-z0-9_.-]{0,99}', revision) else ''
+    except (OSError, ValueError, TypeError, AttributeError, StopIteration):
+        return ''
+
+
+def history_git(project, *args):
+    result = subprocess.run(['git', *args], cwd=project, capture_output=True, timeout=20)
+    if result.returncode or len(result.stdout) > 1048576:
+        raise RuntimeError('Update history is unavailable')
+    return result.stdout.decode('utf-8', errors='replace').strip()
+
+
+def source_revision(project=None):
+    try:
+        value = history_git(project or PROJECT, 'rev-parse', 'HEAD')
+        return value if SHA.fullmatch(value) else ''
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return ''
+
+
+def revision_changes(installed, target, project=None):
+    """Read public release notes across main commits, including updates with the same VERSION."""
+    if not isinstance(installed, str) or not isinstance(target, str) or not SHA.fullmatch(installed) or not SHA.fullmatch(target) or installed == target:
+        return []
+    project = project or PROJECT
+    def read(sha):
+        try:
+            return manifest_changes(json.loads(history_git(project, 'show', sha + ':CHANGELOG.json')))
+        except (OSError, RuntimeError, ValueError, TypeError, subprocess.TimeoutExpired):
+            return []
+    try:
+        history_git(project, 'merge-base', '--is-ancestor', installed, target)
+        commits = history_git(project, 'log', '--reverse', '--format=%H', installed + '..' + target, '--', 'CHANGELOG.json').splitlines()
+    except (OSError, RuntimeError, subprocess.TimeoutExpired):
+        return []
+    known = {change_key(item) for item in read(installed)}
+    additions = []
+    for sha in commits:
+        if not SHA.fullmatch(sha):
+            continue
+        for item in read(sha):
+            key = change_key(item)
+            if key not in known:
+                additions.append(item)
+                known.add(key)
     return additions
 
 
@@ -273,8 +409,41 @@ class Agent:
             lines.append(self.ui('update_item_path', path=self.plain('update_path_sep').join(steps), _raw=('path',)))
         return '\n'.join(line for line in lines if re.sub(r'<[^>]+>', '', line).strip())
 
-    def render_changes(self, changes, limit=6):
+    def render_changes(self, changes, limit=3):
         return '\n\n'.join(self.render_change(change, index) for index, change in enumerate(changes[:limit], 1))
+
+    def saved_changes(self):
+        try:
+            report = json.loads(self.setting('update_new_changes', '{}'))
+            if (report.get('to') == release_notes()[0] and report.get('to_revision', '') == release_revision()
+                    and isinstance(report.get('changes'), list)):
+                return [item for item in report['changes'] if change_key(item)]
+        except (ValueError, TypeError, AttributeError):
+            pass
+        return []
+
+    def record_changes(self, from_version=None, from_revision=None, to_revision=None):
+        version = release_notes()[0]
+        additions = revision_changes(from_revision, to_revision or source_revision()) if from_revision else []
+        if not additions and from_version:
+            additions = changes_since(from_version, version)
+        if (not additions and from_revision and release_revision()
+                and self.setting('update_installed_revision') != release_revision()):
+            # Older history may be missing, or a manual pull may have left the containers behind the checkout.
+            try:
+                additions = manifest_changes(json.loads((PROJECT / 'CHANGELOG.json').read_text()))
+            except (OSError, ValueError, TypeError):
+                pass
+        if additions:
+            self.set('update_new_changes', json.dumps({'from': from_version, 'to': version,
+                     'from_sha': from_revision, 'to_sha': to_revision, 'to_revision': release_revision(),
+                     'changes': additions}, ensure_ascii=False))
+        elif to_revision and (not from_revision and not from_version or not self.saved_changes()):
+            # Older rollback images only compare VERSION, so remove an incompatible report for them too.
+            self.set('update_new_changes', '')
+        if to_revision:
+            self.set('update_installed_revision', release_revision() if from_revision or from_version else '')
+        return additions
 
     def beat(self):
         if time.time() - self.last_beat >= 8:
@@ -287,13 +456,38 @@ class Agent:
             url = 'http://127.0.0.1:18081'
         url += '/bot' + self.env['BOT_TOKEN'] + '/' + method
         body = urllib.parse.urlencode({key: json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value for key, value in params.items()}).encode()
-        with urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=30) as response:
-            result = json.load(response)
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, data=body), timeout=30) as response:
+                result = json.load(response)
+        except urllib.error.HTTPError as error:
+            try:
+                rejected = json.loads(error.read(8192))
+            except (ValueError, OSError):
+                rejected = {}
+            if error.code == 400 and method == 'editMessageText' and 'message is not modified' in str(rejected.get('description', '')).lower():
+                return True  # A retry of the same edit has already reached Telegram.
+            raise UpdateFailure('notification', 'telegram', error.code) from None
+        except urllib.error.URLError:
+            raise UpdateFailure('notification', 'network') from None
         if not result.get('ok'):
-            raise RuntimeError('Telegram notification failed')
+            raise UpdateFailure('notification', 'telegram', result.get('error_code'))
         return result['result']
 
-    def error_alert(self):
+    def failure_detail(self, error=None, stage=None):
+        operation, reason, code = failure_info(error)
+        stages = {'update_check', 'update_idle', 'update_backup', 'update_build', 'update_starting', 'update_health', 'update_restore', 'update_cleanup', 'update_agent'}
+        stage = stage or self.setting('update_stage', 'update_check')
+        stage = stage if stage in stages else 'update_check'
+        detail = self.ui('update_failure_context', stage=self.plain(stage), operation=self.plain('update_operation_' + operation), reason=self.plain('update_reason_' + reason))
+        if isinstance(code, int):
+            detail += '\n' + self.ui('update_exit_code', code=code)
+        return detail
+
+    def error_alert(self, error=None, stage=None, warning=False):
+        try:
+            detail = self.failure_detail(error, stage)
+        except Exception:
+            return ''  # Alerting must never replace the original failure or break a healthy update.
         try:
             with self.db() as db:
                 roots = tuple(self.admins)
@@ -303,9 +497,10 @@ class Agent:
             admins = self.admins
         for admin in admins:
             try:
-                self.api('sendMessage', {'chat_id': admin, 'text': self.ui('admin_error_alert', service='updater', reason='process', sources=''), 'parse_mode': 'HTML'})
+                self.api('sendMessage', {'chat_id': admin, 'text': self.ui('update_private_alert', title=self.plain('update_warning_title' if warning else 'update_error_title'), detail=detail, _raw=('detail',)), 'parse_mode': 'HTML'})
             except Exception:
                 pass
+        return detail
 
     def sync_message(self):
         if not self.job or not self.job.get('id'):
@@ -323,9 +518,10 @@ class Agent:
                   'reply_markup': {'inline_keyboard': buttons or []}}
         try:
             self.api('editMessageText', params)
+            return True
         except Exception:
             # A deleted progress message or temporary API outage must not abort recovery.
-            pass
+            return False
 
     @staticmethod
     def bar(percent):
@@ -343,25 +539,40 @@ class Agent:
                     [[self.button('update_progress', 'update:progress', percent=number)]])
 
     def run(self, *args, timeout=900):
-        with open(os.devnull, 'wb') as output:
-            proc = subprocess.Popen(args, cwd=PROJECT, stdout=output, stderr=subprocess.DEVNULL)
-            deadline = time.monotonic() + timeout
-            try:
-                while proc.poll() is None:
-                    self.beat()
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError('Server operation timed out')
-                    time.sleep(1)
-                if proc.returncode:
-                    raise RuntimeError('Server operation failed: ' + args[0])
-            finally:
-                if proc.poll() is None:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=10)
-                    except subprocess.TimeoutExpired:
-                        proc.kill()
-                        proc.wait()
+        # A bounded tail exists only in RAM to classify failures; raw output is never logged or sent.
+        proc = subprocess.Popen(args, cwd=PROJECT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        os.set_blocking(proc.stdout.fileno(), False)
+        tail = bytearray()
+        def drain():
+            for _ in range(32):
+                try:
+                    chunk = os.read(proc.stdout.fileno(), 8192)
+                except BlockingIOError:
+                    break
+                if not chunk:
+                    break
+                tail.extend(chunk)
+                del tail[:-16384]
+        deadline = time.monotonic() + timeout
+        try:
+            while proc.poll() is None:
+                drain()
+                self.beat()
+                if time.monotonic() >= deadline:
+                    raise UpdateFailure(operation_name(args), 'timeout')
+                time.sleep(0.2)
+            drain()
+            if proc.returncode:
+                raise UpdateFailure(operation_name(args), output_reason(bytes(tail)), proc.returncode)
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+            proc.stdout.close()
 
     def claim(self):
         with self.db() as db:
@@ -446,16 +657,15 @@ class Agent:
         self.run('docker', 'compose', 'up', '-d', '--no-build', '--force-recreate', timeout=180)
         self.verify()
 
-    def finish(self, title, detail='', failed=False, from_version=None):
+    def finish(self, title, detail='', failed=False, from_version=None, from_revision=None, to_revision=None):
         self.sync_message()
         self.set('update_in_progress', 0)
         version, _ = release_notes()
-        additions = changes_since(from_version, version) if from_version and not failed else []
-        self.set('update_new_changes', json.dumps({'from': from_version, 'to': version, 'changes': additions}, ensure_ascii=False) if additions else '')
+        additions = self.record_changes(from_version, from_revision, to_revision) if not failed else []
         previous = STATE / 'previous.json'
         buttons = [[self.button('update_start', 'update:start')]]
         secondary = []
-        if additions:
+        if self.saved_changes():
             secondary.append(self.button('update_changes', 'update:changes'))
         if previous.is_file():
             secondary.append(self.button('update_rollback', 'update:rollback'))
@@ -466,10 +676,12 @@ class Agent:
         else:
             buttons.append([self.button('back_admin', 'update:back'), self.button('update_close', 'update:close')])
         stamp = datetime.now(ZoneInfo('Asia/Tehran')).strftime('%Y-%m-%d %H:%M')
-        notes = self.render_changes(additions)
-        notice = self.ui('update_notice', title=title, detail='\n' + detail if failed and detail else '', _raw=('title', 'detail')) if title else ''
+        notes = self.render_changes(additions, limit=2)
+        notice = self.ui('update_notice', title=title, detail='\n' + detail if detail else '', _raw=('title', 'detail')) if title else ''
         if additions:
             notice += self.ui('update_changes', changes=notes, _raw=('changes',)) + '\n\n'
+            if len(additions) > 2:
+                notice += self.ui('update_changes_more', count=len(additions)) + '\n\n'
         shown_previous = self.setting('update_previous_version') or self.plain('update_none')
         text = self.ui('update_menu', version=version, checked=stamp, notice=notice, previous=shown_previous, _raw=('notice',))
         self.set('last_update_at', stamp)
@@ -483,34 +695,84 @@ class Agent:
             if menu is None or str(menu['value']) in ('0', str(self.job['message_id'])):
                 db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', (key, str(self.job['message_id'])))
                 db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', ('update_menu_hash.' + self.menu_scope(), ''))
-        self.notify(text, buttons)
-        (STATE / 'completion-pending.json').unlink(missing_ok=True)
+        delivered = self.notify(text, buttons)
+        pending = STATE / 'completion-pending.json'
+        if delivered is False:
+            if not failed and from_revision and self.job['id'] > 0 and previous.is_file():
+                retained = json.loads(previous.read_text())
+                if valid_recovery(retained):
+                    atomic_json(pending, {'previous': retained, 'job': self.job, 'target': to_revision})
+        else:
+            pending.unlink(missing_ok=True)
 
     def refresh_completion(self):
         pending = STATE / 'completion-pending.json'
         if not pending.is_file():
+            self.recover_unreported_completion()
+        if not pending.is_file():
             return
         saved = json.loads(pending.read_text())
-        pending.unlink()
         if not valid_recovery(saved.get('previous')):
+            pending.unlink()
             return
         with self.db() as db:
             job = db.execute("SELECT * FROM update_requests WHERE id=? AND status='done'", (saved['job']['id'],)).fetchone()
             active = db.execute("SELECT 1 FROM update_requests WHERE status IN ('queued','running')").fetchone()
-        if active or not job or not self.authorized(dict(job)):
+            newer = db.execute('SELECT 1 FROM update_requests WHERE id>?', (saved['job']['id'],)).fetchone()
+        if active:
+            return
+        installed = source_revision() if saved.get('target') else ''
+        if (not job or newer or not self.authorized(dict(job))
+                or saved.get('target') and installed and saved['target'] != installed):
+            pending.unlink()
             return
         if job['action'] not in ('update', 'rollback'):
+            pending.unlink()
             return
         self.job = dict(job)
         self.finish(self.ui('update_success' if job['action'] == 'update' else 'update_rollback_done'),
-                    from_version=saved['previous'].get('version') if job['action'] == 'update' else None)
+                    from_version=saved['previous'].get('version') if job['action'] == 'update' else None,
+                    from_revision=saved['previous'].get('sha') if job['action'] == 'update' else None,
+                    to_revision=source_revision())
         self.job = None
+
+    def recover_unreported_completion(self):
+        """Old agents delete their pending renderer refresh and cannot report same-version updates."""
+        revision = release_revision()
+        previous_file = STATE / 'previous.json'
+        if not revision or self.setting('update_installed_revision') == revision or not previous_file.is_file():
+            return
+        try:
+            previous = json.loads(previous_file.read_text())
+            target = source_revision()
+            if not valid_recovery(previous) or not target:
+                return
+            match = re.fullmatch(r'pre-update-\d{8}-\d{6}(?:-\d{6})?-(\d+)\.tar\.gz', previous.get('backup', ''))
+            if not match or not all(self.runtime_release_revision(service) == revision for service in ('bot', 'worker')):
+                return
+            with self.db() as db:
+                if db.execute("SELECT 1 FROM update_requests WHERE status IN ('queued','running')").fetchone():
+                    return
+                job = db.execute("SELECT * FROM update_requests WHERE id=? AND action='update' AND status='done'", (int(match[1]),)).fetchone()
+            if match[1] == '0':
+                self.record_changes(previous.get('version'), previous['sha'], target)  # Previous CLI update; no fabricated Telegram message.
+            elif job and self.authorized(dict(job)):
+                atomic_json(STATE / 'completion-pending.json', {'previous': previous, 'job': dict(job), 'target': target})
+        except (OSError, ValueError, TypeError, sqlite3.Error):
+            return
 
     def runtime_version(self, service):
         try:
             version = command('docker', 'compose', 'exec', '-T', service, 'cat', '/app/VERSION', timeout=15)
             return version if re.fullmatch(r'\d+\.\d+\.\d+', version) else ''
         except (RuntimeError, subprocess.TimeoutExpired):
+            return ''
+
+    def runtime_release_revision(self, service):
+        try:
+            entries = json.loads(command('docker', 'compose', 'exec', '-T', service, 'cat', '/app/CHANGELOG.json', timeout=15))
+            return next(entry.get('revision', '') for entry in entries if entry.get('version') == release_notes()[0])
+        except (OSError, RuntimeError, ValueError, TypeError, AttributeError, StopIteration, subprocess.TimeoutExpired):
             return ''
 
     def execute(self):
@@ -536,8 +798,10 @@ class Agent:
             self.progress('update_check', 10)
             self.run('git', 'fetch', '--prune', 'origin', 'main', timeout=120)
             target = command('git', 'rev-parse', 'origin/main')
-            if target == current and bot_version == source_version and worker_version == source_version:
-                self.finish('')
+            manifest = release_revision()
+            current_runtime = not manifest or all(self.runtime_release_revision(service) == manifest for service in ('bot', 'worker'))
+            if target == current and bot_version == source_version and worker_version == source_version and current_runtime:
+                self.finish(self.ui('update_already_current'))
                 return
             command('git', 'merge-base', '--is-ancestor', current, target)
         if not SHA.fullmatch(target):
@@ -549,11 +813,11 @@ class Agent:
                 raise RuntimeError('Target release does not support the configured local Telegram API')
         self.wait_idle()
         command('docker', 'tag', IMAGE, previous['image'])
-        atomic_json(recovery, {'previous': previous, 'job': self.job})
+        atomic_json(recovery, {'previous': previous, 'job': self.job, 'target': target})
         self.progress('update_backup', 35)
         self.run('docker', 'compose', 'stop', timeout=60)
         previous['backup'] = self.backup()
-        atomic_json(recovery, {'previous': previous, 'job': self.job})
+        atomic_json(recovery, {'previous': previous, 'job': self.job, 'target': target})
         if self.job['action'] == 'rollback':
             self.progress('update_restore', 65)
             command('git', 'checkout', '--detach', target)
@@ -570,16 +834,23 @@ class Agent:
         self.verify()
         # Update the next invocation of this agent only after the new application is healthy.
         if PROJECT == Path('/opt/ciro-downloader') and (PROJECT / 'scripts/install-updater.sh').is_file():
+            self.progress('update_agent', 98)
             self.run('bash', 'scripts/install-updater.sh', timeout=60)
         atomic_json(STATE / 'previous.json', previous)
         self.set('update_previous_version', previous['version'])
         recovery.unlink(missing_ok=True)
+        cleanup_notice = ''
         try:
+            self.progress('update_cleanup', 99)
             prune_previous()
-        except Exception:
-            self.error_alert()  # Cleanup cannot roll back a verified healthy update.
+        except Exception as error:
+            detail = self.error_alert(error, stage='update_cleanup', warning=True)
+            cleanup_notice = self.ui('update_cleanup_notice') + '\n' + detail
         self.finish(self.ui('update_rollback_done' if self.job['action'] == 'rollback' else 'update_success'),
-                    from_version=previous['version'] if self.job['action'] == 'update' else None)
+                    detail=cleanup_notice,
+                    from_version=previous['version'] if self.job['action'] == 'update' else None,
+                    from_revision=previous['sha'] if self.job['action'] == 'update' else None,
+                    to_revision=target)
 
     def tick(self):
         if Path('/var/lib/ciro-downloader-telegram-api/migration.json').exists():
@@ -598,8 +869,8 @@ class Agent:
         if (STATE / 'previous.json').is_file() and not (STATE / 'retention-v2.json').is_file():
             try:
                 prune_previous()
-            except Exception:
-                self.error_alert()
+            except Exception as error:
+                self.error_alert(error, stage='update_cleanup', warning=True)
             finally:
                 # One migration attempt, not a repeating error history/notification loop.
                 # A later successful update or explicit cleanup retries retention.
@@ -614,18 +885,19 @@ class Agent:
         try:
             self.execute()
         except Exception as exc:
-            self.error_alert()
+            detail = self.error_alert(exc)
             if recovery.is_file():
                 try:
                     self.progress('update_restore', 95)
                     self.restore(json.loads(recovery.read_text())['previous'])
                     recovery.unlink()
-                    self.finish(self.ui('update_recovered'), self.ui('update_recovered_detail'), failed=True)
-                except Exception:
+                    self.finish(self.ui('update_recovered'), detail + '\n' + self.ui('update_recovered_detail'), failed=True)
+                except Exception as recovery_error:
+                    self.error_alert(recovery_error, stage='update_restore')
                     self.notify(self.ui('update_recovery_failed'))
                     raise
             else:
-                self.finish(self.ui('update_failed'), self.ui('update_failed_detail'), failed=True)
+                self.finish(self.ui('update_failed'), detail + '\n' + self.ui('update_failed_detail'), failed=True)
 
 
 class CliAgent(Agent):
@@ -634,11 +906,12 @@ class CliAgent(Agent):
         # Console-only stage information, never a persistent manager log.
         print('Update progress: ' + str(getattr(self, 'percent', 0)) + '%', flush=True)
 
-    def finish(self, title, detail='', failed=False, from_version=None):
+    def finish(self, title, detail='', failed=False, from_version=None, from_revision=None, to_revision=None):
         self.set('update_in_progress', 0)
         if failed:
             self.error_alert()
             raise RuntimeError('Update failed; recovery was attempted')
+        self.record_changes(from_version, from_revision, to_revision)
         (STATE / 'completion-pending.json').unlink(missing_ok=True)
 
     def cli_update(self):
@@ -655,8 +928,8 @@ class CliAgent(Agent):
         self.job = {'id': 0, 'action': 'update', 'chat_id': min(self.admins), 'message_id': 0}
         try:
             self.execute()
-        except Exception:
-            self.error_alert()
+        except Exception as error:
+            self.error_alert(error)
             if recovery.exists():
                 self.restore(json.loads(recovery.read_text())['previous'])
                 recovery.unlink()
