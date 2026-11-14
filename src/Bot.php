@@ -353,7 +353,7 @@ final class Bot
         finally { if($folder!==null) Download::clean($folder); }
     }
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
-    /** @return string what happened: queued, duplicate, busy, full, cooldown, updating or denied */
+    /** @return string what happened: queued, duplicate, busy, full, cooldown, updating, denied or failed */
     /**
      * @param ?array{message:int,kind:string,poster:string} $adopt an existing message (a music menu) that becomes this
      *        download's status message instead of a new one, so the menu closes into the download
@@ -365,12 +365,25 @@ final class Bot
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
+            $site=adultService($url);
+            $deleteSource=$sourceMessage>0&&$site!==null&&$this->adultAllowed($user,$chat,$site)&&$this->store->get('adult.delete_source','1')==='1';
+            if($deleteSource) {
+                // A new job has message_id=0 and cannot be claimed. Keep that barrier until the link is gone.
+                try { $deleted=$this->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$sourceMessage])===true; }
+                catch(\Throwable) { $deleted=false; }
+                if(!$deleted) {
+                    $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+                    $this->jobMessage($job,$this->text('adult_link_delete_failed'));
+                    ErrorAlerts::report($site,'process',$site.'=delete');
+                    return 'failed';
+                }
+            }
             if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
             $service=galleryService($url)??$phase??musicService($url);
             try { $collection=$service?null:collectionUrl($url); $this->jobMessage($job,$this->text($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'))); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
-            Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
+            if(!$deleteSource) Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
         return $result;
     }

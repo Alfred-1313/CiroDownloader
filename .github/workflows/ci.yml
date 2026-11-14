@@ -25,6 +25,7 @@ jobs:
       - name: Run PHP tests
         run: |
           php tests/run.php
+          php tests/adult_privacy.php
           php tests/cookies.php
           php tests/cookie_manager.php
           php tests/instagram.php

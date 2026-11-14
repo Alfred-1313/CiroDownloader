@@ -103,7 +103,7 @@ PHP
     file_put_contents($mode,json_encode(['disable'=>'download'])); $before=count($calls('sendVideo')); $worker->process($store->claim('media'));
     beegCheck($store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='failed'&&count($calls('sendVideo'))===$before,'turning Beeg off during download prevents the final upload'); $store->set('adult.beeg','1');
     file_put_contents($mode,json_encode(['failure'=>true])); $send(); $worker->process($store->claim('inspect')); beegCheck($store->get('last_job_service')==='beeg'&&$store->get('last_job_sources')==='beeg=certificate','failed Beeg requests retain a service-specific clean cause');
-    $recent=json_decode($store->get('recent_errors','[]'),true); beegCheck($recent[0]['s']==='beeg'&&!str_contains(json_encode($recent),'hidden.example'),'recent error reports retain no private downloader URL');
+    beegCheck((int)$store->query("SELECT COUNT(*) FROM settings WHERE key IN ('recent_errors','last_job_error','last_job_sources','last_job_service','last_job_error_reason')")->fetchColumn()===0,'Beeg failures persist no error history or diagnostic URLs');
     beegCheck(!glob($config->storage.'/downloads/job-*'),'temporary Beeg files are cleaned after success and failure');
 } finally {
     if(is_resource($server)) { proc_terminate($server); proc_close($server); }

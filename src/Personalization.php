@@ -98,6 +98,7 @@ final class Personalization
             [$this->switchButton('adult_eporner','custom:adulteporner',$store->get('adult.eporner','0')==='1')],
             [$this->switchButton('adult_admins','custom:adultadmins',$store->get('adult.admins_only','1')==='1')],
             [$this->heading($ui->label('adult_filters'),'adult_filters')],
+            [$this->switchButton('adult_delete_source','custom:adultdelsource',$store->get('adult.delete_source','1')==='1')],
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
             [$this->switchButton('adult_delete_group','custom:adultdelg',$store->get('adult.delete_group','1')==='1')],
             [$ui->button('adult_delete_seconds','custom:adultsec',['n'=>(string)Bot::adultDelays($store)])],
@@ -788,6 +789,9 @@ final class Personalization
             $this->adultPage($chat,$message);
         } elseif($op==='adulteporner') {
             $this->bot->store->set('adult.eporner',$this->bot->store->get('adult.eporner','0')==='1'?'0':'1');
+            $this->adultPage($chat,$message);
+        } elseif($op==='adultdelsource') {
+            $this->bot->store->set('adult.delete_source',$this->bot->store->get('adult.delete_source','1')==='1'?'0':'1');
             $this->adultPage($chat,$message);
         } elseif($op==='adultdelp') {
             $this->bot->store->set('adult.delete_private',$this->bot->store->get('adult.delete_private','1')==='1'?'0':'1');

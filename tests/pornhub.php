@@ -207,11 +207,10 @@ try {
     $job=$store->claim('inspect'); $worker->process($job);
     $texts=array_map(fn($call)=>(string)($call[1]['text']??$call[1]['caption']??''),array_filter($api->calls,fn($call)=>str_starts_with($call[0],'edit')));
     phCheck($store->get('last_job_sources')==='pornhub=certificate'&&$store->get('last_job_service')==='pornhub'&&str_contains(end($texts),'اتصال سرور به سایت برقرار نشد'),'an unreachable site shows the person the network message and records "pornhub=certificate" for the administrator');
-    $recent=json_decode($store->get('recent_errors','[]'),true);
-    phCheck($recent[0]['s']==='pornhub'&&$recent[0]['r']==='network'&&$recent[0]['c']==='pornhub=certificate'&&!str_contains(json_encode($recent),'secret.example'),'the recent-errors list keeps the service, the reason and that word, and nothing from the downloader output');
+    phCheck((int)$store->query("SELECT COUNT(*) FROM settings WHERE key IN ('recent_errors','last_job_error','last_job_sources','last_job_service','last_job_error_reason')")->fetchColumn()===0,'error history and diagnostic URLs are not persisted; private alerts use the current transient mechanism');
     $api->calls=[]; $bot->handle(['update_id'=>9999,'message'=>['message_id'=>1,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
     $health=(string)end($api->calls)[1]['text'];
-    phCheck(str_contains($health,'اتصال سرور به سایت برقرار نشد')&&str_contains($health,'pornhub=certificate')&&!str_contains($health,'secret.example'),'the administrator\'s status message shows the Pornhub text and the cause');
+    phCheck(str_contains($health,$bot->ui->plain('errors_private_only'))&&!str_contains($health,'pornhub=certificate')&&!str_contains($health,'secret.example'),'the status screen explains private error alerts without exposing in-flight diagnostics');
     foreach(['<urlopen error [Errno -2] Name or service not known>'=>'dns','<urlopen error [Errno 111] Connection refused>'=>'refused','<urlopen error timed out>'=>'timeout','HTTP Error 451: Unavailable For Legal Reasons'=>'region','HTTP Error 503: Service Unavailable'=>'unavailable','something else'=>'unknown'] as $text=>$word)
         phCheck(Zero\Download::siteCause($text)===$word,'the cause of "'.$text.'" is "'.$word.'"');
     $config->ytDlp=$stub;
