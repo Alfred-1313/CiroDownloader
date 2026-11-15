@@ -14,3 +14,12 @@ The existing `message_id=0` queue barrier keeps new requests out of the worker w
 Delivered-file deletion uses the existing persisted `TimedDeletes` rows, caption notice and worker sweep. Source deletion does not change the selected quality, destination topic, ownership checks, file timer or captions. Other media services retain their current behavior.
 
 `tests/adult_privacy.php` covers intake ordering and settings without contacting real Telegram or adult sites. The per-service media regressions cover actual local video/audio uploads and timed deletion. A bot must have the required permissions in its real group for source deletion to succeed.
+
+
+## اسپویلر کاور و ویدیو
+
+کاور انتخاب کیفیت و ویدیوی نهاییِ همهٔ سایت‌های بزرگسال به‌صورت پیش‌فرض با اسپویلر رسانه‌ای تلگرام ارسال می‌شوند. کاربر برای دیدن تصویر روی رسانه می‌زند. کپشن و دکمه‌های انتخاب کیفیت همچنان قابل استفاده‌اند.
+
+از **🎨 شخصی‌سازی ← سایت‌های بزرگسال ← نام سایت ← تنظیمات این سرویس**، «🫥 اسپویلر کاور» و «🫥 اسپویلر ویدیو» را جدا تنظیم کن. هر سایت تنظیم مستقل دارد؛ خاموش‌کردن یکی، روی دیگری یا سایت‌های دیگر اثر نمی‌گذارد. انتخاب ذخیره‌شده پس از راه‌اندازی مجدد حفظ می‌شود.
+
+ارسال عکس با URL، آپلود کاور از فایل، ویرایش رسانهٔ پیام وضعیت و بازسازی پیام حذف‌شده با file_id، همگی تنظیم اسپویلر کاور را رعایت می‌کنند. در API تلگرام، `has_spoiler` داخل `InputMediaPhoto` برای ویرایش کاور و در بدنهٔ `sendPhoto` / `sendVideo` برای ارسال تازه قرار می‌گیرد. دسترسی، مالکیت انتخاب کیفیت، موضوع گروه و زمان حذف خروجی همان قواعد قبلی را دارند.

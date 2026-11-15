@@ -67,6 +67,16 @@ final class Bot
         if($this->store->get($chat<0?'adult.delete_group':'adult.delete_private','1')!=='1') return 0;
         return self::adultDelays($this->store);
     }
+    public function adultSpoiler(?string $site,string $kind): bool
+    {
+        return in_array($site,adultServices(),true)&&in_array($kind,['cover','video'],true)
+            &&$this->store->get('adult.'.$site.'.spoiler_'.$kind,'1')==='1';
+    }
+    private function posterSpoiler(array $job): array
+    {
+        $url=$job['url']??$this->store->query('SELECT url FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+        return $this->adultSpoiler(adultService((string)$url),'cover')?['has_spoiler'=>true]:[];
+    }
     /** The chosen delay, one of 10, 30, 60 or 180 seconds. */
     public static function adultDelays(Store $store): int
     {
@@ -103,7 +113,7 @@ final class Bot
             try { $this->api->call($photo?'editMessageCaption':'editMessageText',$params+['message_id'=>$message]); return; }
             catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; }
         }
-        if($photo) $params['photo']=$saved['poster'];
+        if($photo) { $params['photo']=$saved['poster']; $params+=$this->posterSpoiler($job); }
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call($photo?'sendPhoto':'sendMessage',$params);
         if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing download status message ID');
@@ -113,12 +123,13 @@ final class Bot
     {
         $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
+        $spoiler=$this->posterSpoiler($job);
         try {
             if($message>0) $result=$this->api->call('editMessageMedia',$params+['message_id'=>$message,
-                'media'=>['type'=>'photo','media'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']]);
+                'media'=>['type'=>'photo','media'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']+$spoiler]);
             else {
                 if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
-                $result=$this->api->call('sendPhoto',$params+['photo'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']);
+                $result=$this->api->call('sendPhoto',$params+['photo'=>$poster,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']+$spoiler);
                 $message=(int)($result['message_id']??0);
                 if(!$message) throw new \RuntimeException('Missing poster message ID');
             }
@@ -149,12 +160,13 @@ final class Bot
         [$mime,$name]=str_starts_with($head,"\x89PNG")?['image/png','poster.png']:(str_starts_with($head,'RIFF')?['image/webp','poster.webp']:['image/jpeg','poster.jpg']);
         $file=new \CURLFile($path,$mime,$name);
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
+        $spoiler=$this->posterSpoiler($job);
         try {
             if($message>0) $result=$this->api->call('editMessageMedia',$params+['message_id'=>$message,'poster'=>$file,
-                'media'=>['type'=>'photo','media'=>'attach://poster','caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']]);
+                'media'=>['type'=>'photo','media'=>'attach://poster','caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']+$spoiler]);
             else {
                 if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
-                $result=$this->api->call('sendPhoto',$params+['photo'=>$file,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']);
+                $result=$this->api->call('sendPhoto',$params+['photo'=>$file,'caption'=>Ui::fitCaption($caption),'parse_mode'=>'HTML']+$spoiler);
                 $message=(int)($result['message_id']??0);
                 if(!$message) throw new \RuntimeException('Missing poster message ID');
             }

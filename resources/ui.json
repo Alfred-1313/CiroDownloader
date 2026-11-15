@@ -774,6 +774,8 @@
     "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← 🔞 سایت‌های بزرگسال ← Beeg ← ⚙️ تنظیمات این سرویس»."}
   },
   "buttons": {
+    "adult_spoiler_cover":{"audience":"admin","label":"اسپویلر کاور انتخاب کیفیت","group":"custom","variables":["state"],"value":"🫥 اسپویلر کاور: {state}"},
+    "adult_spoiler_video":{"audience":"admin","label":"اسپویلر ویدیوی ارسالی","group":"custom","variables":["state"],"value":"🫥 اسپویلر ویدیو: {state}"},
     "caption_reset":{"audience":"admin","label":"ریست کپشن","group":"custom","value":"🗑 ریست کپشن"},
     "hub_cover":{"audience":"admin","label":"hub_cover","group":"custom","value":"🖼 کاور و انتخاب کیفیت"},
     "hub_edit_cover":{"audience":"admin","label":"hub_edit_cover","group":"custom","value":"🖼 ویرایش کاور و انتخاب کیفیت"},

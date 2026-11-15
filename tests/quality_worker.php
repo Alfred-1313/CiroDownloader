@@ -149,6 +149,7 @@ try {
         qualityCheck(($streams['audio']??'')==='mp3'&&!isset($streams['video'])&&$uploads[0]['mime']==='audio/mpeg','sendAudio receives a real MP3 without a video stream');
         qualityCheck(abs((float)$probe['format']['duration']-2.5)<0.2,'the entire audio track is delivered without trimming');
     }
+    qualityCheck(!isset($uploads[0]['params']['has_spoiler']),'YouTube video and audio deliveries keep their existing non-spoiler behaviour');
     $caption=$uploads[0]['params']['caption'];
     qualityCheck($uploads[0]['params']['parse_mode']==='HTML'&&str_contains($caption,'&lt;title&gt; &amp; audio')&&str_contains($caption,'<b>')&&str_contains($caption,'<blockquote>'),'formatting and metadata appear on the delivered media caption');
     if(!$legacy) qualityCheck(str_contains($caption,'tg-emoji'),'custom captions retain premium emoji');

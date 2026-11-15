@@ -166,6 +166,7 @@ final class Worker
                 // Its own caption (title, people, categories, tags, views) and no link back to the site.
                 $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$deleteAfter,$adultSite);
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
+                if(!$audio&&$bot->adultSpoiler($adultSite,'video')) $params['has_spoiler']=true;
             } else {
                 $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
                     'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Ui::duration($media['duration']),'url'=>$job['url']]);

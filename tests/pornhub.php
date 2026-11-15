@@ -154,6 +154,7 @@ try {
     $download=$store->claim('media'); phCheck($download!==null&&(int)$download['quality']===480,'choosing 480p queues the download');
     $worker->process($download);
     $video=$api->called('sendVideo'); $params=end($video)[1]??[];
+    phCheck(($params['has_spoiler']??false)===true,'the adult video is sent with Telegram media spoiler');
     phCheck(count($video)===1&&$params['caption']==="<blockquote>🗑 این پیام 10 ثانیه بعد پاک می‌شود.\n💾 برای نگه‌داشتن، آن را در «پیام‌های ذخیره‌شده» (Saved Messages) خودت ذخیره کن.</blockquote>\n\n<b>🔞 Fixture Video</b>\n👤 <b>Alice، Bob</b>\n<blockquote>⏱ 00:02 · 🎞 480p · 👁 1,234,567</blockquote>\n<blockquote expandable>🏷 #amateur #pov #homemade</blockquote>"&&!isset($params['reply_markup'])&&(int)$params['width']===854&&(int)$params['height']===480,'the video arrives with the deletion notice as a quote first, a blank line, then its title, the people in it, length, quality, views and the page\'s categories and tags, and no link back to the site');
     $args=array_map(fn($line)=>json_decode($line,true),file($trace,FILE_IGNORE_NEW_LINES)); $downloadArgs=end($args);
     phCheck($downloadArgs[array_search('-f',$downloadArgs,true)+1]==='hls-1815/480p'&&$downloadArgs[array_search('--concurrent-fragments',$downloadArgs,true)+1]==='8'&&!in_array('--cookies',$downloadArgs,true),'the HLS stream is tried first, with eight pieces at once, without cookies');

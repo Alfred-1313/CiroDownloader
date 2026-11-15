@@ -127,6 +127,8 @@ final class ServiceCustomization
         if(in_array($service,adultServices(),true)) {
             $op=$service==='pornhub'?'adult':'adult'.$service;
             $rows[]=[$ui->button('adult_'.$service,'custom:'.$op,['state'=>$ui->plain($this->bot->store->get('adult.'.$service,'0')==='1'?'switch_on':'switch_off')])];
+            foreach(['cover','video'] as $kind) $rows[]=[$ui->button('adult_spoiler_'.$kind,'custom:spoiler:'.$service.':'.$kind,
+                ['state'=>$ui->plain($this->bot->adultSpoiler($service,$kind)?'switch_on':'switch_off')])];
             $rows[]=[$ui->button('hub_shared_adult','custom:adultpage')];
         }
         if(in_array($service,['youtube',...adultServices()],true)) {
@@ -157,6 +159,12 @@ final class ServiceCustomization
         } catch(\RuntimeException $e) { if($e->getCode()!==400) throw $e; $ui->preview([]); $this->settings($chat,$message,$service,$ui->text('custom_preview_failed')); return; }
         finally { $ui->preview([]); }
         $this->bot->store->set($name,$mode);
+    }
+    private function spoiler(int $chat,int $message,string $service,string $kind): void
+    {
+        if(!in_array($service,adultServices(),true)||!in_array($kind,['cover','video'],true)) return;
+        $this->bot->store->set('adult.'.$service.'.spoiler_'.$kind,$this->bot->adultSpoiler($service,$kind)?'0':'1');
+        $this->settings($chat,$message,$service);
     }
     private function layouts(int $chat,int $message,string $service): void
     {
@@ -205,7 +213,7 @@ final class ServiceCustomization
     public function handle(int $chat,int $user,string $action,int $message): bool
     {
         $p=explode(':',$action); $op=$p[1]??''; $service=$p[2]??'';
-        if(!in_array($op,['service','category','items','settings','layouts','layout','mode','coverhub'],true)) return false;
+        if(!in_array($op,['service','category','items','settings','layouts','layout','mode','coverhub','spoiler'],true)) return false;
         if($op==='category') { if(in_array($service,['adult','music','general'],true)) $this->category($chat,$message,$service); else $this->home($chat,$message); return true; }
         if(!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return true; }
         match($op) {
@@ -214,6 +222,7 @@ final class ServiceCustomization
             'items'=>$this->listing($chat,$message,$service,$p[3]??'',max(0,(int)($p[4]??0))),
             'layout'=>$this->layout($chat,$message,$service,$p[3]??'',$p[4]??'',$p[5]??'',$p[6]??''),
             'mode'=>$this->mode($chat,$message,$service,$p[3]??'',$p[4]??''),
+            'spoiler'=>$this->spoiler($chat,$message,$service,$p[3]??''),
         };
         return true;
     }
