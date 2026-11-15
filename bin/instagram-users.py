@@ -5,6 +5,7 @@ enumerated. The parent gives us a private JSON file, never cookie values in argv
 """
 
 import argparse
+from html.parser import HTMLParser
 import json
 import logging
 import re
@@ -21,8 +22,92 @@ USERNAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.]{0,29}\Z")
 
 
 class Failure(Exception):
-    def __init__(self, reason):
+    def __init__(self, reason, stage="runtime", http=0):
         self.reason = reason
+        self.stage = stage
+        self.http = http
+
+
+def failure(error, stage):
+    if isinstance(error, Failure):
+        return Failure(error.reason, stage if error.stage == "runtime" else error.stage, error.http)
+    if isinstance(error, exception.HttpError):
+        code = error.response.status_code if error.response is not None else 0
+        if error.response is not None:
+            error.response.close()
+        reason = "cookies" if code in (401, 403) else "blocked" if code == 429 else "unavailable" if stage == "search" and code == 404 else "notfound" if stage == "profile" and code == 404 else "network"
+        return Failure(reason, stage, code)
+    if isinstance(error, (exception.AuthenticationError, exception.AuthorizationError)):
+        return Failure("cookies", stage)
+    if isinstance(error, exception.NotFoundError):
+        return Failure("notfound" if stage == "profile" else "unavailable", stage, 404)
+    if isinstance(error, RequestException):
+        return Failure("network", stage)
+    return Failure("format", stage)
+
+
+def safe_error(error):
+    return {"reason": error.reason, "stage": error.stage, "http": error.http}
+
+
+class ProfileScripts(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.inside = False
+        self.parts = []
+        self.scripts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script":
+            self.inside = True
+            self.parts = []
+
+    def handle_data(self, value):
+        if self.inside:
+            self.parts.append(value)
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self.inside:
+            self.scripts.append("".join(self.parts))
+            self.inside = False
+
+
+def embedded_profile(page, username):
+    """Read a profile's own hydrated data, never a suggested account or post owner."""
+    parser = ProfileScripts()
+    parser.feed(page)
+    for script in parser.scripts:
+        try:
+            value = json.loads(script)
+        except (ValueError, RecursionError):
+            continue
+        pending = [value]
+        visited = 0
+        while pending and visited < 100000:
+            node = pending.pop()
+            visited += 1
+            if isinstance(node, dict):
+                fields = ("biography", "follower_count", "edge_followed_by", "media_count", "edge_owner_to_timeline_media")
+                if (str(node.get("username", "")).lower() == username.lower()
+                        and sum(k in node for k in fields) >= 2):
+                    try:
+                        return complete_profile(node)
+                    except Failure:
+                        pass
+                pending.extend(v for v in node.values() if isinstance(v, (list, dict)))
+            elif isinstance(node, list):
+                pending.extend(v for v in node if isinstance(v, (list, dict)))
+    return None
+
+
+def complete_profile(user):
+    result = account(user)
+    result["bio"] = str(user.get("biography") or "")[:600]
+    photo = user.get("hd_profile_pic_url_info") or {}
+    url = photo.get("url") or user.get("profile_pic_url_hd") or user.get("profile_pic_url") or ""
+    result["avatar"] = url if avatar_url(url) else ""
+    result["loaded"] = True
+    return result
 
 
 def count(value):
@@ -84,15 +169,19 @@ class Client:
         except exception.HttpError as error:
             if error.response is None or error.response.status_code != 404:
                 raise
-            data = self.extr.api._call(
-                "https://www.instagram.com/web/search/topsearch/",
-                params={"context": "user", "query": query, "include_reel": "false"},
-                allow_redirects=False,
-            )
+            error.response.close()
+            try:
+                data = self.extr.api._call(
+                    "https://www.instagram.com/web/search/topsearch/",
+                    params={"context": "user", "query": query, "include_reel": "false"},
+                    allow_redirects=False,
+                )
+            except exception.HttpError as error:
+                raise failure(error, "search") from None
         if not isinstance(data, dict) or data.get("status") == "fail":
-            raise Failure("cookies")
+            raise Failure("cookies", "search")
         if not isinstance(data.get("users"), list):
-            raise Failure("format")
+            raise Failure("format", "search")
         items, seen = [], set()
         for entry in data["users"]:
             try:
@@ -106,13 +195,40 @@ class Client:
             if len(items) == LIMIT:
                 break
         if data["users"] and not items:
-            raise Failure("format")
+            raise Failure("format", "search")
         return items
 
+    def exact(self, username):
+        if not USERNAME.fullmatch(username):
+            raise Failure("unavailable", "search", 404)
+        with self.extr.request(self.extr.root + "/" + username + "/", allow_redirects=False, stream=True) as response:
+            if 300 <= response.status_code < 400:
+                destination = urlsplit(response.headers.get("Location", "")).path
+                raise Failure("cookies" if destination.startswith("/accounts/") else "unavailable", "profile", response.status_code)
+            chunks, size = [], 0
+            for chunk in response.iter_content(65536):
+                size += len(chunk)
+                if size > 5 * 1024 * 1024:
+                    raise Failure("format", "profile")
+                chunks.append(chunk)
+            page = b"".join(chunks).decode("utf-8", errors="replace")
+        item = embedded_profile(page, username)
+        if item is not None:
+            return item
+        # The pinned extractor uses profile_id from this same profile page.
+        # Cache it in memory for the current GraphQL document/token discovery.
+        match = re.search(r'"profile_id"\s*:\s*"(\d{1,24})"', page)
+        if not match:
+            raise Failure("unavailable", "profile")
+        self.extr.cache_update(self.extr.api._webpage, "/" + username, page, _mem=True)
+        item = self.profile({"id": match[1], "username": username})
+        if item["username"].lower() != username.lower():
+            raise Failure("unavailable", "profile")
+        return item
+
     def profile(self, item):
-        # Use the pinned gallery-dl profile query instead of walking the feed or
-        # relying on the retired web_profile_info endpoint. Private accounts only
-        # expose their public profile fields; no following or login action.
+        # Use the pinned gallery-dl query for public profile fields. No feed or
+        # follower enumeration, following action or interactive login is used.
         # gallery-dl discovers the current query document in this profile's
         # scripts; the home feed need not load the profile query at all.
         self.extr._user = {"username": item["username"]}
@@ -121,22 +237,25 @@ class Client:
         }, notfound="user")
         user = data.get("user") if isinstance(data, dict) else None
         if not isinstance(user, dict):
-            raise Failure("notfound")
-        result = account(user)
+            raise Failure("notfound", "profile")
+        result = complete_profile(user)
         if result["id"] != item["id"]:
-            raise Failure("format")
-        result["bio"] = str(user.get("biography") or "")[:600]
-        photo = user.get("hd_profile_pic_url_info") or {}
-        url = photo.get("url") or user.get("profile_pic_url_hd") or user.get("profile_pic_url") or ""
-        result["avatar"] = url if avatar_url(url) else ""
-        result["loaded"] = True
+            raise Failure("format", "profile")
         return result
 
     def enrich(self, items):
-        result = []
-        for item in items[:PAGE]:
-            result.append(item if item.get("loaded") else self.profile(item))
-        return result
+        result = list(items[:PAGE])
+        warning = None
+        for index, item in enumerate(result):
+            try:
+                result[index] = item if item.get("loaded") else self.profile(item)
+            except Exception as error:
+                warning = failure(error, "profile")
+                # One unavailable suggestion must not erase valid search results.
+                # Stop immediately on auth/rate/transport refusal; no burst of retries.
+                if warning.reason not in ("notfound", "format"):
+                    break
+        return result, warning
 
     def photo(self, item, destination):
         url = item.get("avatar", "")
@@ -164,16 +283,32 @@ class Client:
 def run(client, request, folder):
     op = request.get("op")
     if op == "search":
-        items = client.search(request["query"])
-        items[:PAGE] = client.enrich(items[:PAGE])
-        return {"items": items}
+        try:
+            items = client.search(request["query"])
+        except Exception as error:
+            error = failure(error, "search")
+            if error.reason != "unavailable" or not USERNAME.fullmatch(request["query"]):
+                raise error from None
+            try:
+                return {"items": [client.exact(request["query"])], "exact": True}
+            except Exception as error:
+                raise failure(error, "profile") from None
+        items[:PAGE], warning = client.enrich(items[:PAGE])
+        return {"items": items, **({"warning": safe_error(warning)} if warning else {})}
     if op == "page":
-        return {"items": client.enrich(request["items"])}
+        items, warning = client.enrich(request["items"])
+        return {"items": items, **({"warning": safe_error(warning)} if warning else {})}
     if op == "profile":
         item = request["item"]
-        if not item.get("loaded"):
-            item = client.profile(item)
-        return {"item": item, "photo": client.photo(item, folder / "instagram-avatar.jpg")}
+        try:
+            if not item.get("loaded"):
+                item = client.profile(item)
+        except Exception as error:
+            raise failure(error, "profile") from None
+        try:
+            return {"item": item, "photo": client.photo(item, folder / "instagram-avatar.jpg")}
+        except Exception as error:
+            raise failure(error, "avatar") from None
     raise Failure("format")
 
 
@@ -204,19 +339,11 @@ def main():
             raise Failure("cookies")
         result = run(Client(extr), request, path.parent)
     except Failure as error:
-        result = {"error": error.reason}
-    except exception.HttpError as error:
-        code = error.response.status_code if error.response is not None else 0
-        result = {"error": "cookies" if code in (401, 403) else "blocked" if code == 429 else "notfound" if code == 404 else "network"}
-    except exception.NotFoundError:
-        result = {"error": "notfound"}
-    except (exception.AuthenticationError, exception.AuthorizationError):
-        result = {"error": "cookies"}
-    except RequestException:
-        result = {"error": "network"}
-    except Exception:
+        result = {"error": error.reason, "stage": error.stage, "http": error.http}
+    except Exception as error:
         # Never serialize a response, URL, cookie, proxy or traceback.
-        result = {"error": "format"}
+        error = failure(error, "runtime")
+        result = {"error": error.reason, "stage": error.stage, "http": error.http}
     print(json.dumps(result, ensure_ascii=False))
 
 

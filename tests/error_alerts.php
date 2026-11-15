@@ -35,6 +35,11 @@ try {
     alertCheck($reopen->get('last_job_error')===''&&$reopen->get('recent_errors')===''&&$reopen->get('preserve')==='settings','request diagnostics disappear with their process and settings survive');
     alertCheck((int)$store->query("SELECT COUNT(*) FROM settings WHERE key IN ('recent_errors','last_job_error','last_job_error_reason','last_job_sources','last_job_service')")->fetchColumn()===0,'no error-history rows are written');
     alertCheck(ini_get('log_errors')==='0'&&ini_get('display_errors')==='0','runtime PHP diagnostics are not written to server logs');
+    $api->fail=false;
+    Zero\ErrorAlerts::report('instagram','blocked','instagram=profile, http=429');
+    alertCheck(str_contains(end($api->calls)[1]['text'],'instagram=profile, http=429'),'Instagram alerts preserve only a fixed stage and a numeric HTTP status');
+    Zero\ErrorAlerts::report('instagram','format','instagram=search, http=404, username=private');
+    alertCheck(!str_contains(end($api->calls)[1]['text'],'username=private'),'arbitrary extra Instagram diagnostic fields are rejected');
 } finally {
     restore_error_handler(); restore_exception_handler();
     require_once dirname(__DIR__).'/src/Download.php'; Zero\Download::clean($root);

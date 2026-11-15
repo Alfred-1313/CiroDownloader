@@ -59,6 +59,8 @@ final class InstagramUsers
     }
     private function list(array $job,array $data,string $notice=''): void
     {
+        if(!empty($data['exact'])) $notice=$this->bot->text('instagram_user_exact_result').($notice!==''?"\n\n".$notice:'');
+        if(!empty($data['warning'])&&$notice==='') $notice=$this->bot->text('instagram_user_partial');
         $this->bot->jobMessage($job,$this->bot->text('instagram_user_results',['query'=>$data['query'],'page'=>$data['page']+1,
             'pages'=>max(1,(int)ceil(count($data['items'])/self::PAGE))]).($notice!==''?"\n\n".$notice:''),$this->rows($job,$data));
     }
@@ -114,12 +116,16 @@ final class InstagramUsers
         try {
             $bot->jobMessage($job,$bot->text($op==='profile'?'instagram_user_loading_profile':'instagram_user_loading',['query'=>$data['query']]));
             if($op==='search') {
-                $data['items']=$accounts->fetch(['op'=>'search','query'=>$data['query']],$folder)['items']; $data['page']=0;
+                $result=$accounts->fetch(['op'=>'search','query'=>$data['query']],$folder);
+                $data['items']=$result['items']; $data['page']=0; $data['exact']=!empty($result['exact']); $data['warning']=!empty($result['warning']);
+                if(is_array($result['warning']??null)) $this->warning($result['warning']);
                 $job['expires']=time()+self::TTL;
             } elseif($op==='page') {
                 $offset=$data['page']*self::PAGE; $items=array_slice($data['items'],$offset,self::PAGE);
                 if(array_filter($items,fn($item)=>empty($item['loaded']))) {
-                    $items=$accounts->fetch(['op'=>'page','items'=>$items],$folder)['items'];
+                    $result=$accounts->fetch(['op'=>'page','items'=>$items],$folder); $items=$result['items'];
+                    $data['warning']=!empty($result['warning']);
+                    if(is_array($result['warning']??null)) $this->warning($result['warning']);
                     array_splice($data['items'],$offset,count($items),$items);
                 }
             } elseif($op==='profile') {
@@ -151,8 +157,9 @@ final class InstagramUsers
             return $bytes;
         } catch(\Throwable $error) {
             $reason=$error instanceof MediaFailure?$error->reason:'process';
-            ErrorAlerts::report('instagram',$reason);
-            $key='instagram_user_error_'.(in_array($reason,['cookies','blocked','network','notfound'],true)?$reason:'process');
+            $sources=preg_match('/\[(instagram=(?:search|profile|avatar|runtime), http=(?:0|[1-5][0-9]{2}))\]$/D',$error->getMessage(),$detail)?$detail[1]:'';
+            ErrorAlerts::report('instagram',match($reason) {'notfound'=>'restricted','unavailable'=>'format',default=>$reason},$sources);
+            $key='instagram_user_error_'.(in_array($reason,['cookies','blocked','network','notfound','unavailable'],true)?$reason:'process');
             // A failed page/profile keeps the previous search usable instead of stranding its buttons.
             if(!empty($data['items'])&&(int)$job['expires']>time()) {
                 $data['op']='list';
@@ -164,6 +171,11 @@ final class InstagramUsers
             }
             return 0;
         }
+    }
+    private function warning(array $warning): void
+    {
+        $reason=in_array($warning['reason']??'',['cookies','blocked','network','notfound','format','unavailable'],true)?$warning['reason']:'format';
+        ErrorAlerts::report('instagram',match($reason) {'notfound'=>'restricted','unavailable'=>'format',default=>$reason},InstagramAccounts::diagnostic($warning));
     }
     public function callback(array $update,int $chat,int $user,int $thread,int $message): void
     {

@@ -7,6 +7,13 @@ require_once __DIR__.'/Instagram.php';
 final class InstagramAccounts
 {
     public function __construct(private Config $config,private ?\Closure $fixture=null) {}
+    /** Only fixed stages and a numeric HTTP code may reach a private administrator alert. */
+    public static function diagnostic(array $data): string
+    {
+        $stage=in_array($data['stage']??'', ['search','profile','avatar','runtime'],true)?$data['stage']:'runtime';
+        $http=$data['http']??0; $http=is_int($http)&&$http>=100&&$http<=599?$http:0;
+        return 'instagram='.$stage.', http='.$http;
+    }
     public function fetch(array $request,string $folder): array
     {
         if($this->fixture!==null) return ($this->fixture)($request,$folder);
@@ -34,8 +41,8 @@ final class InstagramAccounts
             finally { if(is_file($private)) unlink($private); }
             if(!is_array($result)) throw new MediaFailure('format','Instagram account response unavailable');
             if(isset($result['error'])) {
-                $reason=in_array($result['error'],['cookies','blocked','network','notfound','format'],true)?$result['error']:'format';
-                $failure=new MediaFailure($reason,'Instagram account request refused');
+                $reason=in_array($result['error'],['cookies','blocked','network','notfound','unavailable','format'],true)?$result['error']:'format';
+                $failure=new MediaFailure($reason,'Instagram account request refused ['.self::diagnostic($result).']');
                 if($reason==='cookies') { $failed[]=$jar['id']; continue; }
                 throw $failure;
             }

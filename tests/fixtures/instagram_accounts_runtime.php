@@ -9,5 +9,6 @@ $record=['request_private'=>(fileperms($args['--request'])&0777)===0600,'cookies
     'proxy'=>($args['--proxy']??'')==='http://proxy.fixture:8080','input'=>$request['op']??''];
 file_put_contents(dirname($args['--request']).'/runtime-calls.jsonl',json_encode($record)."\n",FILE_APPEND);
 if(str_contains($cookies,'refused_fixture_session')) echo '{"error":"cookies"}';
-elseif(($request['query']??'')==='blocked') echo '{"error":"blocked"}';
+elseif(($request['query']??'')==='blocked') echo '{"error":"blocked","stage":"profile","http":429}';
+elseif(($request['query']??'')==='unavailable') echo '{"error":"unavailable","stage":"search","http":404}';
 else echo '{"items":[]}';

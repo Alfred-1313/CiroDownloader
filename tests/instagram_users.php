@@ -25,7 +25,11 @@ try {
         $ops[]=$request;
         if($fail!=='') throw new Zero\MediaFailure($fail,'Fixture only; must never appear in diagnostics');
         if($gate) $store->set('instagram.user_search','0');
-        if($request['op']==='search') return ['items'=>$request['query']==='nobody'?[]:$items];
+        if($request['op']==='search') {
+            if($request['query']==='eliyas_sport') return ['items'=>[array_replace($items[0],['username'=>'eliyas_sport','posts'=>581,'followers'=>16200,'following'=>326])],'exact'=>true];
+            if($request['query']==='partial') return ['items'=>$items,'warning'=>['reason'=>'blocked','stage'=>'profile','http'=>429]];
+            return ['items'=>$request['query']==='nobody'?[]:$items];
+        }
         if($request['op']==='page') return ['items'=>array_map(fn($item)=>array_replace($item,['loaded'=>true]),$request['items'])];
         if(!$noPhoto) file_put_contents($folder.'/instagram-avatar.jpg',base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABBQJ//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAwEBPwF//8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAgBAgEBPwF//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQAGPwJ//8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPyF//9oADAMBAAIAAwAAABD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/EB//xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/EB//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/EB//2Q=='));
         return ['item'=>array_replace($request['item'],['loaded'=>true]),'photo'=>!$noPhoto];
@@ -97,6 +101,12 @@ try {
     iuCheck((int)$store->query('SELECT COUNT(*) FROM jobs')->fetchColumn()===$before,'disabled group use also blocks account search');
     $store->set('groups_enabled','1'); $store->set('admins_only','1'); $send('/user_instagram mehdi');
     iuCheck((int)$store->query('SELECT COUNT(*) FROM jobs')->fetchColumn()===$before,'the existing administrator-only access setting is preserved');
+    $store->set('admins_only','0'); $send('/user_instagram eliyas_sport'); $exact=$run(); $p=$panel();
+    iuCheck(str_contains($p['text'],'فقط حساب مطابق نام کاربری دقیق')&&str_contains($p['rows'][0][0]['text'],'@eliyas_sport')&&str_contains($p['rows'][0][0]['text'],'16,200'),'an exact-profile fallback is clearly labelled and keeps the requested account counts');
+    $tap('iu:'.$exact['id'].':0:u:0',7,7,(int)$exact['message_id']); $run();
+    iuCheck(str_contains($panel()['text'],'@eliyas_sport')&&str_contains($panel()['text'],'581'),'selecting an exact fallback uses the usual avatar and bio delivery');
+    $send('/user_instagram partial'); $run();
+    iuCheck(str_contains($panel()['text'],'اطلاعات بعضی حساب‌ها کامل دریافت نشد'),'partial profile information leaves the result list available with an editable explanation');
     foreach(Zero\UiRegistry::items('instagram',Zero\Ui::definitions()) as [$kind,$key]) if(str_contains($key,'instagram_user')) iuCheck($bot->ui->customizable($kind,$key),'Instagram customization exposes '.$key);
     iuCheck(!$bot->ui->customizable('button','instagram_user_toggle')&&$bot->ui->required('instagram_user_back')&&$bot->ui->required('instagram_user_close'),'settings are admin-only and essential navigation cannot be hidden');
     $store->set('button.style.instagram_user_result','primary'); $store->set('button.icon.instagram_user_result','123456789');
@@ -121,5 +131,8 @@ try {
     iuCheck($result===['items'=>[]]&&count($runtimeCalls)===2&&!array_filter($runtimeCalls,fn($c)=>!$c['request_private']||!$c['cookies_private']||!$c['proxy']),'search rotates refused jars, uses private copies and forwards the gallery proxy');
     iuCheck(!is_file($runtime.'/work/instagram-account-cookies.txt'),'the private session copy is removed after the process finishes');
     try { $accounts->fetch(['op'=>'search','query'=>'blocked'],$runtime.'/work'); throw new RuntimeException('Expected rate-limit refusal'); }
-    catch(Zero\MediaFailure $error) { iuCheck($error->reason==='blocked'&&!str_contains($error->getMessage(),'fixture_session'),'provider refusals preserve a safe reason and never expose session values'); }
+    catch(Zero\MediaFailure $error) { iuCheck($error->reason==='blocked'&&str_contains($error->getMessage(),'instagram=profile, http=429')&&!str_contains($error->getMessage(),'fixture_session'),'provider refusals preserve a safe stage and HTTP status without exposing session values'); }
+    try { $accounts->fetch(['op'=>'search','query'=>'unavailable'],$runtime.'/work'); throw new RuntimeException('Expected unavailable route'); }
+    catch(Zero\MediaFailure $error) { iuCheck($error->reason==='unavailable'&&str_contains($error->getMessage(),'instagram=search, http=404'),'a missing search route stays distinct from an unavailable account'); }
+    iuCheck(Zero\InstagramAccounts::diagnostic(['stage'=>'secret.invalid','http'=>'429 cookie=bad'])==='instagram=runtime, http=0','diagnostic fields reject arbitrary strings');
 } finally { if(is_resource($server)) { proc_terminate($server); proc_close($server); } Zero\Download::clean($temp); }

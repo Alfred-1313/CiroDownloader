@@ -38,7 +38,9 @@ class Site(BaseHTTPRequestHandler):
         parts = urlsplit(self.path)
         self.calls.append((parts.path, dict(self.headers), parse_qs(parts.query)))
         if "topsearch" in parts.path:
-            if self.mode == "refused":
+            if self.mode in ("routes_gone", "exact_graphql", "exact_wrong", "exact_limited", "exact_missing", "exact_login"):
+                self.reply({}, 404)
+            elif self.mode == "refused":
                 self.reply({"status": "fail", "message": "login_required"}, 403)
             elif self.mode == "blocked":
                 self.reply({"status": "fail"}, 429)
@@ -68,18 +70,42 @@ class Site(BaseHTTPRequestHandler):
                 self.reply(b"\xff\xd8\xff" + b"x" * (8 * 1024 * 1024), kind="image/jpeg")
             else:
                 self.reply(b"\xff\xd8\xfffixture-profile-photo", kind="image/jpeg")
+        elif parts.path == "/eliyas_sport/" and self.mode == "exact_limited":
+            self.reply({}, 429)
+        elif parts.path == "/eliyas_sport/" and self.mode == "exact_missing":
+            self.reply({}, 404)
+        elif parts.path == "/eliyas_sport/" and self.mode == "exact_login":
+            self.send_response(302)
+            self.send_header("Location", "/accounts/login/")
+            self.end_headers()
+        elif parts.path == "/eliyas_sport/" and self.mode == "routes_gone":
+            user = {"id": "700", "username": "eliyas_sport", "full_name": "الیاس اسپرت", "biography": "کیفیت اعتبار ماست",
+                    "edge_owner_to_timeline_media": {"count": 581}, "edge_followed_by": {"count": 16200},
+                    "edge_follow": {"count": 326}, "profile_pic_url": "https://scontent.cdninstagram.com/avatar.jpg"}
+            unrelated = dict(user, username="another_shop", id="999")
+            payload = {"require": [["RelayPrefetchedStreamCache", {"data": {"user": user, "suggestion": unrelated}}]]}
+            self.reply(('<html><script type="application/json">'+json.dumps(payload)+'</script></html>').encode(), kind="text/html")
         else:
+            if parts.path == "/eliyas_sport/" and self.mode in ("exact_graphql", "exact_wrong"):
+                self.reply(b'<html>"profile_id":"700"<script id="__eqmc">{"l":"fixture-lsd","f":"fixture-dtsg"}</script><link href="https://static.cdninstagram.com/rsrc.php/fixture.js"></html>', kind="text/html")
+                return
             self.reply(b'<html><script id="__eqmc">{"l":"fixture-lsd","f":"fixture-dtsg"}</script><link href="https://static.cdninstagram.com/rsrc.php/fixture.js"></html>', kind="text/html")
 
     def do_POST(self):
         body = parse_qs(self.rfile.read(int(self.headers.get("Content-Length", "0"))).decode())
         self.calls.append((self.path, dict(self.headers), body))
+        if self.mode == "partial_limited":
+            self.reply({}, 429)
+            return
+        if self.mode == "partial_missing" and json.loads(body["variables"][0])["id"] == "100":
+            self.reply({"data": {"user": None}})
+            return
         if self.mode == "profile_refused":
             self.reply({"status": "fail"}, 403)
             return
         uid = json.loads(body["variables"][0])["id"]
         self.reply({"data": {"user": {
-            "id": uid, "username": "mehdi" + str(int(uid) - 100), "full_name": "مهدی <test>",
+            "id": uid, "username": "other_shop" if self.mode == "exact_wrong" else "eliyas_sport" if uid == "700" else "mehdi" + str(int(uid) - 100), "full_name": "مهدی <test>",
             "edge_owner_to_timeline_media": {"count": 42}, "edge_followed_by": {"count": 12345},
             "edge_follow": {"count": 300}, "is_private": True, "biography": "خط اول\nخط دوم <b>literal</b>",
             "profile_pic_url_hd": "https://scontent.cdninstagram.com/avatar.jpg",
@@ -203,8 +229,70 @@ class Accounts(unittest.TestCase):
             cookies.write_text("# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tcsrftoken\tfixture-secret\n")
             process = subprocess.run([sys.executable, str(SPEC.origin), "--request", str(request), "--cookies", str(cookies)], capture_output=True, text=True, timeout=15)
             self.assertEqual(process.returncode, 0)
-            self.assertEqual(json.loads(process.stdout), {"error": "cookies"})
+            self.assertEqual(json.loads(process.stdout), {"error": "cookies", "stage": "runtime", "http": 0})
             self.assertNotIn("fixture-secret", process.stdout + process.stderr)
+
+    def test_both_search_routes_404_use_exact_profile_embedded_data(self):
+        Site.mode = "routes_gone"
+        with tempfile.TemporaryDirectory() as folder:
+            result = MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+        self.assertTrue(result["exact"])
+        self.assertEqual(len(result["items"]), 1)
+        item = result["items"][0]
+        self.assertEqual((item["username"], item["posts"], item["followers"], item["following"]), ("eliyas_sport", 581, 16200, 326))
+        self.assertEqual(item["bio"], "کیفیت اعتبار ماست")
+        self.assertFalse(any(p == "/api/graphql" for p, _, _ in Site.calls))
+        self.assertEqual(len(Site.calls), 3)
+
+    def test_exact_profile_reuses_page_for_current_graphql(self):
+        Site.mode = "exact_graphql"
+        with tempfile.TemporaryDirectory() as folder:
+            result = MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+        self.assertTrue(result["exact"])
+        self.assertEqual(result["items"][0]["username"], "eliyas_sport")
+        self.assertEqual(sum(p == "/eliyas_sport/" for p, _, _ in Site.calls), 1)
+
+    def test_unavailable_search_is_not_a_missing_account(self):
+        Site.mode = "routes_gone"
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
+            MODULE.run(self.client, {"op": "search", "query": "نام با فاصله"}, Path(folder))
+        self.assertEqual((caught.exception.reason, caught.exception.stage, caught.exception.http), ("unavailable", "search", 404))
+        self.assertEqual(len(Site.calls), 2)
+
+    def test_exact_profile_never_returns_a_different_session_or_suggestion(self):
+        Site.mode = "exact_wrong"
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
+            MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+        self.assertEqual(caught.exception.reason, "unavailable")
+
+    def test_rate_limit_and_login_do_not_trigger_more_fallback_requests(self):
+        for mode, reason in (("exact_limited", "blocked"), ("exact_missing", "notfound"), ("exact_login", "cookies")):
+            Site.mode, Site.calls = mode, []
+            with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
+                MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+            self.assertEqual((caught.exception.reason, caught.exception.stage), (reason, "profile"))
+            self.assertEqual(len(Site.calls), 3)
+        Site.mode, Site.calls = "blocked", []
+        with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
+            MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+        self.assertEqual(caught.exception.reason, "blocked")
+        self.assertEqual(len(Site.calls), 1)
+
+    def test_one_failed_suggestion_does_not_erase_the_search(self):
+        Site.mode = "partial_missing"
+        with tempfile.TemporaryDirectory() as folder:
+            result = MODULE.run(self.client, {"op": "search", "query": "mehdi"}, Path(folder))
+        self.assertEqual(len(result["items"]), 12)
+        self.assertEqual(result["items"][1]["followers"], 12345)
+        self.assertIsNone(result["items"][0]["followers"])
+        self.assertEqual(result["warning"]["reason"], "notfound")
+        CACHE_MEMORY.clear()
+        Site.mode, Site.calls = "partial_limited", []
+        with tempfile.TemporaryDirectory() as folder:
+            result = MODULE.run(self.client, {"op": "search", "query": "mehdi"}, Path(folder))
+        self.assertEqual(len(result["items"]), 12)
+        self.assertEqual(result["warning"]["reason"], "blocked")
+        self.assertEqual(sum(p == "/api/graphql" for p, _, _ in Site.calls), 1)
 
 
 if __name__ == "__main__":

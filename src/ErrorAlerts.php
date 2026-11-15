@@ -33,7 +33,8 @@ final class ErrorAlerts
         if(self::$sending||self::$config===null||self::$store===null) return;
         $service=in_array($service,['runtime','worker','poller','radio','batch','menu','article','youtube',...adultServices(),...galleryServices(),...musicServices()],true)?$service:'runtime';
         $reason=in_array($reason,['storage','network','blocked','cookies','restricted','format','size','duration','upload','process'],true)?$reason:'process';
-        $sources=$reason!=='storage'&&preg_match('/^[a-z]{1,16}=[a-z]{1,20}(?:, [a-z]{1,16}=[a-z]{1,20}){0,4}$/D',$sources)?$sources:'';
+        $instagram=$service==='instagram'&&preg_match('/^instagram=(?:search|profile|avatar|runtime), http=(?:0|[1-5][0-9]{2})$/D',$sources);
+        $sources=$reason!=='storage'&&($instagram||preg_match('/^[a-z]{1,16}=[a-z]{1,20}(?:, [a-z]{1,16}=[a-z]{1,20}){0,4}$/D',$sources))?$sources:'';
         $key=$service.':'.$reason.':'.$sources;
         // Process-local rate limit only; failed notifications never recurse or queue on disk.
         if(time()-(self::$sent[$key]??0)<60) return;
