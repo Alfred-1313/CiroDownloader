@@ -10,7 +10,7 @@ final class UiRegistry
         'downloading','uploading','audio_downloading','audio_uploading','failed','error_size','error_restricted','error_cookies','error_duration',
         'error_network','error_storage','error_blocked','error_format','error_process','error_upload','handoff_ready','handoff_expired','handoff_queued','handoff_denied','handoff_failed','audio_failed','audio_error_size','audio_error_format','audio_error_upload'];
     private const YOUTUBE_TEXTS=['video_caption','video_title','video_quality','video_duration','audio_caption','audio_title','audio_format','audio_duration'];
-    public static function services(): array { return ['youtube',...galleryServices(),...musicServices(),...adultServices()]; }
+    public static function services(): array { return array_values(array_unique(['youtube',...galleryServices(),...musicServices(),...adultServices()])); }
     public static function shared(string $service,string $kind): array
     {
         if(in_array($service,['youtube',...adultServices()],true)) return $kind==='button'
@@ -63,7 +63,9 @@ final class UiRegistry
     {
         if(in_array($service,['youtube',...adultServices()],true)) {
             $result=['quality'=>array_filter(['240'=>'quality_240','360'=>'quality_360','480'=>'quality_480','720'=>'quality_720','1080'=>'quality_high','native'=>'quality_native','audio'=>'extract_audio'],fn($key)=>in_array($key,self::shared($service,'button'),true))];
-            if($service==='youtube') $result+=['video'=>['source'=>'source_video'],'audio'=>['source'=>'source_audio']];
+            if($service==='youtube') $result+=['video'=>['source'=>'source_video'],'audio'=>['source'=>'source_audio'],
+                'post_slides'=>['prev'=>'youtube_post_prev','next'=>'youtube_post_next','source'=>'source_youtube_post'],
+                'post_delivery'=>['source'=>'source_youtube_post']];
             else $result+=['handoff'=>['open'=>'handoff_open']];
             return $result;
         }
@@ -80,7 +82,7 @@ final class UiRegistry
         return match($layout) {
             'quality'=>array_merge(array_chunk(array_values(array_filter(array_map('strval',array_keys(self::layouts($service)[$layout])),fn($id)=>$id!=='audio')),2),[['audio']]),
             'slides'=>[['prev','next'],['source']],
-            'story_slides'=>[['prev','next'],['source']],
+            'story_slides','post_slides'=>[['prev','next'],['source']],
             default=>array_map(fn($id)=>[(string)$id],array_keys(self::layouts($service)[$layout]??[])),
         };
     }

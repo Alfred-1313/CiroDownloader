@@ -27,6 +27,7 @@ require_once __DIR__.'/TimedDeletes.php';
 require_once __DIR__.'/XnxxSearch.php';
 require_once __DIR__.'/InstagramStories.php';
 require_once __DIR__.'/InstagramStoryCookies.php';
+require_once __DIR__.'/YoutubePosts.php';
 
 final class Bot
 {
@@ -386,6 +387,7 @@ final class Bot
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return 'denied'; }
         if(instagramStoryUrl($url)!==null&&!InstagramStories::enabled($this->store)) { $this->send($chat,$this->text('instagram_story_disabled'),[],0,$thread); return 'denied'; }
+        if(youtubePostUrl($url)!==null&&!YoutubePosts::enabled($this->store)) { $this->send($chat,$this->text('youtube_post_disabled'),[],0,$thread); return 'denied'; }
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
@@ -408,7 +410,7 @@ final class Bot
             try {
                 $collection=$service?null:collectionUrl($url);
                 $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':''));
-                $key=instagramStoryUrl($url)!==null?'instagram_story_queued':($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'));
+                $key=$service?galleryUiPrefix($service,$url).'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued');
                 $this->jobMessage($job,$ui->text($key));
             }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
@@ -449,7 +451,7 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
-            $isPage=preg_match('/^(?:ig|pin|tt|x)page:(\d+):([1-9][0-9]?|100)(?::(\d+))?$/D',$action,$page)===1;
+            $isPage=preg_match('/^(?:ig|pin|tt|x|ytp)page:(\d+):([1-9][0-9]?|100)(?::(\d+))?$/D',$action,$page)===1;
             $pageCounter=$action==='igpage:noop';
             $changePage=preg_match('/^update:changes(?::(\d{1,4}))?$/D',$action,$changeMatch)===1;
             $groupUpdate=$group&&(in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:back','update:close'],true)||$changePage);
@@ -489,7 +491,7 @@ final class Bot
                 $topic=$group&&!isset($message['message_thread_id'])?null:$thread;
                 $pageService=galleryFromPrefix(substr(strstr($action,':',true),0,-4));
                 $notice=(new GalleryPages($this->config,$this->store,$this->api,$pageService))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$topic,(int)$page[2],isset($page[3])?(int)$page[3]:null);
-                $pagePrefix=$pageService==='instagram'&&instagramStoryUrl((string)$this->store->query('SELECT url FROM jobs WHERE id=?',[(int)$page[1]])->fetchColumn())!==null?'instagram_story':$pageService;
+                $pagePrefix=galleryUiPrefix($pageService,(string)$this->store->query('SELECT url FROM jobs WHERE id=?',[(int)$page[1]])->fetchColumn());
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pagePrefix.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }

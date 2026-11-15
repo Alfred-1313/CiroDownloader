@@ -28,6 +28,7 @@ try {
     $seen=[]; $screens=[];
     foreach(Zero\UiRegistry::services() as $service) foreach(['caption','button','text','cover','quality'] as $kind) $screens[]='custom:items:'.$service.':'.$kind.':0';
     foreach(['stories'] as $kind) $screens[]='custom:items:instagram:'.$kind.':0';
+    $screens[]='custom:items:youtube:posts:0';
     foreach(['menu','batch','search','radio','radio_player','help','group','access','errors'] as $section) $screens[]='custom:section:'.$section;
     foreach($screens as $screen) {
         $queue=[$screen]; $visited=[];

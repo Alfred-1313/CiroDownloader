@@ -273,7 +273,7 @@ final class Personalization
             'progress'=>[['text','queued'],['text','inspecting'],['text','quality_expired'],['text','quality_busy'],['text','downloading'],['text','uploading'],['text','audio_downloading'],['text','audio_uploading']],
             'errors'=>[],
         ];
-        foreach(galleryServices() as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
+        foreach(array_diff(galleryServices(),['youtube']) as $service) $screens[$service]=[['text',$service.'_queued'],['text',$service.'_downloading'],['text',$service.'_uploading'],['text',$service.'_caption'],['text',$service.'_page_caption'],['button',$service.'_prev'],['button',$service.'_next'],['button','source_'.$service],['button','open_'.$service.'_article']];
         $screens['menu']=array_merge(array_map(fn($key)=>['text','menu_'.$key],['queued','loading','head','info','limited','empty','failed','expired','owner','sent','again','untitled']),
             array_map(fn($key)=>['button','menu_tab_'.$key],['popular','albums','singles','eps','compilations','playlists','related','tracks','sets','reposts','likes']),
             array_map(fn($key)=>['button','menu_'.$key],['track','album','playlist','artist','all','zip','prev','next','back','close','page']));
@@ -320,7 +320,11 @@ final class Personalization
     public function settingsRows(string $section): array
     {
         $ui=$this->bot->ui; $rows=[];
-        if(in_array($section,galleryServices(),true)) {
+        if($section==='youtube') {
+            $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
+            $rows[]=[$this->switchButton('youtube_post_toggle','custom:ytposts',YoutubePosts::enabled($this->bot->store))];
+            $rows[]=[$this->switchButton('youtube_post_source_toggle','custom:ytpsource',$ui->gallerySourceEnabled('youtube'))];
+        } elseif(in_array($section,galleryServices(),true)) {
             $prefix=galleryPrefix($section); $article=$this->bot->store->get($section.'.carousel_mode','pages')==='article';
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->choice($section.'_mode_pages','custom:'.$prefix.'mode:pages',!$article)];
@@ -369,7 +373,7 @@ final class Personalization
         if($navigation) $rows[]=$navigation;
         $parent=in_array($section,['cover','video','audio','progress'],true)?'custom:service:youtube':(in_array($section,UiRegistry::services(),true)?'custom:service:'.$section:(in_array($section,['menu','batch','search','radio','radio_player'],true)?'custom:category:music':'custom:category:general'));
         $rows[]=[$ui->button('back_custom',$parent),$ui->button('close','custom:close')];
-        $text=$section==='menu'?$ui->text('menu_section_info'):($section==='batch'?$ui->text('batch_section_info'):(in_array($section,musicServices(),true)?$ui->text($section.'_section_info'):(in_array($section,galleryServices(),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)])))));
+        $text=$section==='menu'?$ui->text('menu_section_info'):($section==='batch'?$ui->text('batch_section_info'):(in_array($section,musicServices(),true)?$ui->text($section.'_section_info'):(in_array($section,array_diff(galleryServices(),['youtube']),true)?$ui->text($section.'_mode_info',['mode'=>$ui->label($section.'_mode_'.($this->bot->store->get($section.'.carousel_mode','pages')==='article'?'article':'pages'))]):($section==='cover'?$ui->text('section_cover_info'):$ui->text(in_array($section,['video','audio'],true)?'section_media_info':'section_info',['title'=>$ui->label('section_'.$section)])))));
         $this->send($chat,$text,$rows,$message);
     }
     private function reorder(int $chat,int $message,array $order, string $notice='',bool $plain=false): void
@@ -489,7 +493,7 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        return ['bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
     }
@@ -805,6 +809,14 @@ final class Personalization
             $service=galleryFromPrefix(substr($op,0,-6));
             $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
             if(!$this->menus()->settingsReturn($chat,$message,$service)) $this->section($chat,$service,$message);
+        }
+        elseif($op==='ytpsource') {
+            $this->bot->store->set('youtube.posts_source_button',$ui->gallerySourceEnabled('youtube')?'0':'1');
+            if(!$this->menus()->settingsReturn($chat,$message,'youtube')) $this->menus()->service($chat,$message,'youtube');
+        }
+        elseif($op==='ytposts') {
+            $this->bot->store->set('youtube.posts',YoutubePosts::enabled($this->bot->store)?'0':'1');
+            if(!$this->menus()->settingsReturn($chat,$message,'youtube')) $this->menus()->service($chat,$message,'youtube');
         }
         elseif($op==='igstories') {
             $this->bot->store->set('instagram.stories',InstagramStories::enabled($this->bot->store)?'0':'1');

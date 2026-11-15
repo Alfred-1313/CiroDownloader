@@ -1,0 +1,15 @@
+# YouTube community posts
+
+Community links such as `https://www.youtube.com/post/Ug...` are distinct from videos and Shorts. Enable **🎨 شخصی‌سازی ← یوتیوب ← تنظیمات ← دانلود پست یوتیوب** after updating. The switch defaults off, and its public disabled notice is editable.
+
+A post's own images and text are downloaded automatically. A single photo carries the post caption; multiple photos use the existing requester/chat/topic-bound Previous/Next message with neutral buttons and no counter button or quality prompt. Text-only posts and poll choices become text. An attached video is represented by its canonical video link: sending that link starts the existing quality-selection flow. Channel/community feeds, member-only access not granted to the session, related posts, comments and external attachments are not expanded. Full text can exceed Telegram's caption limit: media captions keep up to 700 UTF-16 units of description; text-only posts keep up to 3000 characters.
+
+All public captions, progress/errors, navigation, source button and its visibility are editable in **یوتیوب ← پست‌های یوتیوب** and **یوتیوب ← تنظیمات**. Photo and carousel layouts are under the YouTube layout editor. The source button defaults off. Disabling the feature is checked at intake, before delivery and on every page action; ordinary YouTube video/audio behavior is unchanged.
+
+The existing pinned yt-dlp initial-data parser reads only a renderer with the exact requested post ID; a bounded HTTP client downloads that post's image attachments. Requests accept only canonical HTTPS YouTube page hosts and the supported `yt3.ggpht.com` / `yt3.googleusercontent.com` image hosts, including redirect validation, with bounded metadata/media sizes. Every source image must arrive before any is sent. Failures never fall back to neighbouring posts or partial delivery.
+
+The downloader reuses the existing YouTube cookie pool and proxy, copying a selected jar privately for the request and never modifying or invalidating the video jar because a post failed. Public posts can work without cookies when YouTube permits access. HTTP 429 stops immediately. In cookie-fallback mode, one anonymous HTTP 401 can try one authenticated jar; no account/API fanout is performed. Public notices omit cookie/setup details; private administrator diagnostics remain sanitized.
+
+Prepared carousel files live privately in `storage/youtube-pages` for up to 24 hours. Confirmed Telegram file IDs allow returning to a sent image after its local file is released. The worker prunes this cache, and updater/maintenance backups exclude it.
+
+Tests: `php tests/youtube_posts.php` (set `GALLERY_DL_PYTHON` to the pinned environment's Python) runs the production parser/downloader and Telegram flow against local HTTP fixtures. `tests/test_youtube_post_parser.py` uses the same Python and verifies exact-post selection, poll/video text, trusted image hosts, redirects and size bounds. Live availability of a particular post still depends on YouTube access from the deployed server.

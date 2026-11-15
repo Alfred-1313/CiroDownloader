@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Zero;
 use Throwable;
 require_once __DIR__.'/Instagram.php';
+require_once __DIR__.'/YoutubePosts.php';
 require_once __DIR__.'/Pinterest.php';
 require_once __DIR__.'/TikTok.php';
 require_once __DIR__.'/Twitter.php';
@@ -63,6 +64,11 @@ final class Worker
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
+            if($service==='youtube'&&!YoutubePosts::enabled($store)) {
+                $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+                (new GalleryPages($config,$store,$api,'youtube'))->clean($job);
+                $bot->jobMessage($job,$bot->text('youtube_post_disabled')); return;
+            }
             if($instagramStory&&!InstagramStories::enabled($store)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 (new GalleryPages($config,$store,$api,'instagram'))->clean($job);
@@ -99,7 +105,7 @@ final class Worker
                     $this->noteSpeed($service,$sent,$timings,0);
                     return;
                 }
-                $bot->jobMessage($job,$bot->text($instagramStory?'instagram_story_downloading':$service.'_downloading'));
+                $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_downloading'));
                 $inspectionStarted=hrtime(true);
                 $media=GalleryMedia::forService($config,$service)->fetch($job['url'],$folder);
                 $timings['prepare_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
@@ -109,7 +115,13 @@ final class Worker
                     $bot->jobMessage($job,$bot->text('instagram_story_empty',['username'=>instagramStoryUsername($job['url'])])); return;
                 }
                 if($instagramStory&&!InstagramStories::enabled($store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
-                if(!$instagramStory&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
+                if($service==='youtube'&&!YoutubePosts::enabled($store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
+                if($service==='youtube'&&count($media)===1&&($media[0]['type']??'')==='text') {
+                    $description=mb_substr($media[0]['description'],0,3000);
+                    $bot->jobMessage($job,$bot->text('youtube_post_text',['description'=>$description,'author'=>$media[0]['author'],'url'=>$job['url']]),$bot->ui->gallerySourceRows('youtube',$job['url']));
+                    $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]); return;
+                }
+                if(!$instagramStory&&$service!=='youtube'&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text($service.'_article_building'));
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
                     Download::clean($folder);
@@ -246,11 +258,11 @@ final class Worker
             try { $store->pushError($label,$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'),$store->get('last_job_sources')); } catch(Throwable) {}
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
             if($instagramStory) $key=str_contains($detail,'story identity unavailable')?'instagram_story_error_identity':'instagram_story_'.$key;
-            elseif($gallery) $key=$service.'_'.$key;
+            elseif($gallery) $key=galleryUiPrefix($service,$job['url']).'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
             elseif($adult) $key=$bot->ui->definition('text',$adultSite.'_'.$key)?$adultSite.'_'.$key:$key;
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
-            $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($instagramStory?'instagram_story_failed':($music!==null?$music.'_failed':'failed')))));
+            $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($instagramStory?'instagram_story_failed':($service==='youtube'?'youtube_post_failed':($music!==null?$music.'_failed':'failed'))))));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally {
             $timings['total_ms']=(int)round((hrtime(true)-$started)/1e6);
@@ -725,14 +737,15 @@ final class Worker
         if(count($media)!==1) throw new MediaFailure('format','Expected one gallery media file');
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
         $story=instagramStoryUrl($job['url'])!==null;
+        if($service==='youtube'&&!YoutubePosts::enabled($this->store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
         if($story&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
         $item=$media[0];
-        $bot->jobMessage($job,$bot->text($story?'instagram_story_uploading':$service.'_uploading',['sent'=>0,'count'=>1]));
+        $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_uploading',['sent'=>0,'count'=>1]));
         if($this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($item['path'])+268435456);
         // Match the carousel's description budget; Ui escapes upstream text before inserting it into HTML.
         $description=(string)($item['description']??'');
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
-        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text($story?'instagram_story_caption':$service.'_caption',['index'=>1,'count'=>1,'url'=>$job['url'],'description'=>$description,'username'=>instagramStoryUsername($job['url'])])),'parse_mode'=>'HTML'];
+        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text(galleryUiPrefix($service,$job['url']).'_caption',['index'=>1,'count'=>1,'url'=>$job['url'],'description'=>$description,'username'=>instagramStoryUsername($job['url']),'author'=>$item['author']??''])),'parse_mode'=>'HTML'];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         if($item['type']==='video') $params+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($item['path'],$item['type']==='photo'?'image/jpeg':'video/mp4',$item['type']==='photo'?'photo.jpg':'video.mp4');

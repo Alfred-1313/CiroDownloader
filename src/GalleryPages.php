@@ -18,10 +18,10 @@ class GalleryPages
             foreach($media as $index=>$item) {
                 $name=($index+1).($item['type']==='photo'?'.jpg':'.mp4');
                 if(!rename($item['path'],$folder.'/'.$name)||!chmod($folder.'/'.$name,0600)) throw new MediaFailure('storage','Cannot retain Gallery slide');
-                unset($item['path'],$item['description']); $items[]=$item+['file'=>$name];
+                unset($item['path'],$item['description'],$item['author']); $items[]=$item+['file'=>$name];
             }
             $state=['folder'=>basename($folder),'items'=>$items,'current'=>0,'target'=>1,'revision'=>0,'message'=>0,'expires'=>time()+self::TTL,
-                'description'=>(string)($media[0]['description']??'')];
+                'description'=>(string)($media[0]['description']??''),'author'=>(string)($media[0]['author']??'')];
             touch($folder,$state['expires']-self::TTL);
             $job['options']=json_encode(['pages'=>$state],JSON_THROW_ON_ERROR);
             $this->store->query("UPDATE jobs SET phase='{$this->service}_page',options=? WHERE id=?",[$job['options'],$job['id']]);
@@ -46,12 +46,13 @@ class GalleryPages
         $this->store->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND chat_id=? AND phase='{$this->service}_page'",[$id,$chat])->fetch();
-            $prefix=$job&&instagramStoryUrl($job['url'])!==null?'instagram_story':$this->service;
+            $prefix=galleryUiPrefix($this->service,(string)($job['url']??''));
             $state=$job?$this->state($job):null;
             if(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice=$prefix.'_page_expired';
             elseif((int)$state['message']!==$message) $notice=$prefix.'_page_stale';
             elseif((int)$job['user_id']!==$user) $notice=$prefix.'_page_owner';
             elseif(instagramStoryUrl($job['url'])!==null&&!InstagramStories::enabled($this->store)) $notice='instagram_story_disabled';
+            elseif($this->service==='youtube'&&!YoutubePosts::enabled($this->store)) $notice='youtube_post_disabled';
             // Optional Telegram topic metadata must not reject the authenticated
             // sender. The worker retains the saved topic; explicit mismatches fail.
             elseif(($thread!==null&&(int)$job['thread_id']!==$thread)||$page<1||$page>count($state['items'])||abs($page-(int)$state['current'])!==1
@@ -83,23 +84,24 @@ class GalleryPages
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery page delivery no longer authorized');
         $count=count($state['items']);
         $initial=(int)$state['message']===0;
-        if($initial) $bot->jobMessage($job,$bot->text(instagramStoryUrl($job['url'])!==null?'instagram_story_uploading':$this->service.'_uploading',['sent'=>0,'count'=>$count]));
+        if($initial) $bot->jobMessage($job,$bot->text(galleryUiPrefix($this->service,$job['url']).'_uploading',['sent'=>0,'count'=>$count]));
         $bytes=$cached?0:(int)filesize($path);
         if(!$cached&&$this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($path)+268435456);
         $description=$state['description'];
-        $story=instagramStoryUrl($job['url'])!==null; $buttonPrefix=$story?'instagram_story':$this->service;
+        $story=instagramStoryUrl($job['url'])!==null; $buttonPrefix=galleryUiPrefix($this->service,$job['url']);
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
-        $caption=Ui::fitCaption($bot->text($buttonPrefix.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description,'username'=>instagramStoryUsername($job['url'])]));
+        $caption=Ui::fitCaption($bot->text($buttonPrefix.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description,'username'=>instagramStoryUsername($job['url']),'author'=>$state['author']??'']));
         $revision=(int)$state['revision']+1;
         $slots=['prev'=>[],'next'=>[],'source'=>array_merge(...(($story?$bot->ui->instagramStorySourceRows($job['url']):$bot->ui->gallerySourceRows($this->service,$job['url']))?:[[]]))];
         if($index>1) $slots['prev'][]=$bot->ui->button($buttonPrefix.'_prev',(galleryPrefix($this->service).'page:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
         if($index<$count) $slots['next'][]=$bot->ui->button($buttonPrefix.'_next',(galleryPrefix($this->service).'page:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
-        $rows=$bot->ui->layout($this->service,$story?'story_slides':'slides',$slots,[['prev','next'],['source']]);
+        $rows=$bot->ui->layout($this->service,$story?'story_slides':($this->service==='youtube'?'post_slides':'slides'),$slots,[['prev','next'],['source']]);
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
         $media=['type'=>$item['type'],'media'=>$cached?$item['file_id']:'attach://slide','caption'=>$caption,'parse_mode'=>'HTML'];
         if($item['type']==='video') $media+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($path,$item['type']==='photo'?'image/jpeg':'video/mp4',$name);
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery page delivery no longer authorized');
+        if($this->service==='youtube'&&!YoutubePosts::enabled($this->store)) throw new MediaFailure('restricted','YouTube posts disabled before page delivery');
         if($story&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before page delivery');
         if($initial) {
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];

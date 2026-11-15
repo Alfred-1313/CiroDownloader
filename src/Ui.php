@@ -193,12 +193,12 @@ final class Ui
         $button=$this->button('source_instagram_story'); $button['url']=$url;
         return $this->layout('instagram','story_delivery',['source'=>[$button]],[['source']]);
     }
-    public function gallerySourceEnabled(string $service): bool { return $this->get($service.'.source_button','0')==='1'; }
+    public function gallerySourceEnabled(string $service): bool { return $this->get(($service==='youtube'?'youtube.posts_source_button':$service.'.source_button'),'0')==='1'; }
     public function gallerySourceRows(string $service,string $url): array
     {
         if(!$this->gallerySourceEnabled($service)) return [];
-        $button=$this->button('source_'.$service); $button['url']=$url;
-        return $this->layout($service,'delivery',['source'=>[$button]],[['source']]);
+        $button=$this->button($service==='youtube'?'source_youtube_post':'source_'.$service); $button['url']=$url;
+        return $this->layout($service,$service==='youtube'?'post_delivery':'delivery',['source'=>[$button]],[['source']]);
     }
     public function coverCaption(string $title,string $maxSize): string
     {

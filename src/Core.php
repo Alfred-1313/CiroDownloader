@@ -696,6 +696,19 @@ function youtubeUrl(string $input): ?string
     return is_string($id) && preg_match('/^[A-Za-z0-9_-]{11}$/D', $id) ? 'https://www.youtube.com/watch?v='.$id : null;
 }
 
+/** One YouTube community post; video links retain their separate quality flow. */
+function youtubePostUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.|m\.)?youtube\.com/~i',$input)) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||isset($parts['user'])||isset($parts['pass'])||isset($parts['port'])
+        ||!in_array(strtolower($parts['host']??''),['youtube.com','www.youtube.com','m.youtube.com'],true)
+        ||!preg_match('~^/post/(Ug[A-Za-z0-9_-]{8,126})/?$~D',$parts['path']??'',$match)) return null;
+    return 'https://www.youtube.com/post/'.$match[1];
+}
+
 /**
  * One Pornhub video, as https://www.pornhub.com/view_video.php?viewkey=KEY. Only video pages (and their embed form)
  * on pornhub.com and its language subdomains; channels, models, playlists and every other host are refused.
@@ -1007,13 +1020,14 @@ function musicPrefix(string $service): string { return MUSIC_PREFIXES[$service]?
 function musicFromPrefix(string $prefix): ?string { $service=array_search($prefix,MUSIC_PREFIXES,true); return $service===false?null:$service; }
 function musicService(string $input): ?string { return spotifyUrl($input)?'spotify':(soundcloudUrl($input)?'soundcloud':null); }
 
-const GALLERY_PREFIXES=['instagram'=>'ig','pinterest'=>'pin','tiktok'=>'tt','twitter'=>'x'];
+const GALLERY_PREFIXES=['instagram'=>'ig','pinterest'=>'pin','tiktok'=>'tt','twitter'=>'x','youtube'=>'ytp'];
 function galleryServices(): array { return array_keys(GALLERY_PREFIXES); }
 function galleryPrefix(string $service): string { return GALLERY_PREFIXES[$service]??throw new \InvalidArgumentException('Unknown media service'); }
 function galleryFromPrefix(string $prefix): ?string { $service=array_search($prefix,GALLERY_PREFIXES,true); return $service===false?null:$service; }
-function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),default=>null}; }
+function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),'youtube'=>youtubePostUrl($input),default=>null}; }
 function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??(collectionUrl($input)['url']??null); }
+function galleryUiPrefix(string $service,string $url=''): string { return $service==='youtube'?'youtube_post':(instagramStoryUrl($url)!==null?'instagram_story':$service); }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??youtubePostUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??(collectionUrl($input)['url']??null); }
 
 function lockProcess(string $path): mixed
 {

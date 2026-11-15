@@ -8,13 +8,13 @@ abstract class GalleryMedia
     protected const SERVICE='instagram', NAME='Instagram', PREFIX='ig', SESSION_COOKIE='sessionid', COOKIE_DOMAIN='instagram.com';
     protected const SESSION_ALIASES=[];
     public static function service(): string { return static::SERVICE; }
-    private static function type(string $service): string { return match($service) {'instagram'=>Instagram::class,'pinterest'=>Pinterest::class,'tiktok'=>TikTok::class,'twitter'=>Twitter::class,default=>throw new \InvalidArgumentException('Unknown media service')}; }
+    private static function type(string $service): string { return match($service) {'instagram'=>Instagram::class,'pinterest'=>Pinterest::class,'tiktok'=>TikTok::class,'twitter'=>Twitter::class,'youtube'=>YoutubePosts::class,default=>throw new \InvalidArgumentException('Unknown media service')}; }
     public static function forService(Config $config,string $service): self { $class=self::type($service); return new $class($config); }
     public static function validateFor(string $service,string $content): void { $class=self::type($service); $class::validateCookies($content); }
     public static function poolFor(Config $config,string $service): CookiePool { $class=self::type($service); return $class::pool($config); }
     public static function maxItems(string $service,?string $url=null): int { $class=self::type($service); return $service==='instagram'&&$url!==null&&instagramStoryUrl($url)!==null?100:$class::MAX_ITEMS; }
     protected static function cookiePath(Config $config): string { return $config->galleryCookiePath(static::SERVICE); }
-    public function __construct(private Config $config) {}
+    public function __construct(protected Config $config) {}
     public static function validateCookies(string $content): void
     {
         if(strlen($content)>1048576||!preg_match('/^# (?:Netscape )?HTTP Cookie File/',$content)) throw new \RuntimeException('Expected a Netscape cookie export smaller than 1 MB');
@@ -137,7 +137,7 @@ abstract class GalleryMedia
         }
         return $result;
     }
-    private function prepare(string $source,string $folder,Download $runner): array
+    protected function prepare(string $source,string $folder,Download $runner): array
     {
         $image=@getimagesize($source);
         if($image!==false) {
