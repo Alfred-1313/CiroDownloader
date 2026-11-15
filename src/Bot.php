@@ -25,6 +25,7 @@ require_once __DIR__.'/VideoChats.php';
 require_once __DIR__.'/Shares.php';
 require_once __DIR__.'/TimedDeletes.php';
 require_once __DIR__.'/XnxxSearch.php';
+require_once __DIR__.'/InstagramUsers.php';
 
 final class Bot
 {
@@ -400,8 +401,8 @@ final class Bot
             }
             if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
-            $service=galleryService($url)??$phase??musicService($url);
-            try { $collection=$service?null:collectionUrl($url); $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':'')); $this->jobMessage($job,$ui->text($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'))); }
+            $service=$phase===InstagramUsers::PHASE?'instagram':(galleryService($url)??$phase??musicService($url));
+            try { $collection=$service?null:collectionUrl($url); $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':'')); $this->jobMessage($job,$ui->text($phase===InstagramUsers::PHASE?'instagram_user_queued':($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued')))); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
             if(!$deleteSource) Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
@@ -447,7 +448,8 @@ final class Bot
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch;
+            $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|b|[up]:\d{1,2})$/D',$action)===1;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
@@ -472,6 +474,7 @@ final class Bot
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isRadio) { (new RadioPanel($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isXnxxSearch) { (new XnxxSearch($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
+            if($isInstagramUser) { (new InstagramUsers($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isQuality) { $this->qualityChoice($chat,$user,$cb,$choice); return; }
             if($pageCounter) { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]); return; }
             if($isPage) {
@@ -608,6 +611,7 @@ final class Bot
         if($state==='x_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('x_cookie_waiting')); return; }
         // /music and /spotify with the text to look for.
         if(($search=MusicSearch::parse($text))!==null) { MusicSearch::handle($this,$update,$user,$chat,0,$search); return; }
+        if(($search=InstagramUsers::parse($text))!==null) { InstagramUsers::handle($this,$update,$user,$chat,0,$search); return; }
         $url=mediaUrl($text);
         if(!$url&&($adult=adultUrl($text))!==null) {
             if($this->adultAllowed($user,$chat,adultService($adult))) $url=$adult;

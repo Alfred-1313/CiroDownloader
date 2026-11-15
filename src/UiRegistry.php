@@ -22,7 +22,12 @@ final class UiRegistry
     {
         return in_array($key,self::shared($service,$kind),true)?$service.'__'.$key:$key;
     }
-    public static function legacy(string $kind,string $key): string { return self::key($kind==='button'&&$key==='quality_240'?'pornhub':($kind==='button'&&$key==='quality_native'?'eporner':'youtube'),$kind,$key); }
+    public static function legacy(string $kind,string $key): string
+    {
+        // Companion fields have no YouTube copy. Resolve their legacy editor addresses to an active adult scope too.
+        $service=str_starts_with($key,'handoff_')||($kind==='button'&&$key==='quality_240')?'pornhub':($kind==='button'&&$key==='quality_native'?'eporner':'youtube');
+        return self::key($service,$kind,$key);
+    }
     public static function expand(array $catalog): array
     {
         foreach(self::services() as $service) {
@@ -63,7 +68,10 @@ final class UiRegistry
             return $result;
         }
         if(in_array($service,galleryServices(),true)) return ['slides'=>['prev'=>$service.'_prev','next'=>$service.'_next','source'=>'source_'.$service],
-            'delivery'=>['source'=>'source_'.$service],'article'=>['article'=>'open_'.$service.'_article']];
+            'delivery'=>['source'=>'source_'.$service],'article'=>['article'=>'open_'.$service.'_article']]+($service==='instagram'?[
+                'user_results'=>array_fill_keys(['result0','result1','result2','result3','result4','result5'],'instagram_user_result')+['previous'=>'instagram_user_previous','next'=>'instagram_user_next','close'=>'instagram_user_close'],
+                'user_profile'=>['source'=>'instagram_user_open','back'=>'instagram_user_back','close'=>'instagram_user_close'],
+            ]:[]);
         if(in_array($service,musicServices(),true)) return ['delivery'=>['source'=>'source_'.$service,'share'=>'music_share','radio'=>'radio_play','back'=>'batch_back']];
         return [];
     }
@@ -72,6 +80,8 @@ final class UiRegistry
         return match($layout) {
             'quality'=>array_merge(array_chunk(array_values(array_filter(array_map('strval',array_keys(self::layouts($service)[$layout])),fn($id)=>$id!=='audio')),2),[['audio']]),
             'slides'=>[['prev','next'],['source']],
+            'user_results'=>[['result0'],['result1'],['result2'],['result3'],['result4'],['result5'],['previous','next'],['close']],
+            'user_profile'=>[['source'],['back','close']],
             default=>array_map(fn($id)=>[(string)$id],array_keys(self::layouts($service)[$layout]??[])),
         };
     }

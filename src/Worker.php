@@ -19,6 +19,7 @@ final class Worker
     /** Fixture-only override for search-page retrieval. */
     public ?\Closure $xnxxSearchFetch=null;
     public ?\Closure $xvideosSearchFetch=null;
+    public ?InstagramAccounts $instagramAccounts=null;
     public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) { ErrorAlerts::bind($config,$store,$api); }
 
     public function recover(array $job): void
@@ -45,7 +46,8 @@ final class Worker
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
         $stage='download'; $audio=$job['phase']==='audio';
-        $service=galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']);
+        $instagramUsers=$job['phase']===InstagramUsers::PHASE;
+        $service=$instagramUsers?'instagram':galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']);
         // A track chosen from a menu may be known only by its details; those jobs name their service in the phase.
         $track=json_decode((string)($job['options']??'{}'),true)['track']??null;
         if($music===null&&is_array($track)&&in_array($job['phase'],musicServices(),true)) $music=$job['phase'];
@@ -73,6 +75,11 @@ final class Worker
             }
             if($job['phase']==='batch') {
                 $this->musicBatch($job,$bot,$folder,$timings,$stage);
+                return;
+            }
+            if($instagramUsers) {
+                $bytes=(new InstagramUsers($bot,$this->instagramAccounts))->process($job,$folder,$timings);
+                $this->noteSpeed('instagram',$bytes,$timings);
                 return;
             }
             if($music!==null) {
