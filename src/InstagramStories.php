@@ -18,7 +18,7 @@ final class InstagramStories extends GalleryMedia
         if(($command['bot']??'')!==''&&strcasecmp($command['bot'],$bot->store->get('bot_username'))!==0) return;
         if(!$bot->allowed($user,$chat)) { $bot->send($chat,$bot->denial($chat),[],0,$thread); return; }
         $name=instagramUsername((string)$command['argument']);
-        if($name===null) { $bot->send($chat,$bot->text('instagram_story_usage'),[],0,$thread); return; }
+        if($name===null) { $bot->send($chat,$bot->text('instagram_story_usage',['bot_username'=>$bot->store->get('bot_username')?:'Username']),[],0,$thread); return; }
         $bot->requestVideo((int)$update['update_id'],$user,$chat,'https://www.instagram.com/stories/'.$name.'/', $thread,(int)($update['message']['message_id']??0));
     }
 }

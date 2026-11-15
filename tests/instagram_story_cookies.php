@@ -64,6 +64,15 @@ try {
     $store->set('commands.public','old-profile-menu');$store->set('commands.public_tried',(string)time());Zero\MusicSearch::register($api,$store,$bot->ui);
     $registered=array_column($api->last('setMyCommands')['commands']??[],'command');
     scCheck(!in_array('user_instagram',$registered,true)&&in_array('insta',$registered,true),'a changed public command menu refreshes immediately after profile removal');
+    $store->set('bot_username','FixtureBot');$send('/insta',7);
+    $guide=$api->last('sendMessage')['text'];
+    scCheck(str_contains($guide,'<code>/insta username</code>')&&str_contains($guide,'<blockquote>')&&str_contains($guide,'🤖 @FixtureBot'),'the editable default guide shows the correct command, formatting and actual bot username');
+    $legacyGuide=Zero\Ui::definitions()['texts']['instagram_story_usage']['legacy_values'][0];
+    $store->set('text.instagram_story_usage',$legacyGuide);$store->query("DELETE FROM settings WHERE key='ui_instagram_story_usage_v2'");new Zero\Store($root);
+    scCheck($store->get('text.instagram_story_usage','missing')==='missing','a saved historical default upgrades to the new guide');
+    $store->set('text.instagram_story_usage','<b>راهنمای سفارشی من</b>');$store->query("DELETE FROM settings WHERE key='ui_instagram_story_usage_v2'");new Zero\Store($root);
+    scCheck($store->get('text.instagram_story_usage')==='<b>راهنمای سفارشی من</b>','a deliberate custom guide survives the default upgrade');
+    $store->query("DELETE FROM settings WHERE key='text.instagram_story_usage'");
     $store->set('instagram.stories','1');$store->query('UPDATE users SET last_request=0 WHERE id=7');$send('/insta rahkar_mobile',7);
     $insta=$store->query("SELECT url,phase FROM jobs WHERE status='queued' ORDER BY id DESC LIMIT 1")->fetch();
     scCheck($insta&&$insta['url']==='https://www.instagram.com/stories/rahkar_mobile/'&&$insta['phase']==='instagram','/insta username enters the existing story pipeline');
