@@ -327,6 +327,7 @@ final class Personalization
             $rows[]=[$this->choice($section.'_mode_article','custom:'.$prefix.'mode:article',$article)];
             $rows[]=[$this->switchButton($section.'_source_toggle','custom:'.$prefix.'source',$ui->gallerySourceEnabled($section))];
             if($section==='instagram') $rows[]=[$this->switchButton('instagram_user_toggle','custom:igusersearch',InstagramUsers::enabled($this->bot->store))];
+            if($section==='instagram') $rows[]=[$this->switchButton('instagram_story_toggle','custom:igstories',InstagramUsers::stories($this->bot->store))];
         } elseif($section==='menu') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->switchButton('menu_close_toggle','custom:menuclose',MusicMenu::closesOnChoice($this->bot->store))];
@@ -805,6 +806,10 @@ final class Personalization
             $service=galleryFromPrefix(substr($op,0,-6));
             $this->bot->store->set($service.'.source_button',$ui->gallerySourceEnabled($service)?'0':'1');
             if(!$this->menus()->settingsReturn($chat,$message,$service)) $this->section($chat,$service,$message);
+        }
+        elseif($op==='igstories') {
+            $this->bot->store->set('instagram.stories',InstagramUsers::stories($this->bot->store)?'0':'1');
+            if(!$this->menus()->settingsReturn($chat,$message,'instagram')) $this->section($chat,'instagram',$message);
         }
         elseif($op==='igusersearch') {
             $this->bot->store->set('instagram.user_search',InstagramUsers::enabled($this->bot->store)?'0':'1');

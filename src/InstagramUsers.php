@@ -3,29 +3,33 @@ declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/InstagramAccounts.php';
 
-/** A bounded account search, kept in its existing status message and worker queue. */
+/** One exact Instagram profile; no user-list/search API is called. */
 final class InstagramUsers
 {
-    public const PHASE='instagram_users', PAGE=6, TTL=3600;
+    public const PHASE='instagram_users', TTL=3600;
     public function __construct(private Bot $bot,private ?InstagramAccounts $accounts=null) {}
+    // Keep the saved switch from the previous search feature.
     public static function enabled(Store $store): bool { return $store->get('instagram.user_search','0')==='1'; }
+    public static function stories(Store $store): bool { return $store->get('instagram.stories','0')==='1'; }
     public static function parse(string $text): ?array
     {
-        if(!preg_match('~^/user_instagram(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
-        return ['bot'=>$m[1]??'','argument'=>trim($m[2]??'')];
+        if(!preg_match('~^/(user_instagram|story_instagram)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
+        return ['kind'=>$m[1]==='story_instagram'?'stories':'profile','bot'=>$m[2]??'','argument'=>trim($m[3]??'')];
     }
+    public static function name(string $input): ?string { return instagramProfileUsername($input)??instagramUsername($input); }
     public static function handle(Bot $bot,array $update,int $user,int $chat,int $thread,array $command): void
     {
         if(($command['bot']??'')!==''&&strcasecmp($command['bot'],$bot->store->get('bot_username'))!==0) return;
         if(!$bot->allowed($user,$chat)) { $bot->send($chat,$bot->denial($chat),[],0,$thread); return; }
-        $query=ltrim(trim((string)$command['argument']),'@');
-        $query=trim(preg_replace('/[\p{C}]+|\s+/u',' ',$query)??'');
-        if(mb_strlen($query)<2||mb_strlen($query)>50||!preg_match('/^[\p{L}\p{N}_. ]+$/uD',$query)) {
-            $bot->send($chat,$bot->text('instagram_user_usage'),[],0,$thread); return;
+        $story=($command['kind']??'profile')==='stories'; $name=self::name((string)$command['argument']);
+        if($name===null) { $bot->send($chat,$bot->text($story?'instagram_story_usage':'instagram_user_usage'),[],0,$thread); return; }
+        if($story) {
+            $bot->requestVideo((int)$update['update_id'],$user,$chat,'https://www.instagram.com/stories/'.$name.'/', $thread,(int)($update['message']['message_id']??0));
+            return;
         }
         if(!self::enabled($bot->store)) { $bot->send($chat,$bot->text('instagram_user_disabled'),[],0,$thread); return; }
-        $bot->requestVideo((int)$update['update_id'],$user,$chat,'https://www.instagram.com/', $thread,(int)($update['message']['message_id']??0),
-            self::PHASE,['query'=>$query,'op'=>'search','revision'=>0]);
+        $bot->requestVideo((int)$update['update_id'],$user,$chat,'https://www.instagram.com/'.$name.'/', $thread,(int)($update['message']['message_id']??0),
+            self::PHASE,['query'=>$name,'op'=>'direct','revision'=>0]);
     }
     private function values(array $item): array
     {
@@ -35,34 +39,13 @@ final class InstagramUsers
             'privacy'=>$ui->plain(!empty($item['private'])?'instagram_user_private':'instagram_user_public'),
             'bio'=>trim((string)($item['bio']??''))?:$ui->plain('instagram_user_no_bio')];
     }
-    private function rows(array $job,array $data,bool $profile=false): array
+    private function rows(array $job,array $data): array
     {
-        $ui=$this->bot->ui; $prefix='iu:'.$job['id'].':'.$data['revision'].':'; $slots=[];
-        if($profile) {
-            $slots['back']=[$ui->button('instagram_user_back',$prefix.'b')];
-            if($ui->instagramSourceEnabled()) {
-                $button=$ui->button('instagram_user_open'); $button['url']='https://www.instagram.com/'.$data['items'][$data['selected']]['username'].'/'; $slots['source']=[$button];
-            }
-        } else {
-            foreach(array_slice($data['items'],$data['page']*self::PAGE,self::PAGE,true) as $index=>$item) {
-                $button=$ui->button('instagram_user_result',$prefix.'u:'.$index,$this->values($item));
-                // Dynamic names/counts can be longer than the administrator's preview sample.
-                while(TextFormat::length($button['text'])>64) $button['text']=mb_substr($button['text'],0,-1);
-                $slots['result'.($index%self::PAGE)]=[$button];
-            }
-            if($data['page']>0) $slots['previous']=[$ui->button('instagram_user_previous',$prefix.'p:'.($data['page']-1))];
-            if(($data['page']+1)*self::PAGE<count($data['items'])) $slots['next']=[$ui->button('instagram_user_next',$prefix.'p:'.($data['page']+1))];
-        }
+        $ui=$this->bot->ui; $prefix='iu:'.$job['id'].':'.$data['revision'].':'; $slots=[]; $name=$data['items'][0]['username'];
+        if(self::stories($this->bot->store)) $slots['stories']=[$ui->button('instagram_user_stories',$prefix.'s')];
+        if($ui->instagramSourceEnabled()) { $button=$ui->button('instagram_user_open'); $button['url']='https://www.instagram.com/'.$name.'/'; $slots['source']=[$button]; }
         $slots['close']=[$ui->button('instagram_user_close',$prefix.'x')];
-        $layout=$profile?'user_profile':'user_results';
-        return $ui->layout('instagram',$layout,$slots,UiRegistry::rows('instagram',$layout));
-    }
-    private function list(array $job,array $data,string $notice=''): void
-    {
-        if(!empty($data['exact'])) $notice=$this->bot->text('instagram_user_exact_result').($notice!==''?"\n\n".$notice:'');
-        if(!empty($data['warning'])&&$notice==='') $notice=$this->bot->text('instagram_user_partial');
-        $this->bot->jobMessage($job,$this->bot->text('instagram_user_results',['query'=>$data['query'],'page'=>$data['page']+1,
-            'pages'=>max(1,(int)ceil(count($data['items'])/self::PAGE))]).($notice!==''?"\n\n".$notice:''),$this->rows($job,$data));
+        return $ui->layout('instagram','user_profile',$slots,UiRegistry::rows('instagram','user_profile'));
     }
     private function permitted(array $job): bool
     {
@@ -107,110 +90,76 @@ final class InstagramUsers
         $store->query("UPDATE jobs SET message_id=?,message_kind='photo',poster=? WHERE id=?",[(int)$result['message_id'],$id,$job['id']]);
         return $id;
     }
-    /** Network and media work runs only in a worker child. Returns confirmed avatar bytes for speed reporting. */
     public function process(array $job,string $folder,array &$timings): int
     {
-        $bot=$this->bot; $store=$bot->store; $accounts=$this->accounts??new InstagramAccounts($bot->config);
-        $data=json_decode((string)$job['options'],true,32,JSON_THROW_ON_ERROR); $op=$data['op']; $bytes=0; $started=hrtime(true);
+        $bot=$this->bot; $store=$bot->store; $data=json_decode((string)$job['options'],true,32,JSON_THROW_ON_ERROR);
         if(!$this->permitted($job)) return 0;
+        if(($name=self::name((string)($data['query']??'')))===null) {
+            $store->query("UPDATE jobs SET status='failed',options='{}',expires=0 WHERE id=?",[$job['id']]);
+            $bot->jobMessage($job,$bot->text('instagram_user_usage')); return 0;
+        }
         try {
-            $bot->jobMessage($job,$bot->text($op==='profile'?'instagram_user_loading_profile':'instagram_user_loading',['query'=>$data['query']]));
-            if($op==='search') {
-                $result=$accounts->fetch(['op'=>'search','query'=>$data['query']],$folder);
-                $data['items']=$result['items']; $data['page']=0; $data['exact']=!empty($result['exact']); $data['warning']=!empty($result['warning']);
-                if(is_array($result['warning']??null)) $this->warning($result['warning']);
-                $job['expires']=time()+self::TTL;
-            } elseif($op==='page') {
-                $offset=$data['page']*self::PAGE; $items=array_slice($data['items'],$offset,self::PAGE);
-                if(array_filter($items,fn($item)=>empty($item['loaded']))) {
-                    $result=$accounts->fetch(['op'=>'page','items'=>$items],$folder); $items=$result['items'];
-                    $data['warning']=!empty($result['warning']);
-                    if(is_array($result['warning']??null)) $this->warning($result['warning']);
-                    array_splice($data['items'],$offset,count($items),$items);
-                }
-            } elseif($op==='profile') {
-                $index=$data['selected']; $item=$data['items'][$index];
-                if(empty($item['file_id'])) {
-                    $result=$accounts->fetch(['op'=>'profile','item'=>$item],$folder); $data['items'][$index]=$result['item'];
-                    $path=$folder.'/instagram-avatar.jpg';
-                    if(!empty($result['photo'])&&is_file($path)) $bytes=(int)filesize($path);
-                }
-            }
-            // Access and the feature switch may have changed while Instagram was answering.
+            $started=hrtime(true); $bot->jobMessage($job,$bot->text('instagram_user_loading_profile'));
+            $result=($this->accounts??new InstagramAccounts($bot->config))->fetch(['op'=>'direct','username'=>$name],$folder);
+            $item=$result['item'];
+            if(strcasecmp((string)$item['username'],$name)!==0) throw new MediaFailure('format','Mismatched Instagram profile');
             if(!$this->permitted($job)) return 0;
-            $data['op']=$op==='profile'?'profile':'list';
-            if(!$data['items']) {
-                $store->query("UPDATE jobs SET status='done',options='{}',expires=0 WHERE id=?",[$job['id']]);
-                $bot->jobMessage($job,$bot->text('instagram_user_empty',['query'=>$data['query']])); return 0;
+            if(is_array($result['warning']??null)) {
+                $warning=$result['warning']; $reason=in_array($warning['reason']??'',['cookies','blocked','network','format'],true)?$warning['reason']:'format';
+                ErrorAlerts::report('instagram',$reason,InstagramAccounts::diagnostic($warning));
             }
-            if($op==='profile') {
-                $item=$data['items'][$data['selected']]; $caption=$bot->text('instagram_user_caption',$this->values($item));
-                $rows=$this->rows($job,$data,true);
-                $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6); $uploadStarted=hrtime(true);
-                $photo=!empty($item['file_id'])?$item['file_id']:($bytes>0?$path:null);
-                $id=$this->profileMessage($job,$caption.($photo===null?"\n\n".$bot->text('instagram_user_no_photo'):''),$rows,$photo,$bytes>0);
-                if($bytes>0&&is_file($path)) unlink($path);
-                $timings['upload_ms']=(int)round((hrtime(true)-$uploadStarted)/1e6);
-                if($id!=='') $data['items'][$data['selected']]['file_id']=$id;
-            } else $this->list($job,$data);
-            $store->query("UPDATE jobs SET status='done',options=?,expires=? WHERE id=?",[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$job['expires'],$job['id']]);
+            $data=['query'=>$name,'op'=>'profile','direct'=>true,'items'=>[$item],'revision'=>0];
+            $caption=$bot->text('instagram_user_caption',$this->values($item)); $path=$folder.'/instagram-avatar.jpg';
+            $bytes=!empty($result['photo'])&&is_file($path)?(int)filesize($path):0;
+            $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6); $upload=hrtime(true);
+            $id=$this->profileMessage($job,$caption.($bytes>0?'':"\n\n".$bot->text('instagram_user_no_photo')),$this->rows($job,$data),$bytes>0?$path:null,$bytes>0);
+            if($bytes>0&&is_file($path)) unlink($path);
+            $timings['upload_ms']=(int)round((hrtime(true)-$upload)/1e6);
+            if($id!=='') $data['items'][0]['file_id']=$id;
+            $store->query("UPDATE jobs SET status='done',options=?,expires=? WHERE id=?",[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),time()+self::TTL,$job['id']]);
             return $bytes;
         } catch(\Throwable $error) {
             $reason=$error instanceof MediaFailure?$error->reason:'process';
             $sources=preg_match('/\[(instagram=(?:search|profile|avatar|runtime), http=(?:0|[1-5][0-9]{2}))\]$/D',$error->getMessage(),$detail)?$detail[1]:'';
             ErrorAlerts::report('instagram',match($reason) {'notfound'=>'restricted','unavailable'=>'format',default=>$reason},$sources);
             $key='instagram_user_error_'.(in_array($reason,['cookies','blocked','network','notfound','unavailable'],true)?$reason:'process');
-            // A failed page/profile keeps the previous search usable instead of stranding its buttons.
-            if(!empty($data['items'])&&(int)$job['expires']>time()) {
-                $data['op']='list';
-                $store->query("UPDATE jobs SET status='done',options=? WHERE id=?",[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$job['id']]);
-                $this->list($job,$data,$bot->text($key));
-            } else {
-                $store->query("UPDATE jobs SET status='failed',options='{}',expires=0 WHERE id=?",[$job['id']]);
-                $bot->jobMessage($job,$bot->text($key));
-            }
-            return 0;
+            $store->query("UPDATE jobs SET status='failed',options='{}',expires=0 WHERE id=?",[$job['id']]); $bot->jobMessage($job,$bot->text($key)); return 0;
         }
-    }
-    private function warning(array $warning): void
-    {
-        $reason=in_array($warning['reason']??'',['cookies','blocked','network','notfound','format','unavailable'],true)?$warning['reason']:'format';
-        ErrorAlerts::report('instagram',match($reason) {'notfound'=>'restricted','unavailable'=>'format',default=>$reason},InstagramAccounts::diagnostic($warning));
     }
     public function callback(array $update,int $chat,int $user,int $thread,int $message): void
     {
         $cb=$update['callback_query'];
-        if(!preg_match('/^iu:(\d{1,12}):(\d{1,9}):(x|b|[up]:\d{1,2})$/D',(string)($cb['data']??''),$m)) return;
+        if(!preg_match('/^iu:(\d{1,12}):(\d{1,9}):(x|s|b|[up]:\d{1,2})$/D',(string)($cb['data']??''),$m)) return;
         $store=$this->bot->store; $job=$store->query('SELECT * FROM jobs WHERE id=? AND phase=?',[(int)$m[1],self::PHASE])->fetch();
-        $data=$job?json_decode((string)$job['options'],true):[]; $key='';
-        if(!$job||(int)$job['expires']<time()||empty($data['items'])) $key='instagram_user_expired';
-        elseif((int)$job['user_id']!==$user||(int)$job['chat_id']!==$chat||(int)$job['message_id']!==$message||($chat<0&&(int)$job['thread_id']!==$thread)) $key='instagram_user_owner';
+        $data=$job?json_decode((string)$job['options'],true):[]; $key=''; $op=$m[3];
+        if(!$job||(int)$job['expires']<time()||empty($data['direct'])||empty($data['items'])) $key='instagram_user_expired';
+        elseif((int)$job['user_id']!==$user||(int)$job['chat_id']!==$chat||(int)$job['message_id']!==$message||($chat<0&&isset($cb['message']['message_thread_id'])&&(int)$job['thread_id']!==$thread)) $key='instagram_user_owner';
         elseif(!self::enabled($store)) $key='instagram_user_disabled';
-        elseif($job['status']!=='done'||(int)$data['revision']!==(int)$m[2]) $key='instagram_user_stale';
+        elseif($job['status']!=='done'||(int)$data['revision']!==(int)$m[2]||!in_array($op,['s','x'],true)) $key='instagram_user_stale';
+        elseif($op==='s'&&!self::stories($store)) $key='instagram_story_disabled';
         elseif($store->get('update_in_progress','0')==='1') $key='maintenance';
-        $op=$m[3];
         if($key==='') {
+            $thread=(int)$job['thread_id'];
             if($op==='x') {
-                $changed=$store->query("UPDATE jobs SET options='{}',expires=0 WHERE id=? AND status='done' AND options=?",[$job['id'],$job['options']])->rowCount();
-                if(!$changed) $key='instagram_user_stale';
+                $store->query("UPDATE jobs SET options='{}',expires=0 WHERE id=?",[$job['id']]);
+                $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
+                try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {} return;
+            }
+            $active=isset($data['story_job'])?$store->query('SELECT status FROM jobs WHERE id=?',[(int)$data['story_job']])->fetchColumn():false;
+            if(in_array($active,['queued','running','confirming'],true)||(int)($data['story_pending']??0)>time()-30) $key='instagram_story_busy';
+            else {
+                $data['story_pending']=time(); $claimed=json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
+                if(!$store->query("UPDATE jobs SET options=? WHERE id=? AND status='done' AND options=?",[$claimed,$job['id'],$job['options']])->rowCount()) $key='instagram_story_busy';
                 else {
-                    $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
-                    try { $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>$message]); } catch(\Throwable) {}
-                    return;
-                }
-            } else {
-                $kind=$op[0]; $index=(int)substr($op,2);
-                if($kind==='u'&&isset($data['items'][$index])&&intdiv($index,self::PAGE)===$data['page']) { $data['op']='profile'; $data['selected']=$index; }
-                elseif($op==='b'&&$data['op']==='profile') $data['op']='page';
-                elseif($kind==='p'&&$data['op']==='list'&&$index>=0&&$index*self::PAGE<count($data['items'])) { $data['op']='page'; $data['page']=$index; }
-                else $key='instagram_user_stale';
-                if($key===''&&$store->full()) $key='queue_full';
-                if($key==='') {
-                    $data['revision']++;
-                    if(!$store->query("UPDATE jobs SET status='queued',options=? WHERE id=? AND status='done' AND options=?",[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$job['id'],$job['options']])->rowCount()) $key='instagram_user_stale';
+                    $name=instagramUsername((string)$data['items'][0]['username']);
+                    $result=$name===null?'failed':$this->bot->requestVideo((int)$update['update_id'],$user,$chat,'https://www.instagram.com/stories/'.$name.'/', $thread,0,null,[],true);
+                    unset($data['story_pending']);
+                    if($result==='queued') $data['story_job']=(int)$store->query('SELECT id FROM jobs WHERE update_id=?',[(int)$update['update_id']])->fetchColumn();
+                    $store->query('UPDATE jobs SET options=? WHERE id=? AND options=?',[json_encode($data,JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE),$job['id'],$claimed]);
+                    $key=match($result) {'queued'=>'instagram_story_accepted','busy'=>'busy','full'=>'queue_full','updating'=>'maintenance',default=>'instagram_story_failed'};
                 }
             }
         }
-        $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->bot->ui->plain($key?:'instagram_user_loading_profile'),'show_alert'=>$key!=='','cache_time'=>0]);
+        $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->bot->ui->plain($key),'show_alert'=>$key!=='instagram_story_accepted','cache_time'=>0]);
     }
 }

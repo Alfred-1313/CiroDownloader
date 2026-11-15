@@ -1,0 +1,68 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/src/Core.php';
+require dirname(__DIR__).'/src/Bot.php';
+require dirname(__DIR__).'/src/Download.php';
+require dirname(__DIR__).'/src/Worker.php';
+function storyCheck(bool $ok,string $label): void { if(!$ok) throw new RuntimeException($label); echo "PASS $label\n"; }
+$temp=sys_get_temp_dir().'/ciro-stories-'.bin2hex(random_bytes(6)); mkdir($temp,0700); $server=null;
+try {
+    mkdir($temp.'/data',0700); mkdir($temp.'/data/downloads',0700); file_put_contents($temp.'/http.jsonl',''); file_put_contents($temp.'/backend.jsonl','');
+    $config=new Zero\Config('123:fixture',[42],$temp.'/data'); $config->paceMessages=false; $runner=new Zero\Download($config);
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=160x288','-frames:v','1','-update','1','-threads','1',$temp.'/photo.jpg'],$temp,30);
+    $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=160x288:r=1:d=1','-f','lavfi','-i','sine=frequency=440:duration=1','-c:v','libx264','-threads','1','-pix_fmt','yuv420p','-c:a','aac','-shortest',$temp.'/clip.mp4'],$temp,30);
+    $socket=stream_socket_server('tcp://127.0.0.1:0',$errno,$error); $address=stream_socket_get_name($socket,false); fclose($socket);
+    $server=proc_open([PHP_BINARY,'-S',$address,__DIR__.'/fixtures/instagram_stories_api.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/server.log','w'],2=>['file',$temp.'/server-error.log','w']],$pipes,null,array_merge(getenv(),['FIXTURE_ROOT'=>$temp]));
+    for($i=0;$i<50;$i++) { $conn=@stream_socket_client('tcp://'.$address,$errno,$error,0.1); if($conn) { fclose($conn); break; } usleep(50000); }
+    $config->api='http://'.$address; file_put_contents($temp.'/base',$config->api);
+    $python=getenv('GALLERY_DL_PYTHON')?:(is_executable('/opt/yt/bin/python')?'/opt/yt/bin/python':'/usr/bin/python3');
+    $stub=$temp.'/gallery-fixture'; file_put_contents($stub,'#!'.$python."\nimport runpy,sys\nsys.argv.insert(1,".json_encode($temp,JSON_UNESCAPED_SLASHES).")\nrunpy.run_path(".json_encode(__DIR__.'/fixtures/instagram_stories_runtime.py',JSON_UNESCAPED_SLASHES).",run_name='__main__')\n"); chmod($stub,0700); $config->galleryDl=$stub;
+    $store=new Zero\Store($config->storage); $api=new Zero\Telegram($config); $bot=new Zero\Bot($config,$store,$api); $worker=new Zero\Worker($config,$store,$api); $update=0;
+    $mode=fn(array $data)=>file_put_contents($temp.'/mode.json',json_encode($data)); $mode(['kinds'=>['photo','video'],'neighbour'=>true]);
+    $calls=fn()=>array_map(fn($line)=>json_decode($line,true),file($temp.'/http.jsonl',FILE_IGNORE_NEW_LINES));
+    $last=function(string $name) use($calls): ?array { foreach(array_reverse($calls()) as $call) if($call['method']===$name) return $call; return null; };
+    $send=function(string $text,int $user=7,int $chat=-100,int $topic=321) use($store,$bot,&$update): void { $store->query('UPDATE users SET last_request=0'); $bot->handle(['update_id'=>++$update,'message'=>['message_id'=>$update,'from'=>['id'=>$user,'is_bot'=>false],'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'message_thread_id'=>$topic,'text'=>$text]]); };
+    $run=function() use($store,$worker): array { $job=$store->claim('media'); if(!$job) throw new RuntimeException('Expected stories job'); $worker->process($job); return $job; };
+    $saved=fn(int $id)=>$store->query('SELECT * FROM jobs WHERE id=?',[$id])->fetch();
+    $tap=function(string $data,int $user,int $message,int $topic=321) use($bot,&$update): void { $bot->handle(['update_id'=>++$update,'callback_query'=>['id'=>'story'.$update,'from'=>['id'=>$user,'is_bot'=>false],'data'=>$data,'message'=>['message_id'=>$message,'chat'=>['id'=>-100,'type'=>'supergroup'],'message_thread_id'=>$topic]]]); };
+    foreach(['https://instagram.com/stories/fixture/100/?igsh=test','instagram.com/stories/fixture/100','http://www.instagram.com/stories/fixture/100/'] as $url) storyCheck(Zero\instagramStoryUrl($url)==='https://www.instagram.com/stories/fixture/100/','a story URL is canonical and strips tracking');
+    foreach(['https://instagram.com.evil/stories/fixture/100','https://user@instagram.com/stories/fixture/100','https://instagram.com:443/stories/fixture/100','https://instagram.com/stories/highlights/123','https://instagram.com/stories/fixture/100/extra','https://instagram.com/stories/../100'] as $url) storyCheck(Zero\instagramStoryUrl($url)===null,'unsafe and highlight URLs are refused');
+    $send('https://instagram.com/stories/fixture/'); storyCheck(!$store->query('SELECT 1 FROM jobs')->fetchColumn(),'story intake defaults off'); $store->set('instagram.stories','1');
+    $send('/story_instagram fixture'); $missing=$run(); storyCheck($saved((int)$missing['id'])['status']==='failed'&&str_contains($last('editMessageText')['params']['text'],'کوکی ورود معتبر'),'stories require Instagram sign-in cookies');
+    $cookie=fn(string $value)=>"# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t".$value."\n";
+    Zero\Instagram::saveCookies($config,$cookie('fixture_session_one')); Zero\Instagram::saveCookies($config,$cookie('fixture_session_two')); $store->set('cookies.fallback','1'); $store->set('instagram.carousel_mode','article');
+    $send('/story_instagram fixture'); $job=$run(); $row=$saved((int)$job['id']); $state=json_decode($row['options'],true)['pages']??[];
+    storyCheck($row['status']==='done'&&$row['phase']==='instagram_page'&&count($state['items'])===2,'active stories use the normal photo/video carousel and exclude a neighbouring account: '.$store->get('last_job_error'));
+    $photo=$last('sendPhoto'); $caption=$photo['params']['caption']; $rows=json_decode($photo['params']['reply_markup'],true)['inline_keyboard']; $next=$rows[0][0]['callback_data']; $mid=(int)$state['message'];
+    storyCheck(str_contains($caption,'استوری 1 از 2')&&str_contains($caption,'@fixture')&&(int)$photo['params']['message_thread_id']===321&&!isset($rows[0][0]['style']),'stories have their own caption, topic and wide white navigation');
+    storyCheck(!str_contains(json_encode($calls()),'telegra.ph')&&!str_contains(json_encode($calls()),'quality:'),'stories never publish an article or ask for a quality');
+    $trace=array_map(fn($line)=>json_decode($line,true),file($temp.'/backend.jsonl',FILE_IGNORE_NEW_LINES)); $args=$trace[0]['args'];
+    storyCheck($trace[0]['cookie_private']&&$args[array_search('--retries',$args,true)+1]==='0'&&in_array('--cookies',$args,true),'stories use a private authenticated jar even in cookie fallback mode, with no automatic retries');
+    $tap($next,8,$mid); storyCheck($saved((int)$job['id'])['status']==='done','another user cannot turn story pages');
+    $tap($next,7,$mid,322); storyCheck($saved((int)$job['id'])['status']==='done','story controls cannot move to another topic');
+    $tap($next,7,$mid); $tap($next,7,$mid); storyCheck($saved((int)$job['id'])['status']==='queued','duplicate page taps reserve only one media operation'); $run();
+    $edited=$last('editMessageMedia'); $media=json_decode($edited['params']['media'],true);
+    storyCheck($media['type']==='video'&&$media['width']===160&&$media['height']===288&&(int)$edited['params']['message_id']===$mid,'Next replaces the same message with the portrait story video');
+    $probe=json_decode($runner->run(['ffprobe','-v','error','-show_streams','-of','json',$temp.'/delivered.mp4'],$temp,30),true);
+    storyCheck(in_array('audio',array_column($probe['streams'],'codec_type'),true),'the video story keeps its audio');
+    $store->set('instagram.stories','0'); $back=json_decode($edited['params']['reply_markup'],true)['inline_keyboard'][0][0]['callback_data']; $tap($back,7,$mid); storyCheck($saved((int)$job['id'])['status']==='done','turning stories off invalidates page actions'); $store->set('instagram.stories','1');
+    $mode(['kinds'=>['photo','video'],'neighbour'=>true]); $send('https://instagram.com/stories/fixture/101/?igsh=test'); $single=$run();
+    storyCheck($saved((int)$single['id'])['status']==='done'&&str_contains($last('sendVideo')['params']['caption'],'@fixture')&&!str_contains($last('sendVideo')['params']['caption'],'از 2'),'a single story link returns only its requested numeric ID');
+    $mode(['empty'=>true]); $send('/story_instagram fixture'); $empty=$run(); storyCheck($saved((int)$empty['id'])['status']==='done'&&str_contains($last('editMessageText')['params']['text'],'استوری فعالی'),'an authenticated empty reel is a normal empty state');
+    $before=count(file($temp.'/backend.jsonl')); $mode(['limited'=>true]); $send('/story_instagram fixture'); $limited=$run();
+    storyCheck($saved((int)$limited['id'])['status']==='failed'&&count(file($temp.'/backend.jsonl'))===$before+1,'a 429 stops immediately without switching to another jar');
+    $mode(['kinds'=>['photo','video'],'missing'=>true]); $send('/story_instagram fixture'); $incomplete=$run(); storyCheck($saved((int)$incomplete['id'])['status']==='failed','a missing visual story is never silently sent as a complete reel');
+    $mode(['kinds'=>['photo'],'mismatch'=>true]); $send('/story_instagram fixture'); $mismatch=$run(); storyCheck($saved((int)$mismatch['id'])['status']==='failed','conflicting reel and owner IDs cannot expose a different account');
+    $mode(['kinds'=>['photo']]); $send('https://instagram.com/stories/fixture/999/'); $gone=$run(); storyCheck($saved((int)$gone['id'])['status']==='failed'&&str_contains($last('editMessageText')['params']['text'],'در دسترس نیست'),'an expired single story does not fall back to a different active story');
+    $before=count(file($temp.'/backend.jsonl')); $send('/story_instagram fixture'); $store->set('instagram.stories','0'); $off=$run();
+    storyCheck($saved((int)$off['id'])['status']==='failed'&&count(file($temp.'/backend.jsonl'))===$before,'turning stories off after intake prevents all network and delivery work'); $store->set('instagram.stories','1');
+    $mode(['kinds'=>array_fill(0,100,'photo')]); $send('/story_instagram fixture'); $many=$run(); $manyState=json_decode($saved((int)$many['id'])['options'],true)['pages']??[]; storyCheck(count($manyState['items']??[])===100,'story bounds support one hundred active items without changing post bounds');
+    $manyState['current']=99; $manyState['target']=99;
+    $store->query('UPDATE jobs SET options=? WHERE id=?',[json_encode(['pages'=>$manyState]),$many['id']]);
+    $tap('igpage:'.$many['id'].':100:'.$manyState['revision'],7,(int)$manyState['message']); $run();
+    $lastSlide=json_decode($last('editMessageMedia')['params']['media'],true);
+    storyCheck(str_contains($lastSlide['caption'],'استوری 100 از 100'),'the last story uses a valid three-digit page callback');
+    $mode(['kinds'=>array_fill(0,101,'photo')]); $send('/story_instagram fixture'); $oversized=$run(); storyCheck($saved((int)$oversized['id'])['status']==='failed','a reel over the one hundred item limit fails instead of truncating');
+    storyCheck(!glob($config->storage.'/downloads/job-*'),'completed and failed jobs release their temporary media and cookie copies');
+    storyCheck(!preg_match('/PHP (?:Warning|Fatal|Notice)/',(string)file_get_contents($temp.'/server-error.log')),'the media HTTP fixture has no PHP warnings');
+} finally { if(is_resource($server)) { proc_terminate($server); proc_close($server); } Zero\Download::clean($temp); }

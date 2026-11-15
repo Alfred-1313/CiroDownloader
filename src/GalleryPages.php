@@ -31,7 +31,7 @@ class GalleryPages
     private function state(array $job): ?array
     {
         $state=json_decode($job['options'],true)['pages']??null;
-        if(!is_array($state)||!is_array($state['items']??null)||count($state['items'])<2||count($state['items'])>GalleryMedia::maxItems($this->service)
+        if(!is_array($state)||!is_array($state['items']??null)||count($state['items'])<2||count($state['items'])>GalleryMedia::maxItems($this->service,(string)$job['url'])
             ||!preg_match('/^job-'.(int)$job['id'].'-[a-f0-9]{16}$/D',(string)($state['folder']??''))) return null;
         // Existing one-way sessions can continue using their first old button.
         if(!isset($state['current'])) {
@@ -46,16 +46,18 @@ class GalleryPages
         $this->store->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND chat_id=? AND phase='{$this->service}_page'",[$id,$chat])->fetch();
+            $prefix=$job&&instagramStoryUrl($job['url'])!==null?'instagram_story':$this->service;
             $state=$job?$this->state($job):null;
-            if(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice=$this->service.'_page_expired';
-            elseif((int)$state['message']!==$message) $notice=$this->service.'_page_stale';
-            elseif((int)$job['user_id']!==$user) $notice=$this->service.'_page_owner';
+            if(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice=$prefix.'_page_expired';
+            elseif((int)$state['message']!==$message) $notice=$prefix.'_page_stale';
+            elseif((int)$job['user_id']!==$user) $notice=$prefix.'_page_owner';
+            elseif(instagramStoryUrl($job['url'])!==null&&!InstagramUsers::stories($this->store)) $notice='instagram_story_disabled';
             // Optional Telegram topic metadata must not reject the authenticated
             // sender. The worker retains the saved topic; explicit mismatches fail.
             elseif(($thread!==null&&(int)$job['thread_id']!==$thread)||$page<1||$page>count($state['items'])||abs($page-(int)$state['current'])!==1
-                ||($revision===null?(int)$state['revision']!==0:$revision!==(int)$state['revision'])) $notice=$this->service.'_page_stale';
-            elseif(in_array($job['status'],['queued','running'],true)) $notice=$this->service.'_page_busy';
-            elseif($job['status']!=='done') $notice=$this->service.'_page_expired';
+                ||($revision===null?(int)$state['revision']!==0:$revision!==(int)$state['revision'])) $notice=$prefix.'_page_stale';
+            elseif(in_array($job['status'],['queued','running'],true)) $notice=$prefix.'_page_busy';
+            elseif($job['status']!=='done') $notice=$prefix.'_page_expired';
             elseif($this->store->get('update_in_progress','0')==='1') $notice='updating';
             elseif($this->store->busy($user,$chat)) $notice='quality_busy';
             elseif($this->store->full()) $notice='queue_full';
@@ -81,22 +83,24 @@ class GalleryPages
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery page delivery no longer authorized');
         $count=count($state['items']);
         $initial=(int)$state['message']===0;
-        if($initial) $bot->jobMessage($job,$bot->text($this->service.'_uploading',['sent'=>0,'count'=>$count]));
+        if($initial) $bot->jobMessage($job,$bot->text(instagramStoryUrl($job['url'])!==null?'instagram_story_uploading':$this->service.'_uploading',['sent'=>0,'count'=>$count]));
         $bytes=$cached?0:(int)filesize($path);
         if(!$cached&&$this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($path)+268435456);
         $description=$state['description'];
+        $story=instagramStoryUrl($job['url'])!==null; $buttonPrefix=$story?'instagram_story':$this->service;
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
-        $caption=Ui::fitCaption($bot->text($this->service.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description]));
+        $caption=Ui::fitCaption($bot->text($buttonPrefix.'_page_caption',['index'=>$index,'count'=>$count,'url'=>$job['url'],'description'=>$description,'username'=>instagramStoryUsername($job['url'])]));
         $revision=(int)$state['revision']+1;
-        $slots=['prev'=>[],'next'=>[],'source'=>array_merge(...($bot->ui->gallerySourceRows($this->service,$job['url'])?:[[]]))];
-        if($index>1) $slots['prev'][]=$bot->ui->button($this->service.'_prev',(galleryPrefix($this->service).'page:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
-        if($index<$count) $slots['next'][]=$bot->ui->button($this->service.'_next',(galleryPrefix($this->service).'page:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
-        $rows=$bot->ui->layout($this->service,'slides',$slots,[['prev','next'],['source']]);
+        $slots=['prev'=>[],'next'=>[],'source'=>array_merge(...(($story?$bot->ui->instagramStorySourceRows($job['url']):$bot->ui->gallerySourceRows($this->service,$job['url']))?:[[]]))];
+        if($index>1) $slots['prev'][]=$bot->ui->button($buttonPrefix.'_prev',(galleryPrefix($this->service).'page:').$job['id'].':'.($index-1).':'.$revision,['index'=>$index-1,'count'=>$count]);
+        if($index<$count) $slots['next'][]=$bot->ui->button($buttonPrefix.'_next',(galleryPrefix($this->service).'page:').$job['id'].':'.($index+1).':'.$revision,['index'=>$index+1,'count'=>$count]);
+        $rows=$bot->ui->layout($this->service,$story?'story_slides':'slides',$slots,[['prev','next'],['source']]);
         $params=['chat_id'=>(int)$job['chat_id'],'reply_markup'=>['inline_keyboard'=>$rows]];
         $media=['type'=>$item['type'],'media'=>$cached?$item['file_id']:'attach://slide','caption'=>$caption,'parse_mode'=>'HTML'];
         if($item['type']==='video') $media+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($path,$item['type']==='photo'?'image/jpeg':'video/mp4',$name);
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery page delivery no longer authorized');
+        if($story&&!InstagramUsers::stories($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before page delivery');
         if($initial) {
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             unset($media['type'],$media['media']);

@@ -18,7 +18,7 @@ final class InstagramAccounts
     {
         if($this->fixture!==null) return ($this->fixture)($request,$folder);
         $pool=Instagram::pool($this->config); $jars=$pool->order(3);
-        // Account search needs a signed-in session even when post downloads try anonymously first.
+        // Profile lookup uses the signed-in pool even when post downloads try anonymously first.
         if(!$jars) throw new MediaFailure('cookies','Instagram account session required');
         $python=dirname($this->config->galleryDl).'/python';
         if(!is_executable($python)) throw new MediaFailure('process','Instagram account runtime unavailable');

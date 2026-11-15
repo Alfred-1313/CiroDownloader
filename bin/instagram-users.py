@@ -1,4 +1,4 @@
-"""Bounded Instagram account search using gallery-dl's authenticated session/API.
+"""Direct Instagram profile lookup using gallery-dl's authenticated session/API.
 
 Only profile metadata and the public avatar are read; no posts or followers are
 enumerated. The parent gives us a private JSON file, never cookie values in argv.
@@ -9,15 +9,12 @@ from html.parser import HTMLParser
 import json
 import logging
 import re
-import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
 from gallery_dl import config, exception, extractor
 from requests.exceptions import RequestException
 
-LIMIT = 12
-PAGE = 6
 USERNAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.]{0,29}\Z")
 
 
@@ -35,7 +32,7 @@ def failure(error, stage):
         code = error.response.status_code if error.response is not None else 0
         if error.response is not None:
             error.response.close()
-        reason = "cookies" if code in (401, 403) else "blocked" if code == 429 else "unavailable" if stage == "search" and code == 404 else "notfound" if stage == "profile" and code == 404 else "network"
+        reason = "cookies" if code in (401, 403) else "blocked" if code == 429 else "notfound" if stage == "profile" and code == 404 else "network"
         return Failure(reason, stage, code)
     if isinstance(error, (exception.AuthenticationError, exception.AuthorizationError)):
         return Failure("cookies", stage)
@@ -159,45 +156,6 @@ class Client:
     def __init__(self, extr):
         self.extr = extr
 
-    def search(self, query):
-        # The current web route. Only a missing route permits the older route;
-        # login challenges/rate limits must not become an empty result list.
-        try:
-            data = self.extr.api._call("/v1/web/search/topsearch/", params={
-                "context": "user", "query": query, "include_reel": "false",
-            }, allow_redirects=False)
-        except exception.HttpError as error:
-            if error.response is None or error.response.status_code != 404:
-                raise
-            error.response.close()
-            try:
-                data = self.extr.api._call(
-                    "https://www.instagram.com/web/search/topsearch/",
-                    params={"context": "user", "query": query, "include_reel": "false"},
-                    allow_redirects=False,
-                )
-            except exception.HttpError as error:
-                raise failure(error, "search") from None
-        if not isinstance(data, dict) or data.get("status") == "fail":
-            raise Failure("cookies", "search")
-        if not isinstance(data.get("users"), list):
-            raise Failure("format", "search")
-        items, seen = [], set()
-        for entry in data["users"]:
-            try:
-                item = account(entry.get("user", entry))
-            except (Failure, AttributeError):
-                continue
-            if item["id"] in seen or item["username"].lower() in seen:
-                continue
-            seen.update((item["id"], item["username"].lower()))
-            items.append(item)
-            if len(items) == LIMIT:
-                break
-        if data["users"] and not items:
-            raise Failure("format", "search")
-        return items
-
     def exact(self, username):
         if not USERNAME.fullmatch(username):
             raise Failure("unavailable", "search", 404)
@@ -243,20 +201,6 @@ class Client:
             raise Failure("format", "profile")
         return result
 
-    def enrich(self, items):
-        result = list(items[:PAGE])
-        warning = None
-        for index, item in enumerate(result):
-            try:
-                result[index] = item if item.get("loaded") else self.profile(item)
-            except Exception as error:
-                warning = failure(error, "profile")
-                # One unavailable suggestion must not erase valid search results.
-                # Stop immediately on auth/rate/transport refusal; no burst of retries.
-                if warning.reason not in ("notfound", "format"):
-                    break
-        return result, warning
-
     def photo(self, item, destination):
         url = item.get("avatar", "")
         if not avatar_url(url):
@@ -281,35 +225,16 @@ class Client:
 
 
 def run(client, request, folder):
-    op = request.get("op")
-    if op == "search":
-        try:
-            items = client.search(request["query"])
-        except Exception as error:
-            error = failure(error, "search")
-            if error.reason != "unavailable" or not USERNAME.fullmatch(request["query"]):
-                raise error from None
-            try:
-                return {"items": [client.exact(request["query"])], "exact": True}
-            except Exception as error:
-                raise failure(error, "profile") from None
-        items[:PAGE], warning = client.enrich(items[:PAGE])
-        return {"items": items, **({"warning": safe_error(warning)} if warning else {})}
-    if op == "page":
-        items, warning = client.enrich(request["items"])
-        return {"items": items, **({"warning": safe_error(warning)} if warning else {})}
-    if op == "profile":
-        item = request["item"]
-        try:
-            if not item.get("loaded"):
-                item = client.profile(item)
-        except Exception as error:
-            raise failure(error, "profile") from None
-        try:
-            return {"item": item, "photo": client.photo(item, folder / "instagram-avatar.jpg")}
-        except Exception as error:
-            raise failure(error, "avatar") from None
-    raise Failure("format")
+    if request.get("op") != "direct" or not USERNAME.fullmatch(request.get("username", "")):
+        raise Failure("format", "profile")
+    try:
+        item = client.exact(request["username"])
+    except Exception as error:
+        raise failure(error, "profile") from None
+    try:
+        return {"item": item, "photo": client.photo(item, folder / "instagram-avatar.jpg")}
+    except Exception as error:
+        return {"item": item, "photo": False, "warning": safe_error(failure(error, "avatar"))}
 
 
 def main():

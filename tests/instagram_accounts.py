@@ -64,7 +64,7 @@ class Site(BaseHTTPRequestHandler):
                 self.send_response(302)
                 self.send_header("Location", "http://127.0.0.1/private")
                 self.end_headers()
-            elif self.mode == "html_photo":
+            elif self.mode in ("html_photo", "direct_bad_avatar"):
                 self.reply(b"<html>not an image</html>", kind="image/jpeg")
             elif self.mode == "large_photo":
                 self.reply(b"\xff\xd8\xff" + b"x" * (8 * 1024 * 1024), kind="image/jpeg")
@@ -78,7 +78,7 @@ class Site(BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", "/accounts/login/")
             self.end_headers()
-        elif parts.path == "/eliyas_sport/" and self.mode == "routes_gone":
+        elif parts.path == "/eliyas_sport/" and self.mode in ("routes_gone", "direct_bad_avatar"):
             user = {"id": "700", "username": "eliyas_sport", "full_name": "الیاس اسپرت", "biography": "کیفیت اعتبار ماست",
                     "edge_owner_to_timeline_media": {"count": 581}, "edge_followed_by": {"count": 16200},
                     "edge_follow": {"count": 326}, "profile_pic_url": "https://scontent.cdninstagram.com/avatar.jpg"}
@@ -156,29 +156,11 @@ class Accounts(unittest.TestCase):
     def tearDown(self):
         self.extr.session.close()
 
-    def test_search_and_current_profile_query(self):
-        with tempfile.TemporaryDirectory() as folder:
-            result = MODULE.run(self.client, {"op": "search", "query": "mehdi"}, Path(folder))
-        items = result["items"]
-        self.assertEqual(len(items), 12)
-        self.assertEqual([u["username"] for u in items[:2]], ["mehdi0", "mehdi1"])
-        self.assertEqual((items[0]["posts"], items[0]["followers"], items[0]["following"]), (42, 12345, 300))
-        self.assertTrue(items[0]["private"])
-        self.assertEqual(items[0]["bio"], "خط اول\nخط دوم <b>literal</b>")
-        self.assertIsNone(items[6]["posts"])
-        self.assertEqual(sum(p == "/api/graphql" for p, _, _ in Site.calls), 6)
-        self.assertTrue(any(p == "/mehdi0/" for p, _, _ in Site.calls))
-        search = Site.calls[0]
-        self.assertEqual(search[2]["query"], ["mehdi"])
-        self.assertEqual(search[1]["X-IG-App-ID"], "936619743392459")
-        self.assertIn("sessionid=fixture-session-never-real", search[1]["Cookie"])
-        self.assertFalse(any("/feed/" in p or "/followers/" in p for p, _, _ in Site.calls))
-        self.assertFalse(Path(folder, "cache.sqlite3").exists())
-
     def test_profile_photo_is_bounded_and_not_redirected(self):
         item = {"id": "100", "username": "mehdi0"}
         with tempfile.TemporaryDirectory() as folder:
-            result = MODULE.run(self.client, {"op": "profile", "item": item}, Path(folder))
+            item = self.client.profile(item)
+            result = {"item": item, "photo": self.client.photo(item, Path(folder, "instagram-avatar.jpg"))}
             self.assertTrue(result["photo"])
             path = Path(folder, "instagram-avatar.jpg")
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
@@ -191,26 +173,6 @@ class Accounts(unittest.TestCase):
                 with self.assertRaises(MODULE.Failure):
                     self.client.photo(result["item"], path)
             self.assertFalse(any(p == "/private" for p, _, _ in Site.calls))
-
-    def test_missing_route_only_falls_back_on_404(self):
-        Site.mode = "old"
-        self.assertEqual(len(self.client.search("mehdi")), 12)
-        self.assertEqual([p for p, _, _ in Site.calls], ["/api/v1/web/search/topsearch/", "/web/search/topsearch/"])
-        for mode in ("refused", "blocked"):
-            Site.mode = mode
-            Site.calls = []
-            with self.assertRaises(exception.HttpError):
-                self.client.search("mehdi")
-            self.assertEqual(len(Site.calls), 1)
-
-    def test_empty_malformed_and_login_are_different(self):
-        Site.mode = "empty"
-        self.assertEqual(self.client.search("nobody"), [])
-        for mode, reason in (("bad", "format"), ("login", "cookies")):
-            Site.mode = mode
-            with self.assertRaises(MODULE.Failure) as caught:
-                self.client.search("mehdi")
-            self.assertEqual(caught.exception.reason, reason)
 
     def test_avatar_and_number_validation(self):
         for url in ("https://cdninstagram.com.evil.test/a", "https://127.0.0.1/a", "http://scontent.cdninstagram.com/a", "https://user:pass@scontent.cdninstagram.com/a", "https://scontent.cdninstagram.com:123/a"):
@@ -225,74 +187,58 @@ class Accounts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             request = Path(folder, "request.json")
             cookies = Path(folder, "cookies.txt")
-            request.write_text(json.dumps({"op": "search", "query": "mehdi"}))
+            request.write_text(json.dumps({"op": "direct", "username": "mehdi"}))
             cookies.write_text("# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tcsrftoken\tfixture-secret\n")
             process = subprocess.run([sys.executable, str(SPEC.origin), "--request", str(request), "--cookies", str(cookies)], capture_output=True, text=True, timeout=15)
             self.assertEqual(process.returncode, 0)
             self.assertEqual(json.loads(process.stdout), {"error": "cookies", "stage": "runtime", "http": 0})
             self.assertNotIn("fixture-secret", process.stdout + process.stderr)
 
-    def test_both_search_routes_404_use_exact_profile_embedded_data(self):
+    def test_direct_profile_never_calls_search(self):
         Site.mode = "routes_gone"
         with tempfile.TemporaryDirectory() as folder:
-            result = MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
-        self.assertTrue(result["exact"])
-        self.assertEqual(len(result["items"]), 1)
-        item = result["items"][0]
+            result = MODULE.run(self.client, {"op": "direct", "username": "eliyas_sport"}, Path(folder))
+        item = result["item"]
         self.assertEqual((item["username"], item["posts"], item["followers"], item["following"]), ("eliyas_sport", 581, 16200, 326))
         self.assertEqual(item["bio"], "کیفیت اعتبار ماست")
-        self.assertFalse(any(p == "/api/graphql" for p, _, _ in Site.calls))
-        self.assertEqual(len(Site.calls), 3)
+        self.assertTrue(result["photo"])
+        self.assertEqual([p for p, _, _ in Site.calls], ["/eliyas_sport/", "/avatar.jpg"])
 
-    def test_exact_profile_reuses_page_for_current_graphql(self):
+    def test_avatar_failure_keeps_confirmed_profile_metadata(self):
+        Site.mode = "direct_bad_avatar"
+        with tempfile.TemporaryDirectory() as folder:
+            result = MODULE.run(self.client, {"op": "direct", "username": "eliyas_sport"}, Path(folder))
+        self.assertFalse(result["photo"])
+        self.assertEqual(result["item"]["bio"], "کیفیت اعتبار ماست")
+        self.assertEqual(result["warning"]["stage"], "avatar")
+
+    def test_direct_profile_reuses_page_for_graphql(self):
         Site.mode = "exact_graphql"
         with tempfile.TemporaryDirectory() as folder:
-            result = MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
-        self.assertTrue(result["exact"])
-        self.assertEqual(result["items"][0]["username"], "eliyas_sport")
+            result = MODULE.run(self.client, {"op": "direct", "username": "eliyas_sport"}, Path(folder))
+        self.assertEqual(result["item"]["username"], "eliyas_sport")
         self.assertEqual(sum(p == "/eliyas_sport/" for p, _, _ in Site.calls), 1)
+        self.assertFalse(any("search" in p for p, _, _ in Site.calls))
 
-    def test_unavailable_search_is_not_a_missing_account(self):
-        Site.mode = "routes_gone"
-        with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
-            MODULE.run(self.client, {"op": "search", "query": "نام با فاصله"}, Path(folder))
-        self.assertEqual((caught.exception.reason, caught.exception.stage, caught.exception.http), ("unavailable", "search", 404))
-        self.assertEqual(len(Site.calls), 2)
-
-    def test_exact_profile_never_returns_a_different_session_or_suggestion(self):
+    def test_direct_profile_rejects_another_account(self):
         Site.mode = "exact_wrong"
         with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
-            MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+            MODULE.run(self.client, {"op": "direct", "username": "eliyas_sport"}, Path(folder))
         self.assertEqual(caught.exception.reason, "unavailable")
 
-    def test_rate_limit_and_login_do_not_trigger_more_fallback_requests(self):
+    def test_profile_rate_limit_login_and_404_are_not_retried(self):
         for mode, reason in (("exact_limited", "blocked"), ("exact_missing", "notfound"), ("exact_login", "cookies")):
             Site.mode, Site.calls = mode, []
             with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
-                MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
+                MODULE.run(self.client, {"op": "direct", "username": "eliyas_sport"}, Path(folder))
             self.assertEqual((caught.exception.reason, caught.exception.stage), (reason, "profile"))
-            self.assertEqual(len(Site.calls), 3)
-        Site.mode, Site.calls = "blocked", []
-        with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure) as caught:
-            MODULE.run(self.client, {"op": "search", "query": "eliyas_sport"}, Path(folder))
-        self.assertEqual(caught.exception.reason, "blocked")
-        self.assertEqual(len(Site.calls), 1)
+            self.assertEqual(len(Site.calls), 1)
 
-    def test_one_failed_suggestion_does_not_erase_the_search(self):
-        Site.mode = "partial_missing"
-        with tempfile.TemporaryDirectory() as folder:
-            result = MODULE.run(self.client, {"op": "search", "query": "mehdi"}, Path(folder))
-        self.assertEqual(len(result["items"]), 12)
-        self.assertEqual(result["items"][1]["followers"], 12345)
-        self.assertIsNone(result["items"][0]["followers"])
-        self.assertEqual(result["warning"]["reason"], "notfound")
-        CACHE_MEMORY.clear()
-        Site.mode, Site.calls = "partial_limited", []
-        with tempfile.TemporaryDirectory() as folder:
-            result = MODULE.run(self.client, {"op": "search", "query": "mehdi"}, Path(folder))
-        self.assertEqual(len(result["items"]), 12)
-        self.assertEqual(result["warning"]["reason"], "blocked")
-        self.assertEqual(sum(p == "/api/graphql" for p, _, _ in Site.calls), 1)
+    def test_old_search_operations_and_invalid_names_make_no_requests(self):
+        for request in ({"op":"search","query":"mehdi"}, {"op":"page","items":[]}, {"op":"direct","username":"name with spaces"}):
+            with tempfile.TemporaryDirectory() as folder, self.assertRaises(MODULE.Failure):
+                MODULE.run(self.client, request, Path(folder))
+        self.assertFalse(Site.calls)
 
 
 if __name__ == "__main__":

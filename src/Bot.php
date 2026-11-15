@@ -383,6 +383,7 @@ final class Bot
     {
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return 'denied'; }
+        if(instagramStoryUrl($url)!==null&&!InstagramUsers::stories($this->store)) { $this->send($chat,$this->text('instagram_story_disabled'),[],0,$thread); return 'denied'; }
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
@@ -402,7 +403,7 @@ final class Bot
             if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
             $service=$phase===InstagramUsers::PHASE?'instagram':(galleryService($url)??$phase??musicService($url));
-            try { $collection=$service?null:collectionUrl($url); $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':'')); $this->jobMessage($job,$ui->text($phase===InstagramUsers::PHASE?'instagram_user_queued':($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued')))); }
+            try { $collection=$service?null:collectionUrl($url); $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':'')); $this->jobMessage($job,$ui->text($phase===InstagramUsers::PHASE?'instagram_user_queued':(instagramStoryUrl($url)!==null?'instagram_story_queued':($service?$service.'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued'))))); }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
             if(!$deleteSource) Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
@@ -441,14 +442,14 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
-            $isPage=preg_match('/^(?:ig|pin|tt|x)page:(\d+):([1-9][0-9]?)(?::(\d+))?$/D',$action,$page)===1;
+            $isPage=preg_match('/^(?:ig|pin|tt|x)page:(\d+):([1-9][0-9]?|100)(?::(\d+))?$/D',$action,$page)===1;
             $pageCounter=$action==='igpage:noop';
             $changePage=preg_match('/^update:changes(?::(\d{1,4}))?$/D',$action,$changeMatch)===1;
             $groupUpdate=$group&&(in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:back','update:close'],true)||$changePage);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
-            $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|b|[up]:\d{1,2})$/D',$action)===1;
+            $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|s|b|[up]:\d{1,2})$/D',$action)===1;
             $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
@@ -481,7 +482,8 @@ final class Bot
                 $topic=$group&&!isset($message['message_thread_id'])?null:$thread;
                 $pageService=galleryFromPrefix(substr(strstr($action,':',true),0,-4));
                 $notice=(new GalleryPages($this->config,$this->store,$this->api,$pageService))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$topic,(int)$page[2],isset($page[3])?(int)$page[3]:null);
-                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pageService.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
+                $pagePrefix=$pageService==='instagram'&&instagramStoryUrl((string)$this->store->query('SELECT url FROM jobs WHERE id=?',[(int)$page[1]])->fetchColumn())!==null?'instagram_story':$pageService;
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pagePrefix.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }
             if(str_starts_with($action,'custom:hint:')) {
@@ -612,6 +614,9 @@ final class Bot
         // /music and /spotify with the text to look for.
         if(($search=MusicSearch::parse($text))!==null) { MusicSearch::handle($this,$update,$user,$chat,0,$search); return; }
         if(($search=InstagramUsers::parse($text))!==null) { InstagramUsers::handle($this,$update,$user,$chat,0,$search); return; }
+        if(($profile=instagramProfileUsername($text))!==null||(InstagramUsers::enabled($this->store)&&($profile=instagramUsername($text))!==null)) {
+            InstagramUsers::handle($this,$update,$user,$chat,0,['argument'=>$profile,'kind'=>'profile']); return;
+        }
         $url=mediaUrl($text);
         if(!$url&&($adult=adultUrl($text))!==null) {
             if($this->adultAllowed($user,$chat,adultService($adult))) $url=$adult;

@@ -797,8 +797,38 @@ function adultService(string $input): ?string
     };
 }
 
+function instagramUsername(string $input): ?string
+{
+    $name=ltrim(trim($input),'@');
+    if(!preg_match('/^[A-Za-z0-9_](?:[A-Za-z0-9_.]{0,28}[A-Za-z0-9_])?$/D',$name)||str_contains($name,'..')
+        ||in_array(strtolower($name),['p','reel','reels','tv','stories','highlights','explore','accounts','direct','about','api','graphql'],true)) return null;
+    return $name;
+}
+function instagramProfileUsername(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?instagram\.com/~i',$input)) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||!in_array(strtolower($parts['host']??''),['instagram.com','www.instagram.com'],true)
+        ||isset($parts['port'])||isset($parts['user'])||isset($parts['pass'])||!preg_match('~^/([^/]+)/?$~D',$parts['path']??'',$m)) return null;
+    return instagramUsername($m[1]);
+}
+function instagramStoryUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(preg_match('~^(?:www\.)?instagram\.com/~i',$input)) $input='https://'.$input;
+    $parts=parse_url($input);
+    if(!$parts||!in_array(strtolower($parts['scheme']??''),['http','https'],true)||!in_array(strtolower($parts['host']??''),['instagram.com','www.instagram.com'],true)
+        ||isset($parts['port'])||isset($parts['user'])||isset($parts['pass'])||!preg_match('~^/stories/([^/]+)(?:/([0-9]{1,24}))?/?$~D',$parts['path']??'',$m)
+        ||($name=instagramUsername($m[1]))===null) return null;
+    return 'https://www.instagram.com/stories/'.$name.'/'.(isset($m[2])?$m[2].'/':'');
+}
+function instagramStoryUsername(string $url): string { return explode('/',trim((string)parse_url($url,PHP_URL_PATH),'/'))[1]??''; }
 function instagramUrl(string $input): ?string
 {
+    if(($story=instagramStoryUrl($input))!==null) return $story;
     $input=trim($input);
     if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
     if(preg_match('~^(?:www\.)?instagram\.com/~i',$input)) $input='https://'.$input;

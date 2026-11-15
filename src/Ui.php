@@ -187,6 +187,12 @@ final class Ui
     private function unscoped(): self { $copy=clone $this; $copy->service=''; return $copy; }
     public function instagramSourceEnabled(): bool { return $this->gallerySourceEnabled('instagram'); }
     public function instagramSourceRows(string $url): array { return $this->gallerySourceRows('instagram',$url); }
+    public function instagramStorySourceRows(string $url): array
+    {
+        if(!$this->instagramSourceEnabled()) return [];
+        $button=$this->button('source_instagram_story'); $button['url']=$url;
+        return $this->layout('instagram','story_delivery',['source'=>[$button]],[['source']]);
+    }
     public function gallerySourceEnabled(string $service): bool { return $this->get($service.'.source_button','0')==='1'; }
     public function gallerySourceRows(string $service,string $url): array
     {

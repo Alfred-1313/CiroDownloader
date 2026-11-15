@@ -12,7 +12,7 @@ abstract class GalleryMedia
     public static function forService(Config $config,string $service): self { $class=self::type($service); return new $class($config); }
     public static function validateFor(string $service,string $content): void { $class=self::type($service); $class::validateCookies($content); }
     public static function poolFor(Config $config,string $service): CookiePool { $class=self::type($service); return $class::pool($config); }
-    public static function maxItems(string $service): int { $class=self::type($service); return $class::MAX_ITEMS; }
+    public static function maxItems(string $service,?string $url=null): int { $class=self::type($service); return $service==='instagram'&&$url!==null&&instagramStoryUrl($url)!==null?100:$class::MAX_ITEMS; }
     protected static function cookiePath(Config $config): string { return $config->galleryCookiePath(static::SERVICE); }
     public function __construct(private Config $config) {}
     public static function validateCookies(string $content): void
@@ -55,23 +55,26 @@ abstract class GalleryMedia
     {
         $url=galleryUrl(static::SERVICE,$url);
         if(!$url) throw new MediaFailure('format','Invalid '.static::NAME.' post URL');
+        $story=static::SERVICE==='instagram'&&instagramStoryUrl($url)!==null;
+        $limit=self::maxItems(static::SERVICE,$url);
         $runner=new Download($this->config);
         $python=dirname($this->config->galleryDl).'/python';
         $backend=basename($this->config->galleryDl)==='gallery-dl'&&is_executable($python)
             ?[$python,dirname(__DIR__).'/bin/'.static::SERVICE.'-download.py']:[$this->config->galleryDl];
-        $command=array_merge($backend,['--ignore-config','--no-input','--quiet','--retries','2','--http-timeout','20',
+        $command=array_merge($backend,['--ignore-config','--no-input','--quiet','--retries',$story?'0':'2','--http-timeout','20',
             '--directory',$folder,'--filename',static::PREFIX.'-{num:02d}.{extension}',
             '-o','extractor.'.static::SERVICE.'.videos='.(static::SERVICE==='instagram'?'merged':'true'),
             '-o','extractor.'.static::SERVICE.'.previews=false','-o','extractor.tiktok.audio=false','-o','extractor.tiktok.covers=false',
             '-o','extractor.twitter.quoted=false','-o','extractor.twitter.conversations=false','-o','extractor.twitter.cards=false','-o','extractor.twitter.articles=false',
-            '--range','1-'.(static::MAX_ITEMS+1),'--Print','after:CIRO|{num}|{count}|{_path}',
+            '--range','1-'.($limit+1),'--Print','after:CIRO|{num}|{count}|{_path}',
             '--Print','post:CIRO_META|{description!j}']);
         if(static::SERVICE==='tiktok'&&!$this->config->tiktokPreferH264) $command=array_merge($command,['-o','extractor.tiktok.prefer-h264=false']);
         // Instagram, Pinterest, TikTok and X may need a cleaner exit address than the server's.
         if($this->config->galleryProxy!=='') $command=array_merge($command,['--proxy',$this->config->galleryProxy]);
         $pool=static::pool($this->config); $jars=$pool->order(3);
+        if($story&&!$jars) throw new MediaFailure('cookies','Instagram stories require a signed-in session');
         // Anonymous first when cookies are only a last resort; otherwise rotate through the jars.
-        $attempts=!$jars?[null]:($this->config->cookieFallback?array_merge([null],$jars):$jars);
+        $attempts=!$jars?[null]:($this->config->cookieFallback&&!$story?array_merge([null],$jars):$jars);
         $output=''; $failure=null; $refused=[];
         foreach($attempts as $jar) {
             $arguments=[];
@@ -85,8 +88,10 @@ abstract class GalleryMedia
             }
             // Partial files of an earlier refused attempt must not be mistaken for this one's result.
             foreach(glob($folder.'/'.static::PREFIX.'-*')?:[] as $stale) if(is_file($stale)) unlink($stale);
-            try { $output=$runner->run(array_merge($command,$arguments,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*(static::MAX_ITEMS+1),$this->config->maxBytes); $failure=null; }
+            try { $output=$runner->run(array_merge($command,$arguments,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*($limit+1),$this->config->maxBytes); $failure=null; }
             catch(MediaFailure $e) {
+                if($story&&preg_match('/\b429\b|too many requests|rate.limit/i',$e->getMessage())) throw new MediaFailure('blocked','Instagram stories rate limited');
+                if($story&&preg_match('/NotFoundError.*(?:story|user)|requested (?:story|user).*not/i',$e->getMessage())) throw new MediaFailure('restricted','Instagram story unavailable to the session');
                 if(preg_match('/login|authentication|authorization|unauthorized|forbidden|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) $e=new MediaFailure('blocked',$e->getMessage());
                 $failure=$e;
                 if($e->reason!=='blocked') throw $e;
@@ -109,14 +114,14 @@ abstract class GalleryMedia
             $parts=explode('|',$line,4);
             if(count($parts)!==4||!ctype_digit($parts[1])||!ctype_digit($parts[2])) throw new MediaFailure('format','Invalid '.static::NAME.' manifest');
             $index=(int)$parts[1]; $total=(int)$parts[2]; $file=realpath($parts[3]);
-            if($index<1||$total<1||$total>static::MAX_ITEMS||isset($files[$index])||($count!==null&&$count!==$total)
+            if($index<1||$total<1||$total>$limit||isset($files[$index])||($count!==null&&$count!==$total)
                 ||$file===false||dirname($file)!==realpath($folder)||is_link($parts[3])||!is_file($file)
                 ||!preg_match('/^'.static::PREFIX.'-\d+\.(jpg|jpeg|png|webp|mp4|mkv|mov)$/Di',basename($file))) throw new MediaFailure('format',static::NAME.' media manifest is incomplete or invalid');
             if(filesize($file)<1||filesize($file)>$this->config->maxBytes) throw new MediaFailure('size',static::NAME.' media exceeds file size limit');
             $files[$index]=$file; $count=$total;
         }
         ksort($files,SORT_NUMERIC);
-        if(!$files) throw new MediaFailure('format',static::NAME.' returned no downloadable visual media');
+        if(!$files) { if($story) return []; throw new MediaFailure('format',static::NAME.' returned no downloadable visual media'); }
         if(count($files)!==$count||array_keys($files)!==range(1,$count)) throw new MediaFailure('format',static::NAME.' did not return every slide of the post: expected='.$count.' received='.count($files).' indexes='.implode(',',array_keys($files)));
         $result=[];
         foreach($files as $index=>$file) {
