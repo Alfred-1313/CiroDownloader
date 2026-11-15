@@ -8,14 +8,14 @@ final class UiRegistry
     public const QUALITY_BUTTONS=['quality_240','quality_360','quality_480','quality_720','quality_high','quality_native','extract_audio'];
     private const VIDEO_TEXTS=['quality_prompt','cover_title','cover_instruction','cover_limit','queued','inspecting','quality_expired','quality_busy',
         'downloading','uploading','audio_downloading','audio_uploading','failed','error_size','error_restricted','error_cookies','error_duration',
-        'error_network','error_storage','error_blocked','error_format','error_process','error_upload','audio_failed','audio_error_size','audio_error_format','audio_error_upload'];
+        'error_network','error_storage','error_blocked','error_format','error_process','error_upload','handoff_ready','handoff_expired','handoff_queued','handoff_denied','handoff_failed','audio_failed','audio_error_size','audio_error_format','audio_error_upload'];
     private const YOUTUBE_TEXTS=['video_caption','video_title','video_quality','video_duration','audio_caption','audio_title','audio_format','audio_duration'];
     public static function services(): array { return ['youtube',...galleryServices(),...musicServices(),...adultServices()]; }
     public static function shared(string $service,string $kind): array
     {
         if(in_array($service,['youtube',...adultServices()],true)) return $kind==='button'
-            ?array_merge(array_values(array_filter(self::QUALITY_BUTTONS,fn($key)=>($key!=='quality_240'||$service!=='youtube')&&($key!=='quality_native'||in_array($service,['tikporn','eporner'],true)))),$service==='youtube'?['source_video','source_audio']:[])
-            :array_merge(array_values(array_diff(self::VIDEO_TEXTS,$service==='youtube'?[]:['error_size','error_restricted','error_format','error_network','error_blocked','audio_error_size','audio_error_format'])),$service==='youtube'?self::YOUTUBE_TEXTS:[]);
+            ?array_merge(array_values(array_filter(self::QUALITY_BUTTONS,fn($key)=>($key!=='quality_240'||$service!=='youtube')&&($key!=='quality_native'||in_array($service,['tikporn','eporner'],true)))),$service==='youtube'?['source_video','source_audio']:['handoff_open'])
+            :array_merge(array_values(array_diff(self::VIDEO_TEXTS,$service==='youtube'?['handoff_ready','handoff_expired','handoff_queued','handoff_denied','handoff_failed']:['error_size','error_restricted','error_format','error_network','error_blocked','audio_error_size','audio_error_format'])),$service==='youtube'?self::YOUTUBE_TEXTS:[]);
         return $kind==='button'&&in_array($service,musicServices(),true)?['music_share','radio_play','batch_back']:[];
     }
     public static function key(string $service,string $kind,string $key): string
@@ -59,6 +59,7 @@ final class UiRegistry
         if(in_array($service,['youtube',...adultServices()],true)) {
             $result=['quality'=>array_filter(['240'=>'quality_240','360'=>'quality_360','480'=>'quality_480','720'=>'quality_720','1080'=>'quality_high','native'=>'quality_native','audio'=>'extract_audio'],fn($key)=>in_array($key,self::shared($service,'button'),true))];
             if($service==='youtube') $result+=['video'=>['source'=>'source_video'],'audio'=>['source'=>'source_audio']];
+            else $result+=['handoff'=>['open'=>'handoff_open']];
             return $result;
         }
         if(in_array($service,galleryServices(),true)) return ['slides'=>['prev'=>$service.'_prev','next'=>$service.'_next','source'=>'source_'.$service],

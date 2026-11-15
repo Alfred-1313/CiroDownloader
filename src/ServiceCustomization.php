@@ -149,17 +149,17 @@ final class ServiceCustomization
             $values['service.'.$service.'.cover.per_row']='2'; $values['service.'.$service.'.cover.order']='["360","480","720","1080","audio"]';
             foreach($service==='youtube'?['cover.parts','media.video.parts','media.audio.parts']:['cover.parts'] as $part) $values['service.'.$service.'.'.$part]='parts';
         }
-        $store->db->exec('BEGIN IMMEDIATE');
+        $store->db->exec('BEGIN IMMEDIATE'); $transactionOpen=true;
         try {
             if(($view['fingerprint']??'')!==$this->fingerprint($service)) {
-                $store->db->exec('ROLLBACK');
+                $store->db->exec('ROLLBACK'); $transactionOpen=false;
                 $this->service($chat,$message,$service,$ui->text('custom_reset_stale')); return;
             }
             foreach($values as $name=>$value) $store->set($name,$value);
             foreach(UiRegistry::layouts($service) as $layout=>$slots) $store->query('DELETE FROM settings WHERE key=?',['layout.'.$service.'.'.$layout]);
             $this->service($chat,$message,$service,$ui->text('custom_reset_service_done',['title'=>$this->title($service)]));
-            $store->db->exec('COMMIT');
-        } catch(\Throwable $error) { if($store->db->inTransaction()) $store->db->exec('ROLLBACK'); throw $error; }
+            $store->db->exec('COMMIT'); $transactionOpen=false;
+        } catch(\Throwable $error) { if($transactionOpen) { try { $store->db->exec('ROLLBACK'); } catch(\Throwable) {} } throw $error; }
     }
     private function items(string $service,string $filter): array
     {

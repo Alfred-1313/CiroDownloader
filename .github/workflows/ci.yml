@@ -29,6 +29,8 @@ jobs:
           php tests/run.php
           php tests/adult_privacy.php
           php tests/adult_spoilers.php
+          php tests/adult_handoff.php
+          php tests/adult_handoff_process.php
           php tests/cookies.php
           php tests/cookie_manager.php
           php tests/instagram.php

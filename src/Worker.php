@@ -10,6 +10,7 @@ require_once __DIR__.'/Articles.php';
 require_once __DIR__.'/Spotify.php';
 require_once __DIR__.'/SoundCloud.php';
 require_once __DIR__.'/MusicMenu.php';
+require_once __DIR__.'/AdultHandoff.php';
 
 final class WorkerStopped extends \RuntimeException {}
 
@@ -175,6 +176,18 @@ final class Worker
                     'reply_markup'=>['inline_keyboard'=>$bot->ui->layout('youtube',$audio?'audio':'video',['source'=>[$link]],[['source']])]];
             }
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
+            if($adult&&!$audio&&$store->get('adult.handoff.enabled','0')==='1') {
+                $handoff=new AdultHandoff($config,$store);
+                $link=$handoff->prepare($job,$media,$adultSite,$caption,$deleteAfter,$bot->adultSpoiler($adultSite,'video'),(int)$timings['prepare_ms']);
+                try {
+                    $button=$bot->ui->button('handoff_open'); unset($button['_hidden']); $button['url']=$link;
+                    $bot->jobMessage($job,$bot->ui->text('handoff_ready',[],[],true),$bot->ui->layout($adultSite,'handoff',['open'=>[$button]],[['open']]));
+                    $saved=$store->query('SELECT message_id,message_kind FROM jobs WHERE id=?',[$job['id']])->fetch();
+                    $handoff->linkMessage($link,(int)$job['chat_id'],(int)$saved['message_id'],(string)$saved['message_kind']);
+                } catch(Throwable $e) { $handoff->cancel($link); throw $e; }
+                $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+                return;
+            }
             if(!$audio&&!empty($media['thumbnail'])) {
                 $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','thumbnail.jpg');
                 // Telegram can generate its own thumbnail; an explicit cover selects the displayed video picture.

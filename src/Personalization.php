@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/ServiceCustomization.php';
+require_once __DIR__.'/AdultHandoff.php';
 
 final class Personalization
 {
@@ -81,9 +82,37 @@ final class Personalization
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
             [$this->switchButton('adult_delete_group','custom:adultdelg',$store->get('adult.delete_group','1')==='1')],
             [$ui->button('adult_delete_seconds','custom:adultsec',['n'=>(string)Bot::adultDelays($store)])],
+            [$ui->button('handoff_admin','custom:handoff')],
             [$ui->button('back_features',$this->menus()->adultBack($chat,$message)),$ui->button('close','custom:close')],
         ];
         $back=$this->menus()->adultBack($chat,$message); $id=$this->send($chat,$ui->text('custom_adult'),$rows,$message); $this->menus()->rememberAdult($chat,$id,$back);
+    }
+    private function handoffPage(int $chat,int $message=0,string $notice=''): void
+    {
+        $ui=$this->bot->ui; $handoff=new AdultHandoff($this->bot->config,$this->bot->store);
+        $rows=[[$this->heading($ui->label('handoff_admin'))],
+            [$this->switchButton('handoff_switch','custom:handofftoggle',$handoff->enabled())],
+            [$ui->button('handoff_token','custom:handofftoken',['state'=>$ui->plain($handoff->token()!==''?'switch_on':'switch_off')])],
+            [$ui->button('handoff_ttl','custom:handoffttl',['n'=>(string)$handoff->ttl()])],
+            [$ui->button('back','custom:adultpage'),$ui->button('close','custom:close')]];
+        $this->send($chat,$ui->text('handoff_admin_intro').($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    public function receiveHandoff(int $chat,int $user,array $message,string $state): void
+    {
+        $ui=$this->bot->ui; $text=trim((string)($message['text']??''));
+        $menu=(int)substr($state,strrpos($state,':')+1);
+        if(str_starts_with($state,'handoff.ttl:')) $text=strtr($text,array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',-1,PREG_SPLIT_NO_EMPTY),str_split('01234567890123456789')));
+        if(str_starts_with($state,'handoff.token:')) {
+            try { if($this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)($message['message_id']??0)])!==true) throw new \RuntimeException('Message not deleted'); }
+            catch(\Throwable) { $this->handoffPage($chat,$menu,$ui->text('handoff_admin_delete_failed')); return; }
+        }
+        try {
+            if(str_starts_with($state,'handoff.token:')) (new AdultHandoff($this->bot->config,$this->bot->store))->configure($text);
+            elseif(str_starts_with($state,'handoff.ttl:')&&preg_match('/^[0-9]{1,5}$/D',$text)&&(int)$text>=10&&(int)$text<=86400) $this->bot->store->set('adult.handoff.ttl',(string)(int)$text);
+            else throw new \RuntimeException('Invalid input');
+            $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            $this->handoffPage($chat,$menu,$ui->text('handoff_admin_saved'));
+        } catch(\Throwable) { $this->handoffPage($chat,$menu,$ui->text('handoff_admin_invalid')); }
     }
     private function adultReturn(int $chat,int $message,string $site): void { if(!$this->menus()->settingsReturn($chat,$message,$site)) $this->adultPage($chat,$message); }
     private function resetAll(int $chat,int $message): void
@@ -809,6 +838,16 @@ final class Personalization
             $this->features($chat,$message);
         } elseif($op==='adultpage') {
             $this->adultPage($chat,$message);
+        } elseif($op==='handoff') {
+            $this->handoffPage($chat,$message);
+        } elseif($op==='handofftoggle') {
+            $handoff=new AdultHandoff($this->bot->config,$this->bot->store);
+            if(!$handoff->enabled()&&$handoff->token()==='') $this->handoffPage($chat,$message,$ui->text('handoff_admin_invalid'));
+            else { $this->bot->store->set('adult.handoff.enabled',$handoff->enabled()?'0':'1'); $this->handoffPage($chat,$message); }
+        } elseif(in_array($op,['handofftoken','handoffttl'],true)) {
+            $state=$op==='handofftoken'?'handoff.token:':'handoff.ttl:';
+            $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,$state.$message,time()+600]);
+            $this->send($chat,$ui->text($op==='handofftoken'?'handoff_admin_token':'handoff_admin_ttl'),[[$ui->button('back','custom:handoff')]],$message);
         } elseif($op==='adult') {
             $this->bot->store->set('adult.pornhub',$this->bot->store->get('adult.pornhub','0')==='1'?'0':'1');
             $this->adultReturn($chat,$message,'pornhub');

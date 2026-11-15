@@ -29,6 +29,9 @@ services:
   worker:
     <<: *common
     command: [php, bin/worker.php]
+  adult-handoff:
+    <<: *common
+    command: [php, bin/adult-handoff.php]
   # The live radio: plays queued songs into the live stream of a group or channel (see docs/radio.md).
   # Start it with: docker compose --profile radio up -d radio
   radio:

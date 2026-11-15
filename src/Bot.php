@@ -560,6 +560,9 @@ final class Bot
         if($text==='/help'||$reply==='help') { (new GroupSupport($this))->help($chat); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
+        if($this->admin($user)&&is_string($state)&&(str_starts_with($state,'handoff.token:')||str_starts_with($state,'handoff.ttl:'))) {
+            $custom->receiveHandoff($chat,$user,$message,$state); return;
+        }
         if($this->admin($user)&&is_string($state)&&str_starts_with($state,'admins.add:')) {
             (new Administrators($this))->receive($chat,$user,$message,$state); return;
         }

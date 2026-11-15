@@ -202,6 +202,28 @@ try {
     $songs=$api->called('sendAudio'); $args=array_map(fn($line)=>json_decode($line,true),file($trace,FILE_IGNORE_NEW_LINES)); $audioArgs=end($args);
     phCheck(count($songs)===1&&str_contains($songs[0][1]['caption'],'🎞 MP3')&&str_contains($songs[0][1]['caption'],'Alice، Bob')&&!isset($songs[0][1]['reply_markup'])&&$audioArgs[array_search('-f',$audioArgs,true)+1]==='hls-671','the audio button gives an MP3 from the smallest stream, with the same caption and no link');
 
+    // The optional companion flow processes the real local fixture, then keeps it for the requester.
+    $companion=new Zero\AdultHandoff($config,$store);
+    $validate=new class implements Zero\Api { public function call(string $method,array $params=[]): mixed { return $method==='getMe'?['id'=>456,'is_bot'=>true,'username'=>'fixture_bot']:['url'=>'']; } };
+    $companion->configure('456:fixture_secret',$validate); $store->set('adult.handoff.enabled','1');
+    $api->calls=[]; $store->query('UPDATE users SET last_request=0'); $send($link,42);
+    $job=$store->claim('inspect'); $worker->process($job);
+    $menuId=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn(); $update++;
+    $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'qh','from'=>['id'=>42,'is_bot'=>false],'message'=>['message_id'=>$menuId,'chat'=>['id'=>42,'type'=>'private']],'data'=>'quality:'.$job['id'].':480']]);
+    $worker->process($store->claim('media'));
+    $edits=$api->called('editMessageCaption'); $latest=end($edits)[1]; $button=$latest['reply_markup']['inline_keyboard'][0][0]??[];
+    phCheck(!$api->called('sendVideo')&&str_starts_with($button['url']??'','https://t.me/fixture_bot?start=v_')&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='done','an enabled companion replaces main-bot delivery with an owner-bound link to the prepared fixture video');
+    preg_match('/start=v_([a-f0-9]{32})/',$button['url'],$handoffMatch);
+    phCheck($companion->request(42,42,'/start v_'.$handoffMatch[1])==='queued','the actual processed Pornhub fixture can be queued in the second bot');
+    $prepared=$companion->claim(); $secondApi=new PornhubApi(); $companion->deliver($prepared,$secondApi); $delivered=$secondApi->called('sendVideo');
+    phCheck(count($delivered)===1&&($delivered[0][1]['has_spoiler']??false)&&str_contains($delivered[0][1]['caption'],'Fixture Video')&&str_contains($delivered[0][1]['caption'],'🗑'),'the companion sends the original adult caption, deletion notice and spoiler with the processed video');
+    $api->calls=[]; $store->query('UPDATE users SET last_request=0'); $send($link,42); $job=$store->claim('inspect'); $worker->process($job);
+    $menuId=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn(); $update++;
+    $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'qha','from'=>['id'=>42,'is_bot'=>false],'message'=>['message_id'=>$menuId,'chat'=>['id'=>42,'type'=>'private']],'data'=>'quality:'.$job['id'].':audio']]);
+    $worker->process($store->claim('media'));
+    phCheck(count($api->called('sendAudio'))===1,'the audio choice stays on the main bot while video handoff is enabled');
+    $store->set('adult.handoff.enabled','0');
+
     // The administrator is told WHY a page could not be reached (one clean word), never the raw output.
     $broken=$temp.'/yt-broken';
     file_put_contents($broken,"#!/usr/bin/env php\n<?php\nfwrite(STDERR,'ERROR: [PornHub] x: Unable to download webpage: [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed certificate in certificate chain (https://secret.example/token=ABC)');exit(1);");
