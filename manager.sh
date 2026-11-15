@@ -144,11 +144,26 @@ install_bot() {
   run_step 'Install CiroDownloader command' install_shortcut || return
   ui_ok 'Ciro Downloader is ready.'; ui_note 'Open your bot and send /start. Next time, run: CiroDownloader'
 }
+require_clean_source() {
+  [[ -d .git ]] || { ui_error 'This installation has no Git history. Its files were kept.'; return 1; }
+  local changes
+  changes=$(git status --porcelain) || { ui_error 'Cannot check source files. Nothing was fetched.'; return 1; }
+  [[ -n $changes ]] || return 0
+  ui_warn 'Local code changes prevent this update. Your files were kept; nothing was fetched.'
+  ui_note 'Review the changed file names in the installation folder:'
+  ui_note "cd \"$PROJECT_DIR\""
+  ui_note 'git status --short'
+  ui_note 'To save tracked and untracked edits locally, then use the GitHub code:'
+  ui_note 'git stash push --include-untracked -m ciro-before-update'
+  ui_note 'The stash stays local and is not reapplied automatically.'
+  if [[ $changes == *'?? '* ]]; then ui_warn 'Review untracked files too before saving them in the stash.'; fi
+  return 1
+}
 update_bot() {
   ui_screen; ui_section 'Update'
   require_no_api_migration || return
   require_configuration || return
-  [[ -d .git && -z $(git status --porcelain) ]] || { ui_warn 'The checkout contains local changes or has no Git history. Nothing was fetched.'; return 1; }
+  require_clean_source || return
   local origin
   origin=$(git remote get-url origin) || return
   [[ ${origin%.git} == ${REPOSITORY_URL%.git} ]] || { ui_error 'This checkout points to a different repository.'; return 1; }
