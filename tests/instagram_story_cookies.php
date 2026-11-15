@@ -60,9 +60,13 @@ try {
     $tap('iu:1:0:s',7);scCheck(str_contains($api->last('answerCallbackQuery')['text'],'دیگر فعال نیست'),'old profile/story buttons are retired without queueing another request');
     $store->query('INSERT OR IGNORE INTO users(id) VALUES(7)');$store->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,options) VALUES(777,7,7,'https://www.instagram.com/fixture/',?,500,'instagram_users','{}')",[time()]);
     $legacy=$store->claim('media');$worker->process($legacy);scCheck($store->query('SELECT status FROM jobs WHERE id=?',[$legacy['id']])->fetchColumn()==='cancelled','queued profile work is cancelled safely after upgrading');
-    $commands=array_column(Zero\AdminCommands::menu($bot->ui),'command');scCheck(!in_array('user_instagram',$commands,true)&&in_array('story_instagram',$commands,true),'the command menu retains stories and removes profiles');
+    $commands=array_column(Zero\AdminCommands::menu($bot->ui),'command');scCheck(!in_array('user_instagram',$commands,true)&&in_array('insta',$commands,true),'the command menu retains stories and removes profiles');
     $store->set('commands.public','old-profile-menu');$store->set('commands.public_tried',(string)time());Zero\MusicSearch::register($api,$store,$bot->ui);
     $registered=array_column($api->last('setMyCommands')['commands']??[],'command');
-    scCheck(!in_array('user_instagram',$registered,true)&&in_array('story_instagram',$registered,true),'a changed public command menu refreshes immediately after profile removal');
+    scCheck(!in_array('user_instagram',$registered,true)&&in_array('insta',$registered,true),'a changed public command menu refreshes immediately after profile removal');
+    $store->set('instagram.stories','1');$store->query('UPDATE users SET last_request=0 WHERE id=7');$send('/insta rahkar_mobile',7);
+    $insta=$store->query("SELECT url,phase FROM jobs WHERE status='queued' ORDER BY id DESC LIMIT 1")->fetch();
+    scCheck($insta&&$insta['url']==='https://www.instagram.com/stories/rahkar_mobile/'&&$insta['phase']==='instagram','/insta username enters the existing story pipeline');
+    scCheck(Zero\InstagramStories::parse('/insta@FixtureBot @rahkar_mobile')===['bot'=>'FixtureBot','argument'=>'@rahkar_mobile'],'the new command parses addressed bots and @usernames');
     scCheck(!array_filter(array_keys($bot->catalog('text')),fn($key)=>str_starts_with($key,'instagram_user_')),'no profile field remains in Personalization');
 } finally { Zero\Download::clean($root); }

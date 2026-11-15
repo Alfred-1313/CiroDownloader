@@ -10,7 +10,7 @@ final class InstagramStories extends GalleryMedia
     public static function enabled(Store $store): bool { return $store->get('instagram.stories','0')==='1'; }
     public static function parse(string $text): ?array
     {
-        if(!preg_match('~^/story_instagram(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
+        if(!preg_match('~^/(?:insta|story_instagram)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
         return ['bot'=>$m[1]??'','argument'=>trim($m[2]??'')];
     }
     public static function handle(Bot $bot,array $update,int $user,int $chat,int $thread,array $command): void
