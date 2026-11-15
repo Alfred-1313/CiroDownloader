@@ -47,6 +47,18 @@ final class Ui
         $item=$this->definition($kind,$key);
         return ($item['audience']??'')==='user'&&empty($item['hidden']);
     }
+    /** Effective values include read-only legacy fallbacks and pending previews. */
+    public function customized(string $kind,string $key): bool
+    {
+        $definition=$this->definition($kind,$key);
+        if(!$definition||!$this->customizable($kind,$key)) return false;
+        if($kind==='text') return $this->template($key)!==$definition['value'];
+        $button=$this->button($key);
+        return $this->label($key)!==$definition['value']||($button['style']??'')!==($definition['style']??'')
+            ||isset($button['icon_custom_emoji_id'])||$this->setting('button.emoji.'.$key)!==''
+            ||$this->setting('button.pos.'.$key,'start')==='end'||$this->setting('button.plain.'.$key)==='1'
+            ||!empty($button['_hidden']);
+    }
     public function catalog(string $kind): array
     {
         $result=[];

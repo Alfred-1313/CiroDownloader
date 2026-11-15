@@ -30,11 +30,45 @@ final class ServiceCustomization
     private function heading(string $key): array { return [$this->editor->heading($this->bot->ui->label($key),$key)]; }
     private function footer(string $back): array { $ui=$this->bot->ui; return [$ui->button('back',$back),$ui->button('close','custom:close')]; }
     private function title(string $service): string { return $this->bot->ui->label('section_'.$service); }
+    private function navigation(string $key,string $data,bool $changed): array
+    {
+        $ui=$this->bot->ui; $button=$ui->button($key,$data);
+        if($changed) $button['text']=$ui->plainWith('mark_group',['label'=>$button['text']]);
+        return $button;
+    }
+    private function layoutChanged(string $service,string $layout): bool
+    {
+        $ui=$this->bot->ui; $defaults=clone $ui;
+        $defaults->preview(['layout.'.$service.'.'.$layout=>'null']);
+        return $ui->layoutRows($service,$layout)!==$defaults->layoutRows($service,$layout);
+    }
+    private function changed(string $service,string $filter=''): bool
+    {
+        $ui=$this->bot->ui;
+        foreach($filter===''?UiRegistry::items($service,Ui::definitions()):$this->items($service,$filter) as [$kind,$key])
+            if($ui->customized($kind,$key)) return true;
+        if($filter!=='') return false;
+        foreach(UiRegistry::layouts($service) as $layout=>$slots) if($this->layoutChanged($service,$layout)) return true;
+        if(in_array($service,['youtube',...adultServices()],true)) {
+            $scoped=$ui->forService($service);
+            if($scoped->setting('cover.per_row','2')!=='2'||$scoped->coverOrder()!==['360','480','720','1080','audio']) return true;
+            foreach($service==='youtube'?['cover','video','audio']:['cover'] as $type) if($scoped->captionMode($type)!=='parts') return true;
+        }
+        return false;
+    }
+    private function groupChanged(array $sections): bool
+    {
+        foreach($sections as $section) if($this->editor->sectionCustomized($section)) return true;
+        return false;
+    }
     public function home(int $chat,int $message=0,string $notice=''): void
     {
         $ui=$this->bot->ui; $rows=[$this->heading('hub_downloaders')];
-        foreach(['youtube',...galleryServices(),...musicServices()] as $service) $rows[]=[$ui->button('section_'.$service,'custom:service:'.$service)];
-        foreach(['adult','music','general'] as $category) { $rows[]=$this->heading('hub_'.$category); $rows[]=[$ui->button('hub_open_'.$category,'custom:category:'.$category)]; }
+        foreach(['youtube',...galleryServices(),...musicServices()] as $service) $rows[]=[$this->navigation('section_'.$service,'custom:service:'.$service,$this->changed($service))];
+        foreach(['adult','music','general'] as $category) {
+            $changed=$category==='adult'?(bool)array_filter(adultServices(),fn($service)=>$this->changed($service)):$this->groupChanged($category==='music'?['menu','batch','search','radio','radio_player']:['help','group','access','errors']);
+            $rows[]=$this->heading('hub_'.$category); $rows[]=[$this->navigation('hub_open_'.$category,'custom:category:'.$category,$changed)];
+        }
         $rows[]=[$ui->button('reset_all','custom:resetall'),$ui->button('close','custom:close')];
         $this->bot->store->set('custom.section.'.$chat,'home');
         $this->show($chat,$message,$ui->text('custom_panel').($notice!==''?"\n\n".$notice:''),$rows,['type'=>'home']);
@@ -44,28 +78,88 @@ final class ServiceCustomization
         $ui=$this->bot->ui; $rows=[$this->heading('hub_'.$category)];
         if($category==='adult') {
             $rows[]=[$ui->button('hub_shared_adult','custom:adultpage')];
-            foreach(adultServices() as $site) $rows[]=[$ui->button('section_'.$site,'custom:service:'.$site)];
+            foreach(adultServices() as $site) $rows[]=[$this->navigation('section_'.$site,'custom:service:'.$site,$this->changed($site))];
         } else {
             foreach($category==='music'?['menu','batch','search','radio','radio_player']:['help','group','access','errors'] as $section)
-                $rows[]=[$ui->button('section_'.$section,'custom:section:'.$section)];
+                $rows[]=[$this->navigation('section_'.$section,'custom:section:'.$section,$this->groupChanged([$section]))];
             if($category==='general') $rows[]=[$ui->button('features_hub','custom:features')];
         }
         $rows[]=$this->footer('custom:home');
         $this->show($chat,$message,$ui->text('hub_category_info',['title'=>$ui->label('hub_'.$category)]),$rows,['type'=>'category','category'=>$category]);
     }
-    public function service(int $chat,int $message,string $service): void
+    public function service(int $chat,int $message,string $service,string $notice=''): void
     {
         if(!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return; }
         $ui=$this->bot->ui; $rows=[];
-        if(in_array($service,['youtube',...adultServices()],true)) { $rows[]=$this->heading('hub_cover'); $rows[]=[$ui->button('hub_edit_cover','custom:coverhub:'.$service)]; }
+        if(in_array($service,['youtube',...adultServices()],true)) { $rows[]=$this->heading('hub_cover'); $rows[]=[$this->navigation('hub_edit_cover','custom:coverhub:'.$service,$this->changed($service,'cover')||$this->changed($service,'quality')||$this->layoutChanged($service,'quality'))]; }
         foreach(['caption','button','text'] as $kind) {
             if(!$this->items($service,$kind)) continue;
-            $rows[]=$this->heading('hub_'.$kind); $rows[]=[$ui->button('hub_edit_'.$kind,'custom:items:'.$service.':'.$kind.':0')];
+            $rows[]=$this->heading('hub_'.$kind); $rows[]=[$this->navigation('hub_edit_'.$kind,'custom:items:'.$service.':'.$kind.':0',$this->changed($service,$kind))];
         }
-        $rows[]=$this->heading('hub_layout'); $rows[]=[$ui->button('hub_edit_layout','custom:layouts:'.$service)];
+        $rows[]=$this->heading('hub_layout'); $rows[]=[$this->navigation('hub_edit_layout','custom:layouts:'.$service,(bool)array_filter(array_keys(UiRegistry::layouts($service)),fn($id)=>$this->layoutChanged($service,$id)))];
         $rows[]=$this->heading('sec_settings'); $rows[]=[$ui->button('hub_settings','custom:settings:'.$service)];
+        $rows[]=[$ui->button('reset_service','custom:resetservice:'.$service)];
         $rows[]=$this->footer(in_array($service,adultServices(),true)?'custom:category:adult':'custom:home');
-        $this->show($chat,$message,$ui->text('hub_service_info',['title'=>$this->title($service)]),$rows,['type'=>'service','service'=>$service]);
+        $this->show($chat,$message,$ui->text('hub_service_info',['title'=>$this->title($service)]).($notice!==''?"\n\n".$notice:''),$rows,['type'=>'service','service'=>$service]);
+    }
+    /** Bind a confirmation to this service's appearance, including its read-only legacy fallbacks. */
+    private function fingerprint(string $service): string
+    {
+        $names=[]; $ui=$this->bot->ui;
+        foreach(UiRegistry::items($service,Ui::definitions()) as [$kind,$key]) {
+            $seen=[];
+            do {
+                if(isset($seen[$key])) break;
+                $seen[$key]=true; $names[]=$kind.'.'.$key;
+                if($kind==='button') foreach(['style','icon','emoji','pos','plain','hidden'] as $part) $names[]='button.'.$part.'.'.$key;
+                $key=$ui->definition($kind,$key)['inherits']??'';
+            } while($key!=='');
+        }
+        if(in_array($service,['youtube',...adultServices()],true)) foreach(['cover.parts','cover.order','cover.per_row','media.video.parts','media.audio.parts'] as $part)
+            array_push($names,$part,'service.'.$service.'.'.$part);
+        foreach(UiRegistry::layouts($service) as $layout=>$slots) $names[]='layout.'.$service.'.'.$layout;
+        $values=[];
+        foreach(array_unique($names) as $name) $values[$name]=$this->bot->store->get($name,"\0");
+        ksort($values);
+        return hash('sha256',json_encode($values,JSON_THROW_ON_ERROR));
+    }
+    /** A scoped reset writes factory overrides, shielding this service from legacy shared values. */
+    private function reset(int $chat,int $message,string $service,bool $confirmed): void
+    {
+        $ui=$this->bot->ui; $store=$this->bot->store;
+        if(!$confirmed) {
+            $rows=[[$ui->button('reset_service_yes','custom:resetservice:'.$service.':yes')],[$ui->button('cancel','custom:service:'.$service)]];
+            $this->show($chat,$message,$ui->text('custom_reset_service',['title'=>$this->title($service)]),$rows,
+                ['type'=>'reset_service','service'=>$service,'fingerprint'=>$this->fingerprint($service)]);
+            return;
+        }
+        $view=$this->views($chat)[(string)$message]??[];
+        if(($view['type']??'')!=='reset_service'||($view['service']??'')!==$service) {
+            $this->service($chat,$message,$service,$ui->text('custom_reset_stale')); return;
+        }
+        $values=[];
+        foreach(UiRegistry::items($service,Ui::definitions()) as [$kind,$key]) {
+            $definition=$ui->definition($kind,$key); $values[$kind.'.'.$key]=$definition['value'];
+            if($kind==='button') {
+                $values['button.style.'.$key]=$definition['style']??'';
+                foreach(['icon','emoji','pos','plain','hidden'] as $part) $values['button.'.$part.'.'.$key]='';
+            }
+        }
+        if(in_array($service,['youtube',...adultServices()],true)) {
+            $values['service.'.$service.'.cover.per_row']='2'; $values['service.'.$service.'.cover.order']='["360","480","720","1080","audio"]';
+            foreach($service==='youtube'?['cover.parts','media.video.parts','media.audio.parts']:['cover.parts'] as $part) $values['service.'.$service.'.'.$part]='parts';
+        }
+        $store->db->exec('BEGIN IMMEDIATE');
+        try {
+            if(($view['fingerprint']??'')!==$this->fingerprint($service)) {
+                $store->db->exec('ROLLBACK');
+                $this->service($chat,$message,$service,$ui->text('custom_reset_stale')); return;
+            }
+            foreach($values as $name=>$value) $store->set($name,$value);
+            foreach(UiRegistry::layouts($service) as $layout=>$slots) $store->query('DELETE FROM settings WHERE key=?',['layout.'.$service.'.'.$layout]);
+            $this->service($chat,$message,$service,$ui->text('custom_reset_service_done',['title'=>$this->title($service)]));
+            $store->db->exec('COMMIT');
+        } catch(\Throwable $error) { if($store->db->inTransaction()) $store->db->exec('ROLLBACK'); throw $error; }
     }
     private function items(string $service,string $filter): array
     {
@@ -82,17 +176,17 @@ final class ServiceCustomization
     private function cover(int $chat,int $message,string $service): void
     {
         if(!in_array($service,['youtube',...adultServices()],true)) return;
-        $ui=$this->bot->ui; $rows=[$this->heading('hub_cover'),[$ui->button('hub_edit_cover_caption','custom:items:'.$service.':cover:0')],
-            $this->heading('hub_quality'),[$ui->button('hub_edit_quality','custom:items:'.$service.':quality:0')],
-            $this->heading('hub_layout'),[$ui->button('layout_quality','custom:layout:'.$service.':quality')],$this->footer('custom:service:'.$service)];
+        $ui=$this->bot->ui; $rows=[$this->heading('hub_cover'),[$this->navigation('hub_edit_cover_caption','custom:items:'.$service.':cover:0',$this->changed($service,'cover'))],
+            $this->heading('hub_quality'),[$this->navigation('hub_edit_quality','custom:items:'.$service.':quality:0',$this->changed($service,'quality'))],
+            $this->heading('hub_layout'),[$this->navigation('layout_quality','custom:layout:'.$service.':quality',$this->layoutChanged($service,'quality'))],$this->footer('custom:service:'.$service)];
         $this->show($chat,$message,$ui->text('hub_cover_info',['title'=>$this->title($service)]),$rows,['type'=>'cover','service'=>$service]);
     }
     public function listing(int $chat,int $message,string $service,string $kind,int $page=0): void
     {
         if(!in_array($kind,['caption','button','text','cover','quality'],true)||!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return; }
         $ui=$this->bot->ui; $items=$this->items($service,$kind); $pages=max(1,(int)ceil(count($items)/self::PAGE_SIZE)); $page=max(0,min($pages-1,$page));
-        $rows=[$this->heading('hub_'.$kind)]; $saved=$this->editor->saved();
-        foreach(array_slice($items,$page*self::PAGE_SIZE,self::PAGE_SIZE) as [$type,$key]) $rows[]=[$this->editor->marked($type,$key,$saved)];
+        $rows=[$this->heading('hub_'.$kind)];
+        foreach(array_slice($items,$page*self::PAGE_SIZE,self::PAGE_SIZE) as [$type,$key]) $rows[]=[$this->editor->marked($type,$key)];
         $nav=[];
         if($page>0) $nav[]=$ui->button('previous','custom:items:'.$service.':'.$kind.':'.($page-1));
         if($page+1<$pages) $nav[]=$ui->button('next','custom:items:'.$service.':'.$kind.':'.($page+1));
@@ -169,7 +263,7 @@ final class ServiceCustomization
     private function layouts(int $chat,int $message,string $service): void
     {
         $ui=$this->bot->ui; $rows=[$this->heading('hub_layout')];
-        foreach(UiRegistry::layouts($service) as $id=>$slots) $rows[]=[$ui->button('layout_'.$id,'custom:layout:'.$service.':'.$id)];
+        foreach(UiRegistry::layouts($service) as $id=>$slots) $rows[]=[$this->navigation('layout_'.$id,'custom:layout:'.$service.':'.$id,$this->layoutChanged($service,$id))];
         $rows[]=$this->footer('custom:service:'.$service);
         $this->show($chat,$message,$ui->text('hub_layouts_info',['title'=>$this->title($service)]),$rows,['type'=>'layouts','service'=>$service]);
     }
@@ -213,7 +307,7 @@ final class ServiceCustomization
     public function handle(int $chat,int $user,string $action,int $message): bool
     {
         $p=explode(':',$action); $op=$p[1]??''; $service=$p[2]??'';
-        if(!in_array($op,['service','category','items','settings','layouts','layout','mode','coverhub','spoiler'],true)) return false;
+        if(!in_array($op,['service','category','items','settings','layouts','layout','mode','coverhub','spoiler','resetservice'],true)) return false;
         if($op==='category') { if(in_array($service,['adult','music','general'],true)) $this->category($chat,$message,$service); else $this->home($chat,$message); return true; }
         if(!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return true; }
         match($op) {
@@ -223,6 +317,7 @@ final class ServiceCustomization
             'layout'=>$this->layout($chat,$message,$service,$p[3]??'',$p[4]??'',$p[5]??'',$p[6]??''),
             'mode'=>$this->mode($chat,$message,$service,$p[3]??'',$p[4]??''),
             'spoiler'=>$this->spoiler($chat,$message,$service,$p[3]??''),
+            'resetservice'=>$this->reset($chat,$message,$service,($p[3]??'')==='yes'),
         };
         return true;
     }

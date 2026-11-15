@@ -122,31 +122,15 @@ final class Personalization
         $ui=$this->bot->ui;
         return preg_match('/^[a-z_]{1,24}$/D',$id)&&$ui->definition('text','hint_'.$id)?mb_substr($ui->plain('hint_'.$id),0,200):'';
     }
-    /** @return array<string,string> saved text.* and button.* settings */
-    public function saved(): array
+    public function sectionCustomized(string $section): bool
     {
-        $result=[];
-        foreach($this->bot->store->query("SELECT key,value FROM settings WHERE key LIKE 'text.%' OR key LIKE 'button.%'")->fetchAll() as $row) $result[$row['key']]=$row['value'];
-        return $result;
-    }
-    private function customized(string $kind,string $key,array $saved): bool
-    {
-        $definition=$this->bot->ui->definition($kind,$key);
-        if(!$definition) return false;
-        if($kind==='text') return isset($saved['text.'.$key])&&$saved['text.'.$key]!==$definition['value'];
-        if(isset($saved['button.'.$key])&&$saved['button.'.$key]!==$definition['value']) return true;
-        if(isset($saved['button.style.'.$key])&&$saved['button.style.'.$key]!==($definition['style']??'')) return true;
-        return !empty($saved['button.icon.'.$key])||!empty($saved['button.emoji.'.$key])||($saved['button.plain.'.$key]??'')==='1'||($saved['button.hidden.'.$key]??'')==='1';
-    }
-    private function sectionCustomized(string $section,array $saved): bool
-    {
-        foreach($this->sectionItems($section) as [$kind,$key]) if($this->customized($kind,$key,$saved)) return true;
+        foreach($this->sectionItems($section) as [$kind,$key]) if($this->bot->ui->customized($kind,$key)) return true;
         return false;
     }
     /** A list row carries a marker once the administrator has changed it; recolor keeps management controls blue. */
-    public function marked(string $kind,string $key,array $saved): array
+    public function marked(string $kind,string $key): array
     {
-        $ui=$this->bot->ui; $changed=$this->customized($kind,$key,$saved);
+        $ui=$this->bot->ui; $changed=$ui->customized($kind,$key);
         $button=$ui->button('catalog_item','custom:item:'.$kind.':'.$key,['label'=>$changed?$ui->plainWith($kind==='button'?'mark_button':'mark_text',['label'=>$ui->definition($kind,$key)['label']]):$ui->definition($kind,$key)['label']]);
         if($changed) $button['style']='success';
         return $button;
@@ -314,12 +298,12 @@ final class Personalization
         $this->menus()->forgetView($chat,$message);
         $ui=$this->bot->ui; $items=$this->orderedItems($section);
         if(!$items) { $this->home($chat,$message); return; }
-        $this->bot->store->set('custom.section.'.$chat,$section); $saved=$this->saved();
+        $this->bot->store->set('custom.section.'.$chat,$section);
         $pages=max(1,(int)ceil(count($items)/self::PAGE_SIZE)); $page=max(0,min($pages-1,$page));
         $rows=$page===0?$this->settingsRows($section):[]; $last='';
         foreach(array_slice($items,$page*self::PAGE_SIZE,self::PAGE_SIZE) as [$kind,$key]) {
             if($kind!==$last) { $title=$kind==='text'?'sec_texts':'sec_buttons'; $rows[]=[$this->heading($ui->label($title),$title)]; $last=$kind; }
-            $rows[]=[$this->marked($kind,$key,$saved)];
+            $rows[]=[$this->marked($kind,$key)];
         }
         $navigation=[];
         if($page>0) $navigation[]=$ui->button('previous',$this->sectionAddress($section,$page-1));
@@ -451,15 +435,6 @@ final class Personalization
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
     }
-    /** Whether the value on screen differs from the default; uses a pending preview when there is one. */
-    private function itemChanged(string $kind,string $key): bool
-    {
-        $ui=$this->bot->ui; $definition=$ui->definition($kind,$key);
-        if(!$definition) return false;
-        if($kind==='text') { $value=$ui->localSetting('text.'.$key); return $value!==''&&$value!==$definition['value']; }
-        $label=$ui->localSetting('button.'.$key); $style=$ui->localSetting('button.style.'.$key,'-');
-        return ($label!==''&&$label!==$definition['value'])||($style!=='-'&&$style!==($definition['style']??''))||$ui->localSetting('button.icon.'.$key)!==''||$ui->localSetting('button.emoji.'.$key)!==''||$ui->localSetting('button.plain.'.$key)==='1'||$ui->localSetting('button.hidden.'.$key)==='1';
-    }
     public function item(int $chat,string $kind,string $key,int $message=0,string $notice='',bool $strictPreview=false): void
     {
         $key=UiRegistry::legacy($kind,$key);
@@ -471,7 +446,7 @@ final class Personalization
         elseif($base==='quality_high') $samples['quality']='1080p';
         elseif($base==='quality_native') $samples['quality']='1440p';
         $value=$kind==='button'?Ui::escape($ui->label($key,$samples)):$ui->text($key,$samples);
-        $changed=$ui->plain($this->itemChanged($kind,$key)?'state_custom':'state_default'); $color='';
+        $changed=$ui->plain($ui->customized($kind,$key)?'state_custom':'state_default'); $color='';
         $reply=$kind==='button'&&in_array($key,Ui::REPLY_KEYS,true); $required=$kind==='button'&&$ui->required($key);
         if($kind==='button') {
             $current=$ui->button($key);
@@ -526,6 +501,25 @@ final class Personalization
         finally { $ui->preview([]); }
         $this->send($chat,$ui->text('custom_default',['title'=>$definition['label'],'value'=>$value],['value']),[[$ui->button('back','custom:item:text:'.$key)]],$message);
     }
+    /** Literal source is paged by Unicode characters; never cut a surrogate pair or execute saved markup. */
+    private function source(int $chat,string $key,int $message,int $page=0): void
+    {
+        $ui=$this->bot->ui; $definition=$ui->definition('text',$key);
+        $chunks=[]; $chunk=''; $units=0;
+        foreach(mb_str_split($ui->template($key)) as $character) {
+            $length=TextFormat::length($character);
+            if($units+$length>2600) { $chunks[]=$chunk; $chunk=''; $units=0; }
+            $chunk.=$character; $units+=$length;
+        }
+        $chunks[]=$chunk; $page=max(0,min(count($chunks)-1,$page));
+        $rows=[]; $nav=[];
+        if($page>0) $nav[]=$ui->button('previous','custom:source:'.$key.':'.($page-1));
+        if($page+1<count($chunks)) $nav[]=$ui->button('next','custom:source:'.$key.':'.($page+1));
+        if($nav) $rows[]=$nav;
+        $rows[]=[$ui->button('source_edit','custom:edit:text:'.$key),$ui->button('back','custom:item:text:'.$key)];
+        $text=$ui->text('custom_source',['title'=>$definition['label'],'page'=>$page+1,'pages'=>count($chunks),'value'=>$chunks[$page]]);
+        $this->send($chat,$text,$rows,$message);
+    }
     /** A saved text that dropped a placeholder is kept, but the administrator is told. */
     private function missingVariables(string $kind,string $key,array $values): string
     {
@@ -545,6 +539,11 @@ final class Personalization
         $text=$kind==='icon'?$ui->text('custom_icon_prompt'):($kind==='emoji'?$ui->text('custom_emoji_prompt'):$ui->text($caption?'custom_caption_prompt':'custom_prompt',['title'=>$definition['label'],'variables'=>$variables],['variables']));
         if($kind==='text') $text.="\n\n".$ui->text('custom_formatting_guide');
         $rows=$caption?[[$ui->button('caption_reset','custom:reset:text:'.$key)]]:[];
+        if($kind==='text') {
+            $current=$ui->text('custom_current_source',['value'=>$ui->template($key)]);
+            if(TextFormat::length(html_entity_decode(strip_tags($text."\n\n".$current),ENT_QUOTES|ENT_HTML5,'UTF-8'))<=3900&&strlen($text.$current)<24000) $text.="\n\n".$current;
+            $rows[]=[$ui->button('current_text','custom:source:'.$key.':0')];
+        }
         $rows[]=[$ui->button('cancel','custom:item:'.$base.':'.$key)];
         $message=$this->send($chat,$text,$rows,$message);
         $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>$kind,'key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
@@ -672,8 +671,21 @@ final class Personalization
                 // A plain emoji replaces a no-emoji choice and sits at the chosen end of the label.
                 $values['button.emoji.'.$key]=$emoji; $values['button.plain.'.$key]='0'; $values['button.icon.'.$key]='';
             } else throw new \RuntimeException('Invalid customization kind');
-        } catch(\Throwable) {
-            $this->send($chat,$ui->text($kind==='emoji'?'custom_emoji_invalid':'custom_invalid'),[[$ui->button('cancel','custom:item:'.(in_array($kind,['icon','emoji'],true)?'button':$kind).':'.$key)]],(int)$menu);
+        } catch(\Throwable $error) {
+            $reason=$kind==='text'?match($error->getMessage()) {
+                'Text exceeds the allowed length'=>'custom_error_length',
+                'Escape literal HTML characters'=>'custom_error_escape',
+                'Mismatched HTML tag'=>'custom_error_mismatch',
+                'Nested blockquotes are not supported'=>'custom_error_nested',
+                'Unsupported HTML tag'=>'custom_error_tag',
+                'Unclosed HTML tag'=>'custom_error_unclosed',
+                'Invalid text entity range'=>'custom_error_entities',
+                'This is an inline text field'=>'custom_error_inline',
+                default=>null,
+            }:null;
+            $notice=$ui->text($kind==='emoji'?'custom_emoji_invalid':'custom_invalid');
+            if($reason!==null) $notice.="\n\n".$ui->text($reason);
+            $this->send($chat,$notice,[[$ui->button('cancel','custom:item:'.(in_array($kind,['icon','emoji'],true)?'button':$kind).':'.$key)]],(int)$menu);
             return;
         }
         if($this->commit($chat,in_array($kind,['icon','emoji'],true)?'button':$kind,$key,(int)$menu,$values)) $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
@@ -684,6 +696,12 @@ final class Personalization
         if(($parts[0]??'')!=='custom') return false;
         $op=$parts[1]??''; $kind=$parts[2]??''; $key=$parts[3]??'';
         if($this->menus()->handle($chat,$user,$action,$message)) return true;
+        if($op==='source') {
+            $source=UiRegistry::legacy('text',$kind);
+            if($ui->customizable('text',$source)) $this->source($chat,$source,$message,max(0,(int)$key));
+            else { $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]); $this->home($chat,$message); }
+            return true;
+        }
         if(in_array($op,['item','edit','reset','default'],true)) $key=UiRegistry::legacy($kind,$key);
         elseif(in_array($op,['icon','emoji','pos','plain','hide','cyclecolor','color','setcolor','clearicon'],true)) $kind=UiRegistry::legacy('button',$kind);
         $target=match($op) {

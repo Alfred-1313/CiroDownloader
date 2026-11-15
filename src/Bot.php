@@ -489,7 +489,7 @@ final class Bot
             if(preg_match('/^ck(?:rm|ex|ts|lb):/',$action)) { (new CookieJars($this))->callback($cb,$chat,$user,(int)($message['message_id']??0)); return; }
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'cache_time'=>0]);
             if($action==='custom:noop') return;
-            if(!$group) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+            if(!$group&&!str_starts_with($action,'custom:source:')) $this->store->query('DELETE FROM states WHERE user_id=?',[$user]);
             if($action==='help'||($group&&in_array($action,['home','download'],true))) { (new GroupSupport($this))->help($chat,$thread); return; }
             $menu=(int)($message['message_id']??0);
             if($custom->handle($chat,$user,$action,$menu)) return;

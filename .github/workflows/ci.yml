@@ -41,6 +41,7 @@ jobs:
           php tests/personalization_sections.php
           php tests/service_customization.php
           php tests/caption_editor.php
+          php tests/customization_workflow.php
           php tests/personalization_ui.php
           php tests/personalization_buttons.php
           php tests/update_ui.php

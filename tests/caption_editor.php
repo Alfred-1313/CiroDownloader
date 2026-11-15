@@ -34,7 +34,7 @@ try {
     $examples=array_map(fn($value)=>html_entity_decode($value,ENT_QUOTES|ENT_HTML5,'UTF-8'),$matches[1]);
     foreach(['<b>X</b>','<i>X</i>','<u>X</u>','<s>X</s>','<code>X</code>','<pre>X</pre>','<blockquote>X</blockquote>','<a href="آدرس">X</a>'] as $example)
         captionCheck(in_array($example,$examples,true),'formatting example is literal and copyable: '.$example);
-    captionCheck(str_contains($prompt,'{description}')&&str_contains($prompt,'فقط ابتدای متن (سمت راست برای فارسی)'),'service variables and the requested premium-emoji guidance remain visible');
+    captionCheck(str_contains($prompt,'{description}')&&str_contains($prompt,'اول، وسط یا آخر'),'service variables and the requested premium-emoji guidance remain visible');
     $store->set('text.instagram_caption','<b>کپشن قدیمی</b>');
     $click('custom:reset:text:instagram_caption');
     captionCheck($bot->ui->template('instagram_caption')===Zero\Ui::definitions()['texts']['instagram_caption']['value']&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'the prompt reset restores the default and closes pending caption input');
