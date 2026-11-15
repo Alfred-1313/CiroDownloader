@@ -24,3 +24,9 @@
 نمایش عکس پروفایل و بیو، دریافت آیدی خام و کامند `/user_instagram` حذف شده‌اند؛ کارهای قدیمی صف‌شده لغو و دکمه‌های قدیمی غیرفعال می‌شوند. استوری با لینک یا کامند باقی می‌ماند. از **🎨 شخصی‌سازی ← اینستاگرام ← استوری** کپشن‌ها، متن‌ها، خطاها و دکمه‌ها و از تنظیمات همان بخش کلید استوری را ویرایش کن. استوری پیش‌فرض خاموش است و همچنان به کوکی مستقل نیاز دارد.
 
 متن پیش‌فرض راهنمای `/insta` از **شخصی‌سازی ← اینستاگرام ← کپشن، متن‌ها و دکمه‌های استوری ← راهنمای دریافت استوری** ویرایش می‌شود. `{bot_username}` آیدی خود ربات را در انتهای متن قرار می‌دهد. نسخه‌های ذخیره‌شدهٔ دقیقِ راهنمای پیش‌فرض قدیمی به متن جدید منتقل می‌شوند؛ متن سفارشی عمدی حفظ می‌شود.
+
+### Public results and administrator diagnostics
+
+An authenticated empty reel uses the editable `instagram_story_empty` result. A 404 from the account page uses `instagram_story_not_found` and finishes normally without a failure alert or another cookie attempt. An ambiguous page without a verified account ID still fails safely with `instagram_story_error_identity`; it does not prove that the account is missing or the session expired. Authentication refusals, rate limits and network failures remain separate failures with sanitized private administrator diagnostics. No public default message asks the user to import cookies or configure the server.
+
+All story outcomes are under Personalization → Instagram → Stories. The public-copy migration retires only exact saved historical defaults (including HTML-escaped and service-scoped copies), preserving deliberate custom text, administrator setup messages and feature/session settings.

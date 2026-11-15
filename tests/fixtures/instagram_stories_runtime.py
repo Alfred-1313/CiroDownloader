@@ -45,12 +45,12 @@ def reels(self, ids):
 
 
 def webpage(self, path):
-    if mode.get("identity_limited"):
+    if mode.get("identity_limited") or mode.get("identity_http"):
         response = Response()
-        response.status_code = 429
+        response.status_code = mode.get("identity_http", 429)
         response._content = b""
         response._content_consumed = True
-        raise exception.HttpError("HTTP 429", response)
+        raise exception.HttpError("HTTP " + str(response.status_code), response)
     if mode.get("identity_missing"):
         return '<link rel="canonical" href="https://www.instagram.com/fixture/">'
     return '<link rel="canonical" href="https://www.instagram.com/fixture/">"profile_id":"7"'

@@ -229,6 +229,13 @@ final class Worker
             throw $e;
         } catch(Throwable $e) {
             if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
+            // A missing account is a normal result, not a broken session. Keep
+            // authentication, rate limits and ambiguous page responses separate.
+            if($instagramStory&&$e instanceof MediaFailure&&$e->reason==='not_found') {
+                $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+                try { $bot->jobMessage($job,$bot->text('instagram_story_not_found',['username'=>instagramStoryUsername($job['url'])])); } catch(Throwable) {}
+                return;
+            }
             $detail=diagnosticMessage($e->getMessage());
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');

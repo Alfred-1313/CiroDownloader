@@ -30,7 +30,7 @@ try {
     $send('https://instagram.com/stories/fixture/'); storyCheck(!$store->query('SELECT 1 FROM jobs')->fetchColumn(),'story intake defaults off'); $store->set('instagram.stories','1');
     $cookie=fn(string $value)=>"# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\t".$value."\n";
     Zero\Instagram::saveCookies($config,$cookie('POST_ONLY'));
-    $send('/insta fixture'); $missing=$run(); storyCheck($saved((int)$missing['id'])['status']==='failed'&&str_contains($last('editMessageText')['params']['text'],'کوکی مستقل'),'post cookies cannot substitute for the independent story session');
+    $send('/insta fixture'); $missing=$run(); storyCheck($saved((int)$missing['id'])['status']==='failed'&&$last('editMessageText')['params']['text']===$bot->text('instagram_story_error_cookies'),'post cookies cannot substitute for the independent story session and the public notice hides setup details');
     Zero\InstagramStories::saveCookies($config,$cookie('STORY_ONLY_ONE')); Zero\InstagramStories::saveCookies($config,$cookie('STORY_ONLY_TWO'));
     file_put_contents($config->instagramCookiePath(),str_replace("\t0\t","\t1\t",$cookie('EXPIRED_POST')));
     $store->set('cookies.fallback','1'); $store->set('instagram.carousel_mode','article');
@@ -58,7 +58,12 @@ try {
     $mode(['identity_limited'=>true]); $send('/insta fixture'); $identityLimited=$run();
     storyCheck($saved((int)$identityLimited['id'])['status']==='failed'&&$store->get('last_job_sources')==='instagram=profile, http=429','an account-ID refusal preserves its HTTP code instead of becoming restricted');
     $mode(['identity_missing'=>true]); $send('/insta fixture'); $identityMissing=$run();
-    storyCheck($saved((int)$identityMissing['id'])['status']==='failed'&&str_contains($last('editMessageText')['params']['text'],'شناسه'),'a missing account ID has a specific actionable notice');
+    storyCheck($saved((int)$identityMissing['id'])['status']==='failed'&&$last('editMessageText')['params']['text']===$bot->text('instagram_story_error_identity'),'an ambiguous account page has a friendly access notice without claiming the session expired');
+    $adminAlerts=fn()=>count(array_filter($calls(),fn($call)=>$call['method']==='sendMessage'&&(int)($call['params']['chat_id']??0)===42));
+    $before=$adminAlerts(); $attempts=count(file($temp.'/backend.jsonl')); $mode(['identity_http'=>404]); $send('/insta fixture'); $notFound=$run();
+    storyCheck($saved((int)$notFound['id'])['status']==='done'&&$last('editMessageText')['params']['text']===$bot->text('instagram_story_not_found',['username'=>'fixture'])&&$adminAlerts()===$before&&count(file($temp.'/backend.jsonl'))===$attempts+1,'a confirmed missing account is a normal editable result without an admin error or retry');
+    $mode(['identity_http'=>401]); $send('/insta fixture'); $refused=$run();
+    storyCheck($saved((int)$refused['id'])['status']==='failed'&&$last('editMessageText')['params']['text']===$bot->text('instagram_story_error_cookies')&&$store->get('last_job_sources')==='instagram=profile, http=401','authentication refusals remain technical failures privately and are never reported as an empty or missing account');
     $mode(['kinds'=>['photo'],'mismatch'=>true]); $send('/insta fixture'); $mismatch=$run(); storyCheck($saved((int)$mismatch['id'])['status']==='failed','conflicting reel and owner IDs cannot expose a different account');
     $mode(['kinds'=>['photo']]); $send('https://instagram.com/stories/fixture/999/'); $gone=$run(); storyCheck($saved((int)$gone['id'])['status']==='failed'&&str_contains($last('editMessageText')['params']['text'],'در دسترس نیست'),'an expired single story does not fall back to a different active story');
     $before=count(file($temp.'/backend.jsonl')); $send('/insta fixture'); $store->set('instagram.stories','0'); $off=$run();

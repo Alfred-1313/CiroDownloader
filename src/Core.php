@@ -462,6 +462,37 @@ final class Store
                 if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.welcome']);
                 $this->set('ui_welcome_compact_v1','1');
             }
+            if($this->get('ui_user_messages_v1','0')!=='1') {
+                // Replace only saved copies of retired public defaults, including
+                // scoped service copies. Preserve every deliberate custom message.
+                $changed=[
+                    'failed','audio_failed','error_blocked','error_cookies','error_storage',
+                    'error_network','pornhub_error_size','pornhub_error_network','pornhub_error_blocked','beeg_error_size',
+                    'beeg_error_network','beeg_error_blocked','xnxx_error_size','xnxx_error_network','xnxx_error_blocked',
+                    'xvideos_error_size','xvideos_error_network','xvideos_error_blocked','youporn_error_size','youporn_error_network',
+                    'youporn_error_blocked','eporner_error_size','eporner_error_network','eporner_error_blocked','tikporn_error_size',
+                    'tikporn_error_network','tikporn_error_blocked','instagram_error_cookies','instagram_error_blocked','instagram_error_size',
+                    'instagram_error_storage','instagram_error_format','instagram_error_process','instagram_error_upload','instagram_failed',
+                    'instagram_error_article','pinterest_error_cookies','pinterest_error_blocked','pinterest_error_size','pinterest_error_storage',
+                    'pinterest_error_format','pinterest_error_process','pinterest_error_upload','pinterest_failed','pinterest_error_article',
+                    'tiktok_error_cookies','tiktok_error_blocked','tiktok_error_size','tiktok_error_storage','tiktok_error_format',
+                    'tiktok_error_process','tiktok_error_upload','tiktok_failed','tiktok_error_article','twitter_error_cookies',
+                    'twitter_error_blocked','twitter_error_size','twitter_error_storage','twitter_error_format','twitter_error_process',
+                    'twitter_error_upload','twitter_failed','twitter_error_article','spotify_error_cookies','spotify_error_blocked',
+                    'spotify_error_storage','spotify_error_process','spotify_error_upload','spotify_failed','soundcloud_error_cookies',
+                    'soundcloud_error_blocked','soundcloud_error_storage','soundcloud_error_process','soundcloud_error_upload','soundcloud_failed',
+                    'batch_failed','batch_reason_cookies','batch_reason_blocked','batch_reason_storage','instagram_story_disabled',
+                    'instagram_story_empty','instagram_story_error_identity','instagram_story_error_cookies','instagram_story_error_blocked','instagram_story_error_network',
+                    'instagram_story_error_format','instagram_story_error_process','instagram_story_error_upload','instagram_story_failed','instagram_story_error_restricted',
+                ];
+                foreach(Ui::definitions()['texts'] as $key=>$definition) {
+                    if(($definition['audience']??'')!=='user'||!in_array($definition['base']??$key,$changed,true)) continue;
+                    $legacy=$definition['legacy_values']??[];
+                    $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.'.$key])->fetchColumn();
+                    if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.'.$key]);
+                }
+                $this->set('ui_user_messages_v1','1');
+            }
             if($this->get('ui_instagram_story_usage_v2','0')!=='1') {
                 $legacy=Ui::definitions()['texts']['instagram_story_usage']['legacy_values']??[];
                 $saved=$this->query("SELECT value FROM settings WHERE key='text.instagram_story_usage'")->fetchColumn();
