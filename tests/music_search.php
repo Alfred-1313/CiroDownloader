@@ -131,10 +131,10 @@ try {
     srCheck(in_array('music',$names,true)&&in_array('spotify',$names,true)&&array_search('admin',$names,true)<array_search('music',$names,true),'the administrator\'s menu also lists /music and /spotify');
     $before=count($called('setMyCommands')); Zero\MusicSearch::register($api,$store,$bot->ui); $first=$called('setMyCommands');
     $sent=json_decode(end($first)['params']['commands'],true); $scope=json_decode(end($first)['params']['scope'],true);
-    srCheck(count($first)===$before+1&&$scope['type']==='default'&&array_column($sent,'command')===['start','help','music','spotify','user_instagram','story_instagram']&&str_contains($sent[2]['description'],'/music'),'the public menu is registered for everyone');
+    srCheck(count($first)===$before+1&&$scope['type']==='default'&&array_column($sent,'command')===['start','help','music','spotify','story_instagram']&&str_contains($sent[2]['description'],'/music'),'the public menu is registered for everyone');
     Zero\MusicSearch::register($api,$store,$bot->ui); srCheck(count($called('setMyCommands'))===$before+1,'and not sent again while it is unchanged');
-    $store->set('text.command_music','Search songs'); Zero\MusicSearch::register($api,$store,$bot->ui); srCheck(count($called('setMyCommands'))===$before+1,'a changed description waits for the hourly retry window');
-    $store->set('commands.public_tried','0'); Zero\MusicSearch::register($api,$store,$bot->ui); srCheck(count($called('setMyCommands'))===$before+2,'and is sent once the window has passed');
+    $store->set('text.command_music','Search songs'); Zero\MusicSearch::register($api,$store,$bot->ui); srCheck(count($called('setMyCommands'))===$before+2,'a changed command payload refreshes immediately');
+    $store->set('commands.public_tried','0'); Zero\MusicSearch::register($api,$store,$bot->ui); srCheck(count($called('setMyCommands'))===$before+2,'an already successful payload is not resent after the retry window');
 
     // 11. Everything a user sees can be reworded in Personalization.
     foreach(['search_queued','search_loading','search_empty','music_usage','spotify_usage','command_music','command_spotify','command_start','command_help'] as $key)

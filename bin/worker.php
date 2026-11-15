@@ -78,6 +78,7 @@ try {
                     } elseif($pid>0) $healthPid=$pid;
                 }
                 $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
+                $store->query("UPDATE jobs SET options='{}',expires=0 WHERE phase='instagram_users' AND status IN ('done','failed','cancelled') AND options<>'{}'");
                 $store->query("UPDATE jobs SET options='{}' WHERE phase IN ('xnxx_search','xvideos_search','instagram_users') AND status IN ('done','failed') AND expires>0 AND expires<? AND options<>'{}'",[time()]);
                 foreach($store->query("SELECT * FROM jobs WHERE status='confirming' AND expires>0 AND expires<?",[time()])->fetchAll() as $old) {
                     if($store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='confirming' AND expires<?",[$old['id'],time()])->rowCount()) {

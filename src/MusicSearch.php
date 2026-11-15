@@ -14,7 +14,7 @@ final class MusicSearch
     /** Command name => kind of search. */
     public const COMMANDS=['music'=>'tracks','spotify'=>'artists'];
     /** Shared public command menu; administrators repeat its search commands after their management commands. */
-    public const PUBLIC_MENU=['start','help','music','spotify','user_instagram','story_instagram'];
+    public const PUBLIC_MENU=['start','help','music','spotify','story_instagram'];
 
     /** @return ?array{command:string,argument:string,bot:string} a search command with its text, or null for any other message */
     public static function parse(string $text): ?array
@@ -39,7 +39,7 @@ final class MusicSearch
         return $menu;
     }
     /** Public search commands as administrator menu entries (added to AdminCommands' list). */
-    public static function adminMenu(Ui $ui): array { return self::commands($ui,[...array_keys(self::COMMANDS),'user_instagram','story_instagram']); }
+    public static function adminMenu(Ui $ui): array { return self::commands($ui,[...array_keys(self::COMMANDS),'story_instagram']); }
 
     /**
      * Show the commands to everyone who has no menu of their own. Sent again only when the list or its wording changed
@@ -48,7 +48,8 @@ final class MusicSearch
     public static function register(Api $api,Store $store,Ui $ui): void
     {
         $menu=self::commands($ui,self::PUBLIC_MENU); $hash=hash('sha256',json_encode($menu,JSON_UNESCAPED_UNICODE));
-        if($store->get('commands.public')===$hash||time()-(int)$store->get('commands.public_tried','0')<3600) return;
+        if($store->get('commands.public')===$hash||($store->get('commands.public_attempt')===$hash&&time()-(int)$store->get('commands.public_tried','0')<3600)) return;
+        $store->set('commands.public_attempt',$hash);
         $store->set('commands.public_tried',(string)time());
         try {
             $api->call('setMyCommands',['commands'=>$menu,'scope'=>['type'=>'default']]);

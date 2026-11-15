@@ -8,10 +8,9 @@ require_once __DIR__.'/Twitter.php';
 
 abstract class GalleryCookies
 {
-    protected const PREFIX='ig_cookie', MEDIA=Instagram::class;
-    protected function cookiePath(): string { return $this->bot->config->galleryCookiePath((static::MEDIA)::service()); }
+    protected const PREFIX='ig_cookie', MEDIA=Instagram::class, CODE='';
     private function pool(): CookiePool { return (static::MEDIA)::pool($this->bot->config); }
-    private function code(): string { return galleryPrefix((static::MEDIA)::service()); }
+    private function code(): string { return static::CODE!==''?static::CODE:galleryPrefix((static::MEDIA)::service()); }
     public function __construct(private Bot $bot) {}
     private function send(int $chat,string $key,array $rows,array $values=[]): void
     {
@@ -28,7 +27,7 @@ abstract class GalleryCookies
         if(!in_array($action,static::REPLIES,true)) return false;
         if($chat!==$user||!$this->bot->admin($user)) return true;
         $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-        if(in_array($action,['cookie_'.(static::MEDIA)::service(),static::PREFIX.'_back'],true)) $this->panel($chat);
+        if(in_array($action,[static::REPLIES[0],static::PREFIX.'_back'],true)) $this->panel($chat);
         elseif($action===static::PREFIX.'_upload') {
             $id=$this->bot->send($chat,$this->bot->text(static::PREFIX.'_import'));
             $this->bot->store->set(static::PREFIX.'_menu.'.$user,(string)$id);

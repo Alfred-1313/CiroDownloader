@@ -42,7 +42,7 @@ try {
     $bot->handle(adminMessage($bot->label('health')));
     adminCheck(str_contains(end($api->calls)[1]['text'],'کاربران ثبت‌شده'),'the status reply control opens the private statistics');
     $bot->handle(adminMessage($bot->label('cookies')));
-    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
+    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_instagram_stories'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
     $bot->handle(adminMessage($bot->label('cookie_youtube')));
     adminCheck(in_array($bot->label('cookie_view'),adminLabels($api),true)&&in_array($bot->label('cookie_remove'),adminLabels($api),true),'the YouTube service exposes separate import, view and delete controls');
     $bot->handle(adminMessage($bot->label('cookie_upload')));
@@ -84,7 +84,7 @@ try {
     $panel=(string)end($api2->calls)[1]['text'];
     $listed=true; foreach(Zero\AdminCommands::LIST as $name) if(!str_contains($panel,'/'.$name.' — '.$bot2->ui->plain('admin_cmd_'.$name))) $listed=false;
     adminCheck($listed&&str_contains($panel,'<b>📜 دستورها</b>')&&str_contains($panel,'<b>🧭 راهنمای استفاده</b>')&&str_contains($panel,$bot2->label('health'))&&str_contains($panel,'/cancel'),'the panel lists every administrator command with its meaning and a usage guide');
-    adminCheck(count($menus())===1&&$menus()[0][1]['scope']===['type'=>'chat','chat_id'=>42]&&array_column($menus()[0][1]['commands'],'command')===[...Zero\AdminCommands::LIST,'music','spotify','user_instagram','story_instagram'],'the commands appear in the administrator\'s own "/" menu, followed by the public search commands');
+    adminCheck(count($menus())===1&&$menus()[0][1]['scope']===['type'=>'chat','chat_id'=>42]&&array_column($menus()[0][1]['commands'],'command')===[...Zero\AdminCommands::LIST,'music','spotify','story_instagram'],'the commands appear in the administrator\'s own "/" menu, followed by the public search commands');
     adminCheck(!array_filter($menus()[0][1]['commands'],fn($command)=>$command['description']===''||mb_strlen($command['description'])>256||preg_match('/[<>]/',$command['description'])),'every command description is plain text within Telegram\'s limit');
     $bot2->handle(adminMessage('/admin'));
     adminCheck(count($menus())===1,'opening the panel again does not resend an unchanged menu');

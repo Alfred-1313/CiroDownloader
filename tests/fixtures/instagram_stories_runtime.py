@@ -7,6 +7,7 @@ from pathlib import Path
 
 from gallery_dl import exception
 from gallery_dl.extractor.instagram import InstagramAPI
+from requests import Response
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK = Path(sys.argv.pop(1))
@@ -14,7 +15,7 @@ mode = json.loads((WORK / "mode.json").read_text())
 args = sys.argv[1:]
 cookie = args[args.index("--cookies") + 1] if "--cookies" in args else None
 with (WORK / "backend.jsonl").open("a") as trace:
-    trace.write(json.dumps({"args": args, "cookie_private": bool(cookie and os.stat(cookie).st_mode & 0o777 == 0o600)}) + "\n")
+    trace.write(json.dumps({"args": args, "cookie_private": bool(cookie and os.stat(cookie).st_mode & 0o777 == 0o600), "story_session": bool(cookie and "STORY_ONLY" in Path(cookie).read_text())}) + "\n")
 base = (WORK / "base").read_text()
 user = {"pk": "7", "id": "7", "username": "fixture", "full_name": "Fixture"}
 items = [{"pk": 100 + i, "code": "ABC_def12", "taken_at": 1700000000 + i,
@@ -28,7 +29,11 @@ reel = {"id": "7", "user": user, "seen": 1700000000, "items": items}
 
 def reels(self, ids):
     if mode.get("limited"):
-        raise exception.ExtractionError("HTTP Error 429: Too Many Requests")
+        response = Response()
+        response.status_code = 429
+        response._content = b""
+        response._content_consumed = True
+        raise exception.HttpError("HTTP 429", response)
     if mode.get("empty"):
         return ()
     if mode.get("neighbour"):
@@ -39,6 +44,23 @@ def reels(self, ids):
     return [reel]
 
 
-InstagramAPI.user = lambda self, handle, check_private=True: dict(user)
+def webpage(self, path):
+    if mode.get("identity_limited"):
+        response = Response()
+        response.status_code = 429
+        response._content = b""
+        response._content_consumed = True
+        raise exception.HttpError("HTTP 429", response)
+    if mode.get("identity_missing"):
+        return '<link rel="canonical" href="https://www.instagram.com/fixture/">'
+    return '<link rel="canonical" href="https://www.instagram.com/fixture/">"profile_id":"7"'
+
+
+def forbidden_profile(self, *args, **kwargs):
+    raise AssertionError("A story must not request a full profile")
+
+
+InstagramAPI.user = forbidden_profile
+InstagramAPI._webpage = webpage
 InstagramAPI.reels_media = reels
 runpy.run_path(str(ROOT / "bin/instagram-download.py"), run_name="__main__")

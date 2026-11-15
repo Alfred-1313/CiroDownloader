@@ -51,7 +51,7 @@ class GalleryPages
             if(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice=$prefix.'_page_expired';
             elseif((int)$state['message']!==$message) $notice=$prefix.'_page_stale';
             elseif((int)$job['user_id']!==$user) $notice=$prefix.'_page_owner';
-            elseif(instagramStoryUrl($job['url'])!==null&&!InstagramUsers::stories($this->store)) $notice='instagram_story_disabled';
+            elseif(instagramStoryUrl($job['url'])!==null&&!InstagramStories::enabled($this->store)) $notice='instagram_story_disabled';
             // Optional Telegram topic metadata must not reject the authenticated
             // sender. The worker retains the saved topic; explicit mismatches fail.
             elseif(($thread!==null&&(int)$job['thread_id']!==$thread)||$page<1||$page>count($state['items'])||abs($page-(int)$state['current'])!==1
@@ -100,7 +100,7 @@ class GalleryPages
         if($item['type']==='video') $media+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($path,$item['type']==='photo'?'image/jpeg':'video/mp4',$name);
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery page delivery no longer authorized');
-        if($story&&!InstagramUsers::stories($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before page delivery');
+        if($story&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before page delivery');
         if($initial) {
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             unset($media['type'],$media['media']);

@@ -19,7 +19,6 @@ final class Worker
     /** Fixture-only override for search-page retrieval. */
     public ?\Closure $xnxxSearchFetch=null;
     public ?\Closure $xvideosSearchFetch=null;
-    public ?InstagramAccounts $instagramAccounts=null;
     public function __construct(private Config $config,private Store $store,private Api $api,private ?Articles $articles=null,private ?Spotify $spotify=null,private ?SoundCloud $soundcloud=null,private ?MusicCatalog $catalog=null) { ErrorAlerts::bind($config,$store,$api); }
 
     public function recover(array $job): void
@@ -46,7 +45,7 @@ final class Worker
         $folder=$downloads.'/job-'.$job['id'].'-'.bin2hex(random_bytes(4));
         mkdir($folder,0700);
         $stage='download'; $audio=$job['phase']==='audio';
-        $instagramUsers=$job['phase']===InstagramUsers::PHASE;
+        $instagramUsers=$job['phase']==='instagram_users';
         $instagramStory=instagramStoryUrl($job['url'])!==null;
         $service=$instagramUsers?'instagram':galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']);
         // A track chosen from a menu may be known only by its details; those jobs name their service in the phase.
@@ -64,7 +63,7 @@ final class Worker
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
-            if($instagramStory&&!InstagramUsers::stories($store)) {
+            if($instagramStory&&!InstagramStories::enabled($store)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 (new GalleryPages($config,$store,$api,'instagram'))->clean($job);
                 $bot->jobMessage($job,$bot->text('instagram_story_disabled')); return;
@@ -84,9 +83,8 @@ final class Worker
                 return;
             }
             if($instagramUsers) {
-                $bytes=(new InstagramUsers($bot,$this->instagramAccounts))->process($job,$folder,$timings);
-                $this->noteSpeed('instagram',$bytes,$timings);
-                return;
+                $store->query("UPDATE jobs SET status='cancelled',options='{}',expires=0 WHERE id=?",[$job['id']]);
+                $bot->jobMessage($job,$bot->text('instagram_legacy_expired')); return;
             }
             if($music!==null) {
                 $this->musicDelivery($job,$bot,$folder,$timings,$stage,$music,is_array($track)?$track:null);
@@ -110,7 +108,7 @@ final class Worker
                     $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
                     $bot->jobMessage($job,$bot->text('instagram_story_empty',['username'=>instagramStoryUsername($job['url'])])); return;
                 }
-                if($instagramStory&&!InstagramUsers::stories($store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
+                if($instagramStory&&!InstagramStories::enabled($store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
                 if(!$instagramStory&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text($service.'_article_building'));
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
@@ -234,12 +232,13 @@ final class Worker
             $detail=diagnosticMessage($e->getMessage());
             $store->set('last_job_error','Job '.$job['id'].' ['.$stage.']: '.$detail);
             $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');
+            if($instagramStory&&preg_match('/\[(instagram=(?:profile|stories), http=(?:0|[1-5][0-9]{2}))\]/',$detail,$sources)) $store->set('last_job_sources',$sources[1]);
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
             $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':($adult?$adultSite:'youtube'))));
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             try { $store->pushError($label,$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'),$store->get('last_job_sources')); } catch(Throwable) {}
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
-            if($instagramStory) $key='instagram_story_'.$key;
+            if($instagramStory) $key=str_contains($detail,'story identity unavailable')?'instagram_story_error_identity':'instagram_story_'.$key;
             elseif($gallery) $key=$service.'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
             elseif($adult) $key=$bot->ui->definition('text',$adultSite.'_'.$key)?$adultSite.'_'.$key:$key;
@@ -719,7 +718,7 @@ final class Worker
         if(count($media)!==1) throw new MediaFailure('format','Expected one gallery media file');
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
         $story=instagramStoryUrl($job['url'])!==null;
-        if($story&&!InstagramUsers::stories($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
+        if($story&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
         $item=$media[0];
         $bot->jobMessage($job,$bot->text($story?'instagram_story_uploading':$service.'_uploading',['sent'=>0,'count'=>1]));
         if($this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($item['path'])+268435456);

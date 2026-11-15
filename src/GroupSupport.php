@@ -77,14 +77,10 @@ final class GroupSupport
         if(preg_match('~^/([A-Za-z_]+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',$text,$parts)) {
             if(!empty($parts[2])&&strcasecmp($parts[2],$this->username())!==0) return;
             $command=strtolower($parts[1]); $argument=trim($parts[3]??'');
-            if(!in_array($command,['start','help','download','update','music','spotify','radio','user_instagram','story_instagram'],true)) return;
+            if(!in_array($command,['start','help','download','update','music','spotify','radio','story_instagram'],true)) return;
         }
-        if(in_array($command,['user_instagram','story_instagram'],true)) {
-            InstagramUsers::handle($this->bot,$update,$user,$chat,$thread,['argument'=>$argument,'bot'=>'','kind'=>$command==='story_instagram'?'stories':'profile']);
-            return;
-        }
-        if(($profile=instagramProfileUsername($text))!==null) {
-            InstagramUsers::handle($this->bot,$update,$user,$chat,$thread,['argument'=>$profile,'kind'=>'profile']); return;
+        if($command==='story_instagram') {
+            InstagramStories::handle($this->bot,$update,$user,$chat,$thread,['argument'=>$argument,'bot'=>'']); return;
         }
         if($command==='music'||$command==='spotify') {
             $this->bot->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);

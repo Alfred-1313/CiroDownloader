@@ -1,6 +1,9 @@
 """Run gallery-dl with Instagram's visual slides counted independently of music."""
 
 import sys
+import re
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 from gallery_dl import exception, main
 from gallery_dl.extractor.instagram import InstagramExtractor, InstagramStoriesExtractor
@@ -9,17 +12,62 @@ from gallery_dl.extractor.instagram import InstagramExtractor, InstagramStoriesE
 _parse_post = InstagramExtractor._parse_post
 
 
+class StoryIdentity(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.names = set()
+
+    def handle_starttag(self, tag, attrs):
+        data = dict(attrs)
+        value = data.get("content") if tag == "meta" and data.get("property") == "og:url" else data.get("href") if tag == "link" and data.get("rel") == "canonical" else None
+        if value:
+            parts = urlsplit(value)
+            if parts.hostname in ("instagram.com", "www.instagram.com") and re.fullmatch(r"/[A-Za-z0-9_.]+/?", parts.path):
+                self.names.add(parts.path.strip("/").lower())
+
+
+def story_identity(self):
+    # Story requests only need the account ID; the full user-by-ID profile
+    # query swallowed API failures as NotFoundError and is unnecessary here.
+    try:
+        page = self.cache(self.api._webpage, "/" + self.user)
+    except exception.HttpError as error:
+        code = error.response.status_code if error.response is not None else 0
+        if error.response is not None:
+            error.response.close()
+        raise exception.ExtractionError(f"Instagram story identity HTTP {code} [instagram=profile, http={code}]") from None
+    if len(page.encode()) > 5 * 1024 * 1024:
+        raise exception.ExtractionError("Instagram story identity unavailable [instagram=profile, http=0]")
+    ids = set(re.findall(r'"profile_id"\s*:\s*"(\d{1,24})"', page))
+    parser = StoryIdentity()
+    parser.feed(page)
+    names = set(re.findall(r'"params"\s*:\s*\{\s*"username"\s*:\s*"([A-Za-z0-9_.]+)"', page))
+    names = parser.names or {name.lower() for name in names}
+    if len(ids) != 1 or names != {self.user.lower()}:
+        raise exception.ExtractionError("Instagram story identity unavailable [instagram=profile, http=0]")
+    uid = next(iter(ids))
+    user = {"id": uid, "pk": uid, "username": self.user}
+    self._assign_user(user)
+    return user
+
+
 def story_posts(self):
     """Only the requested account's active reel, never neighbouring stories."""
     if self.highlight_id is not None:
         raise exception.ExtractionError("Only active account stories are supported")
-    user = self.api.user(self.user)
+    user = story_identity(self)
     if str(user.get("username", "")).lower() != self.user.lower():
         raise exception.ExtractionError("Instagram story account mismatch")
     uid = str(user.get("id") or user.get("pk") or "")
     if not uid.isdigit():
         raise exception.ExtractionError("Invalid Instagram story account identifier")
-    reels = list(self.api.reels_media((uid,)))
+    try:
+        reels = list(self.api.reels_media((uid,)))
+    except exception.HttpError as error:
+        code = error.response.status_code if error.response is not None else 0
+        if error.response is not None:
+            error.response.close()
+        raise exception.ExtractionError(f"Instagram stories HTTP {code} [instagram=stories, http={code}]") from None
     if not reels:
         return ()
     own = []

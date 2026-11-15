@@ -71,7 +71,7 @@ abstract class GalleryMedia
         if(static::SERVICE==='tiktok'&&!$this->config->tiktokPreferH264) $command=array_merge($command,['-o','extractor.tiktok.prefer-h264=false']);
         // Instagram, Pinterest, TikTok and X may need a cleaner exit address than the server's.
         if($this->config->galleryProxy!=='') $command=array_merge($command,['--proxy',$this->config->galleryProxy]);
-        $pool=static::pool($this->config); $jars=$pool->order(3);
+        $pool=$story?InstagramStories::pool($this->config):static::pool($this->config); $jars=$pool->order(3);
         if($story&&!$jars) throw new MediaFailure('cookies','Instagram stories require a signed-in session');
         // Anonymous first when cookies are only a last resort; otherwise rotate through the jars.
         $attempts=!$jars?[null]:($this->config->cookieFallback&&!$story?array_merge([null],$jars):$jars);
@@ -90,7 +90,12 @@ abstract class GalleryMedia
             foreach(glob($folder.'/'.static::PREFIX.'-*')?:[] as $stale) if(is_file($stale)) unlink($stale);
             try { $output=$runner->run(array_merge($command,$arguments,['--',$url]),$folder,$this->config->timeout,$this->config->maxBytes*($limit+1),$this->config->maxBytes); $failure=null; }
             catch(MediaFailure $e) {
-                if($story&&preg_match('/\b429\b|too many requests|rate.limit/i',$e->getMessage())) throw new MediaFailure('blocked','Instagram stories rate limited');
+                $storySources=$story&&preg_match('/\[(instagram=(?:stories|profile), http=(?:0|[1-5][0-9]{2}))\]/',$e->getMessage(),$known)?' ['.$known[1].']':'';
+                if($story&&preg_match('/\b429\b|too many requests|rate.limit/i',$e->getMessage())) throw new MediaFailure('blocked','Instagram stories rate limited'.$storySources);
+                if($story&&str_contains($e->getMessage(),'story identity unavailable')) throw new MediaFailure('format','Instagram story identity unavailable'.$storySources);
+                if($story&&preg_match('/Instagram stor(?:y identity|ies) HTTP (401|403)/',$e->getMessage())) throw new MediaFailure('cookies','Instagram story session refused'.$storySources);
+                if($story&&preg_match('/Instagram stor(?:y identity|ies) HTTP 404/',$e->getMessage())) throw new MediaFailure('restricted','Instagram story unavailable'.$storySources);
+                if($story&&preg_match('/Instagram stor(?:y identity|ies) HTTP 0/',$e->getMessage())) throw new MediaFailure('network','Instagram story connection unavailable'.$storySources);
                 if($story&&preg_match('/NotFoundError.*(?:story|user)|requested (?:story|user).*not/i',$e->getMessage())) throw new MediaFailure('restricted','Instagram story unavailable to the session');
                 if(preg_match('/login|authentication|authorization|unauthorized|forbidden|checkpoint|challenge|private|rate.limit|429|403|not found/i',$e->getMessage())) $e=new MediaFailure('blocked',$e->getMessage());
                 $failure=$e;

@@ -69,7 +69,6 @@ final class UiRegistry
         }
         if(in_array($service,galleryServices(),true)) return ['slides'=>['prev'=>$service.'_prev','next'=>$service.'_next','source'=>'source_'.$service],
             'delivery'=>['source'=>'source_'.$service],'article'=>['article'=>'open_'.$service.'_article']]+($service==='instagram'?[
-                'user_profile'=>['stories'=>'instagram_user_stories','source'=>'instagram_user_open','close'=>'instagram_user_close'],
                 'story_slides'=>['prev'=>'instagram_story_prev','next'=>'instagram_story_next','source'=>'source_instagram_story'],
                 'story_delivery'=>['source'=>'source_instagram_story'],
             ]:[]);
@@ -81,7 +80,6 @@ final class UiRegistry
         return match($layout) {
             'quality'=>array_merge(array_chunk(array_values(array_filter(array_map('strval',array_keys(self::layouts($service)[$layout])),fn($id)=>$id!=='audio')),2),[['audio']]),
             'slides'=>[['prev','next'],['source']],
-            'user_profile'=>[['stories'],['source'],['close']],
             'story_slides'=>[['prev','next'],['source']],
             default=>array_map(fn($id)=>[(string)$id],array_keys(self::layouts($service)[$layout]??[])),
         };
