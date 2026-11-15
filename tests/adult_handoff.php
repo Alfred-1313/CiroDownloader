@@ -30,11 +30,16 @@ try {
     $h->configure('456:new_fixture_secret',$api);
     handoffCheck($h->token()==='456:new_fixture_secret','a rotated token for the same bot keeps pending handoffs usable');
     $other=new class implements Zero\Api { public function call(string $method,array $params=[]): mixed { return $method==='getMe'?['id'=>789,'is_bot'=>true,'username'=>'other_bot']:['url'=>'']; } };
-    try { $h->configure('789:other_fixture_secret',$other); $rejected=false; } catch(RuntimeException) { $rejected=true; }
-    handoffCheck($rejected&&$h->token()==='456:new_fixture_secret','a different bot cannot take over pending links and deletion timers');
+    try { $h->configure('789:other_fixture_secret',$other); $rejected=''; } catch(Zero\AdultHandoffSetupException $e) { $rejected=$e->reason; }
+    handoffCheck($rejected==='pending'&&$h->token()==='456:new_fixture_secret','a different bot cannot take over pending links and receives an actionable reason');
     $db=new PDO('sqlite:'.$root.'/adult-handoff/handoff.sqlite'); $db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
     $row=$db->query("SELECT * FROM items WHERE token='$key'")->fetch(PDO::FETCH_ASSOC);
     handoffCheck((int)$row['expires']>=time()+118&&(int)$row['expires']<=time()+120,'expiry is measured from publishing the link');
+    $otherLink=$make(); preg_match('/start=v_([a-f0-9]{32})/',$otherLink,$otherMatch);
+    $store->set('adult.handoff.ttl','300'); $h->linkMessage($otherLink,42,88,'text',120);
+    $expiry=(int)$db->query("SELECT expires FROM items WHERE token='{$otherMatch[1]}'")->fetchColumn();
+    handoffCheck($expiry>=time()+118&&$expiry<=time()+120,'the displayed duration remains authoritative if the admin changes the setting during delivery');
+    $h->cancel($otherLink); $store->set('adult.handoff.ttl','120');
     handoffCheck($h->request(7,7,'/start v_'.$key)==='owner'&&$h->claim()===null,'another user cannot claim the private handoff');
     handoffCheck($h->request(42,-100123,'/start v_'.$key)==='invalid','group starts are refused');
     $store->set('adult.pornhub','0'); handoffCheck($h->request(42,42,'/start v_'.$key)==='expired','revoked adult-site access is checked again before redemption'); $store->set('adult.pornhub','1');

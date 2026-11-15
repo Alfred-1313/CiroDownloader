@@ -3,6 +3,12 @@ declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/Bot.php';
 
+/** A safe, user-facing reason; never carries the submitted token or a raw API response. */
+final class AdultHandoffSetupException extends \RuntimeException
+{
+    public function __construct(public readonly string $reason) { parent::__construct('Companion setup: '.$reason); }
+}
+
 /** Private, owner-bound handoffs to a separately configured Telegram bot. */
 final class AdultHandoff
 {
@@ -27,12 +33,26 @@ final class AdultHandoff
     }
     public function enabled(): bool { return $this->store->get('adult.handoff.enabled','0')==='1'; }
     public function ttl(): int { return max(10,min(86400,(int)$this->store->get('adult.handoff.ttl',(string)self::DEFAULT_TTL))); }
+    public static function durationLabel(int $seconds): string
+    {
+        $seconds=max(0,$seconds); $parts=[];
+        foreach([3600=>'ساعت',60=>'دقیقه',1=>'ثانیه'] as $unit=>$label) {
+            $n=intdiv($seconds,$unit); $seconds%=$unit;
+            if($n>0) $parts[]=$n.' '.$label;
+        }
+        return $parts?implode(' و ',$parts):'0 ثانیه';
+    }
     public function token(): string
     {
         $path=$this->dir.'/token';
         if(is_link($path)||!is_file($path)) return '';
         $token=trim((string)file_get_contents($path));
         return preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)?$token:'';
+    }
+    public function username(): string
+    {
+        $username=$this->store->get('adult.handoff.username');
+        return $this->token()!==''&&preg_match('/^[A-Za-z0-9_]{5,32}$/D',$username)?$username:'';
     }
     public function api(?string $token=null): Telegram
     {
@@ -42,16 +62,18 @@ final class AdultHandoff
     }
     public function configure(string $token,?Api $api=null): string
     {
-        if(!preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)||hash_equals($this->config->token,$token)) throw new \RuntimeException('Invalid companion bot token');
+        if(!preg_match('/^[0-9]+:[A-Za-z0-9_-]+$/D',$token)) throw new AdultHandoffSetupException('invalid_token');
         $id=(int)strstr($token,':',true);
-        if($id===(int)strstr($this->config->token,':',true)) throw new \RuntimeException('Main bot cannot be the companion');
-        $api??=$this->api($token); $me=$api->call('getMe'); $webhook=$api->call('getWebhookInfo');
+        if(hash_equals($this->config->token,$token)||$id===(int)strstr($this->config->token,':',true)) throw new AdultHandoffSetupException('same_bot');
+        try { $api??=$this->api($token); $me=$api->call('getMe'); $webhook=$api->call('getWebhookInfo'); }
+        catch(\Throwable $e) { throw new AdultHandoffSetupException(in_array((int)$e->getCode(),[401,403,404],true)?'invalid_token':'connection'); }
         $username=(string)($me['username']??'');
-        if(empty($me['is_bot'])||(int)($me['id']??0)!==$id||!preg_match('/^[A-Za-z0-9_]{5,32}$/D',$username)||!empty($webhook['url'])) throw new \RuntimeException('Companion bot validation failed');
+        if(empty($me['is_bot'])||(int)($me['id']??0)!==$id||!preg_match('/^[A-Za-z0-9_]{5,32}$/D',$username)) throw new AdultHandoffSetupException('invalid_token');
+        if(!empty($webhook['url'])) throw new AdultHandoffSetupException('webhook');
         $lock=$this->configurationLock();
         try {
             $old=$this->token(); $changedBot=$old!==''&&(int)strstr($old,':',true)!==$id;
-            if($changedBot&&((int)$this->query("SELECT COUNT(*) FROM items WHERE status IN ('ready','queued','sending')")->fetchColumn()>0||(int)$this->query('SELECT COUNT(*) FROM deletes')->fetchColumn()>0)) throw new \RuntimeException('Pending handoffs exist');
+            if($changedBot&&((int)$this->query("SELECT COUNT(*) FROM items WHERE status IN ('ready','queued','sending')")->fetchColumn()>0||(int)$this->query('SELECT COUNT(*) FROM deletes')->fetchColumn()>0)) throw new AdultHandoffSetupException('pending');
             $tmp=$this->dir.'/token.'.bin2hex(random_bytes(6));
             try { if(file_put_contents($tmp,$token,LOCK_EX)!==strlen($token)||!chmod($tmp,0600)||!rename($tmp,$this->dir.'/token')) throw new \RuntimeException('Cannot save companion token'); }
             finally { if(is_file($tmp)) unlink($tmp); }
@@ -81,10 +103,11 @@ final class AdultHandoff
         if(!preg_match('/[?]start=v_([a-f0-9]{32})$/D',$url,$m)) return;
         if($this->query("DELETE FROM items WHERE token=? AND status='ready'",[$m[1]])->rowCount()) { @unlink($this->dir.'/'.$m[1].'.mp4'); @unlink($this->dir.'/'.$m[1].'.jpg'); }
     }
-    public function linkMessage(string $url,int $chat,int $message,string $kind): void
+    public function linkMessage(string $url,int $chat,int $message,string $kind,?int $ttl=null): void
     {
+        $ttl=$ttl===null?$this->ttl():max(10,min(86400,$ttl));
         if($message<1||!preg_match('/[?]start=v_([a-f0-9]{32})$/D',$url,$m)
-            ||!$this->query('UPDATE items SET link_chat=?,link_message=?,link_kind=?,expires=?,notified=0,notice_at=0 WHERE token=?',[$chat,$message,$kind==='photo'?'photo':'text',time()+$this->ttl(),$m[1]])->rowCount()) throw new \RuntimeException('Handoff link could not be registered');
+            ||!$this->query('UPDATE items SET link_chat=?,link_message=?,link_kind=?,expires=?,notified=0,notice_at=0 WHERE token=?',[$chat,$message,$kind==='photo'?'photo':'text',time()+$ttl,$m[1]])->rowCount()) throw new \RuntimeException('Handoff link could not be registered');
     }
     public function requestSite(int $user,string $text): string
     {

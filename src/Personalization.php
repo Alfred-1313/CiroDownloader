@@ -82,6 +82,7 @@ final class Personalization
             [$this->switchButton('adult_delete_private','custom:adultdelp',$store->get('adult.delete_private','1')==='1')],
             [$this->switchButton('adult_delete_group','custom:adultdelg',$store->get('adult.delete_group','1')==='1')],
             [$ui->button('adult_delete_seconds','custom:adultsec',['n'=>(string)Bot::adultDelays($store)])],
+            [$this->heading($ui->label('handoff_admin'),'handoff_route')],
             [$ui->button('handoff_admin','custom:handoff')],
             [$ui->button('back_features',$this->menus()->adultBack($chat,$message)),$ui->button('close','custom:close')],
         ];
@@ -90,12 +91,31 @@ final class Personalization
     private function handoffPage(int $chat,int $message=0,string $notice=''): void
     {
         $ui=$this->bot->ui; $handoff=new AdultHandoff($this->bot->config,$this->bot->store);
-        $rows=[[$this->heading($ui->label('handoff_admin'))],
+        $username=$handoff->username();
+        $bot=$username!==''?'@'.$username:$ui->plain($handoff->token()!==''?'handoff_token_present':'handoff_not_connected');
+        $expiry=AdultHandoff::durationLabel($handoff->ttl());
+        $rows=[[$this->heading($ui->label('handoff_section_connection'),'handoff_connection')],
+            [$ui->button('handoff_token','custom:handofftoken',['state'=>$ui->plain($username!==''?'switch_on':'switch_off')])],
             [$this->switchButton('handoff_switch','custom:handofftoggle',$handoff->enabled())],
-            [$ui->button('handoff_token','custom:handofftoken',['state'=>$ui->plain($handoff->token()!==''?'switch_on':'switch_off')])],
-            [$ui->button('handoff_ttl','custom:handoffttl',['n'=>(string)$handoff->ttl()])],
+            [$this->heading($ui->label('handoff_section_expiry'),'handoff_expiry')],
+            [$ui->button('handoff_ttl','custom:handoffttl',['label'=>$expiry])],
             [$ui->button('back','custom:adultpage'),$ui->button('close','custom:close')]];
-        $this->send($chat,$ui->text('handoff_admin_intro').($notice!==''?"\n\n".$notice:''),$rows,$message);
+        $this->send($chat,$ui->text('handoff_admin_intro',['bot'=>$bot,'expiry'=>$expiry]).($notice!==''?"\n\n".$notice:''),$rows,$message);
+    }
+    private function handoffPrompt(int $chat,int $user,int $message,string $kind,string $notice=''): void
+    {
+        $ui=$this->bot->ui; $rows=[];
+        if($kind==='ttl') {
+            $ttl=(new AdultHandoff($this->bot->config,$this->bot->store))->ttl(); $buttons=[];
+            foreach([120,300,600,3600] as $value) $buttons[]=$ui->button('handoff_preset','custom:handoffpreset:'.$value,
+                ['label'=>AdultHandoff::durationLabel($value),'state'=>$ui->plain($value===$ttl?'handoff_selected':'handoff_unselected')]);
+            $rows=array_chunk($buttons,2);
+        }
+        $rows[]=[$ui->button('back','custom:handoff')];
+        $prompt=$ui->text($kind==='ttl'?'handoff_admin_ttl':'handoff_admin_token');
+        $next=$this->send($chat,$prompt.($notice!==''?"\n\n".$notice:''),$rows,$message);
+        if($next!==$message) $this->bot->store->query('UPDATE states SET key=? WHERE user_id=? AND key=?',
+            ['handoff.'.$kind.':'.$next,$user,'handoff.'.$kind.':'.$message]);
     }
     public function receiveHandoff(int $chat,int $user,array $message,string $state): void
     {
@@ -104,15 +124,23 @@ final class Personalization
         if(str_starts_with($state,'handoff.ttl:')) $text=strtr($text,array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',-1,PREG_SPLIT_NO_EMPTY),str_split('01234567890123456789')));
         if(str_starts_with($state,'handoff.token:')) {
             try { if($this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)($message['message_id']??0)])!==true) throw new \RuntimeException('Message not deleted'); }
-            catch(\Throwable) { $this->handoffPage($chat,$menu,$ui->text('handoff_admin_delete_failed')); return; }
+            catch(\Throwable) { $this->handoffPrompt($chat,$user,$menu,'token',$ui->text('handoff_admin_delete_failed')); return; }
         }
         try {
+            if(str_starts_with($state,'handoff.token:')) {
+                try { $next=$this->send($chat,$ui->text('handoff_admin_checking'),[[$ui->button('back','custom:handoff')]],$menu); if($next!==$menu) { $this->bot->store->query('UPDATE states SET key=? WHERE user_id=? AND key=?',['handoff.token:'.$next,$user,$state]); $menu=$next; } } catch(\Throwable) {}
+            }
             if(str_starts_with($state,'handoff.token:')) (new AdultHandoff($this->bot->config,$this->bot->store))->configure($text);
             elseif(str_starts_with($state,'handoff.ttl:')&&preg_match('/^[0-9]{1,5}$/D',$text)&&(int)$text>=10&&(int)$text<=86400) $this->bot->store->set('adult.handoff.ttl',(string)(int)$text);
-            else throw new \RuntimeException('Invalid input');
-            $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
-            $this->handoffPage($chat,$menu,$ui->text('handoff_admin_saved'));
-        } catch(\Throwable) { $this->handoffPage($chat,$menu,$ui->text('handoff_admin_invalid')); }
+            else throw new AdultHandoffSetupException('ttl');
+        } catch(\Throwable $e) {
+            $reason=$e instanceof AdultHandoffSetupException?$e->reason:'';
+            $notice=$ui->definition('text','handoff_error_'.$reason)?'handoff_error_'.$reason:'handoff_admin_invalid';
+            $this->handoffPrompt($chat,$user,$menu,str_starts_with($state,'handoff.ttl:')?'ttl':'token',$ui->text($notice));
+            return;
+        }
+        $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+        $this->handoffPage($chat,$menu,$ui->text('handoff_admin_saved'));
     }
     private function adultReturn(int $chat,int $message,string $site): void { if(!$this->menus()->settingsReturn($chat,$message,$site)) $this->adultPage($chat,$message); }
     private function resetAll(int $chat,int $message): void
@@ -460,7 +488,7 @@ final class Personalization
     }
     private function samples(): array
     {
-        return ['description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        return ['description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
     }
@@ -842,12 +870,19 @@ final class Personalization
             $this->handoffPage($chat,$message);
         } elseif($op==='handofftoggle') {
             $handoff=new AdultHandoff($this->bot->config,$this->bot->store);
-            if(!$handoff->enabled()&&$handoff->token()==='') $this->handoffPage($chat,$message,$ui->text('handoff_admin_invalid'));
+            if(!$handoff->enabled()&&$handoff->username()==='') $this->handoffPage($chat,$message,$ui->text('handoff_error_no_token'));
             else { $this->bot->store->set('adult.handoff.enabled',$handoff->enabled()?'0':'1'); $this->handoffPage($chat,$message); }
         } elseif(in_array($op,['handofftoken','handoffttl'],true)) {
-            $state=$op==='handofftoken'?'handoff.token:':'handoff.ttl:';
-            $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,$state.$message,time()+600]);
-            $this->send($chat,$ui->text($op==='handofftoken'?'handoff_admin_token':'handoff_admin_ttl'),[[$ui->button('back','custom:handoff')]],$message);
+            $kind=$op==='handofftoken'?'token':'ttl';
+            $pending='handoff.'.$kind.':'.$message;
+            $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,$pending,time()+600]);
+            try { $this->handoffPrompt($chat,$user,$message,$kind); }
+            catch(\Throwable $e) { $this->bot->store->query('DELETE FROM states WHERE user_id=? AND key=?',[$user,$pending]); throw $e; }
+        } elseif($op==='handoffpreset') {
+            $pending=$this->bot->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
+            if($pending!=='handoff.ttl:'.$message) return true;
+            if(!in_array($kind,['120','300','600','3600'],true)) $this->handoffPrompt($chat,$user,$message,'ttl',$ui->text('handoff_error_ttl'));
+            else { $this->bot->store->set('adult.handoff.ttl',$kind); $this->bot->store->query('DELETE FROM states WHERE user_id=? AND key=?',[$user,$pending]); $this->handoffPage($chat,$message,$ui->text('handoff_admin_saved')); }
         } elseif($op==='adult') {
             $this->bot->store->set('adult.pornhub',$this->bot->store->get('adult.pornhub','0')==='1'?'0':'1');
             $this->adultReturn($chat,$message,'pornhub');

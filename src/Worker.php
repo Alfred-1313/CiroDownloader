@@ -178,12 +178,13 @@ final class Worker
             if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
             if($adult&&!$audio&&$store->get('adult.handoff.enabled','0')==='1') {
                 $handoff=new AdultHandoff($config,$store);
+                $ttl=$handoff->ttl();
                 $link=$handoff->prepare($job,$media,$adultSite,$caption,$deleteAfter,$bot->adultSpoiler($adultSite,'video'),(int)$timings['prepare_ms']);
                 try {
                     $button=$bot->ui->button('handoff_open'); unset($button['_hidden']); $button['url']=$link;
-                    $bot->jobMessage($job,$bot->ui->text('handoff_ready',[],[],true),$bot->ui->layout($adultSite,'handoff',['open'=>[$button]],[['open']]));
+                    $bot->jobMessage($job,$bot->ui->text('handoff_ready',['expiry'=>AdultHandoff::durationLabel($ttl)],[],true),$bot->ui->layout($adultSite,'handoff',['open'=>[$button]],[['open']]));
                     $saved=$store->query('SELECT message_id,message_kind FROM jobs WHERE id=?',[$job['id']])->fetch();
-                    $handoff->linkMessage($link,(int)$job['chat_id'],(int)$saved['message_id'],(string)$saved['message_kind']);
+                    $handoff->linkMessage($link,(int)$job['chat_id'],(int)$saved['message_id'],(string)$saved['message_kind'],$ttl);
                 } catch(Throwable $e) { $handoff->cancel($link); throw $e; }
                 $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
                 return;

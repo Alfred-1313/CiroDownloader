@@ -212,7 +212,7 @@ try {
     $bot->handle(['update_id'=>$update,'callback_query'=>['id'=>'qh','from'=>['id'=>42,'is_bot'=>false],'message'=>['message_id'=>$menuId,'chat'=>['id'=>42,'type'=>'private']],'data'=>'quality:'.$job['id'].':480']]);
     $worker->process($store->claim('media'));
     $edits=$api->called('editMessageCaption'); $latest=end($edits)[1]; $button=$latest['reply_markup']['inline_keyboard'][0][0]??[];
-    phCheck(!$api->called('sendVideo')&&str_starts_with($button['url']??'','https://t.me/fixture_bot?start=v_')&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='done','an enabled companion replaces main-bot delivery with an owner-bound link to the prepared fixture video');
+    phCheck(!$api->called('sendVideo')&&str_starts_with($button['url']??'','https://t.me/fixture_bot?start=v_')&&str_contains($latest['caption']??'','2 دقیقه')&&$store->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='done','an enabled companion displays the actual link lifetime with an owner-bound link to the prepared fixture video');
     preg_match('/start=v_([a-f0-9]{32})/',$button['url'],$handoffMatch);
     phCheck($companion->request(42,42,'/start v_'.$handoffMatch[1])==='queued','the actual processed Pornhub fixture can be queued in the second bot');
     $prepared=$companion->claim(); $secondApi=new PornhubApi(); $companion->deliver($prepared,$secondApi); $delivered=$secondApi->called('sendVideo');
