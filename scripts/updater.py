@@ -484,23 +484,12 @@ class Agent:
         return detail
 
     def error_alert(self, error=None, stage=None, warning=False):
+        # Private technical alerts are paused. Keep the context in the existing
+        # requested update message, without sending a separate administrator DM.
         try:
-            detail = self.failure_detail(error, stage)
+            return self.failure_detail(error, stage)
         except Exception:
-            return ''  # Alerting must never replace the original failure or break a healthy update.
-        try:
-            with self.db() as db:
-                roots = tuple(self.admins)
-                placeholders = ','.join('(?)' for _ in roots)
-                admins = {int(row[0]) for row in db.execute('WITH RECURSIVE authorized(id) AS (VALUES ' + placeholders + ' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id) SELECT id FROM authorized', roots)}
-        except Exception:
-            admins = self.admins
-        for admin in admins:
-            try:
-                self.api('sendMessage', {'chat_id': admin, 'text': self.ui('update_private_alert', title=self.plain('update_warning_title' if warning else 'update_error_title'), detail=detail, _raw=('detail',)), 'parse_mode': 'HTML'})
-            except Exception:
-                pass
-        return detail
+            return ''  # Reporting must never replace the original failure.
 
     def sync_message(self):
         if not self.job or not self.job.get('id'):

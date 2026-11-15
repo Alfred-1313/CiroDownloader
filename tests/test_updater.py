@@ -212,6 +212,17 @@ class UpdaterTests(unittest.TestCase):
             with self.assertRaises(sqlite3.IntegrityError):
                 db.execute("INSERT INTO update_requests VALUES(2,42,42,100,'update','queued',0,0)")
 
+    def test_technical_error_alerts_never_send_private_messages(self):
+        for warning in (False, True):
+            detail = self.agent.error_alert(updater.UpdateFailure('build', 'process', 1), stage='update_build', warning=warning)
+            self.assertTrue(detail)
+            self.assertFalse(any(method == 'sendMessage' for method, _ in self.agent.calls))
+        self.queue(chat=-100123, thread=17)
+        self.assertTrue(self.agent.claim())
+        self.agent.finish('نتیجهٔ درخواست به‌روزرسانی', detail=detail, failed=True)
+        self.assertTrue(any(method == 'editMessageText' and params['message_id'] == 99 for method, params in self.agent.calls))
+        self.assertFalse(any(method == 'sendMessage' for method, _ in self.agent.calls))
+
     def test_group_progress_and_completion_edit_the_same_message(self):
         self.queue(chat=-100123, thread=17)
         with self.agent.db() as db:

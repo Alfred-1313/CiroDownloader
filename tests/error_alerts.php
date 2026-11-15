@@ -21,15 +21,15 @@ try {
         }
     };
     Zero\ErrorAlerts::boot($config,$store,$api);
-    $store->pushError('eporner','network','eporner=forbidden');
-    alertCheck(array_column(array_column($api->calls,1),'chat_id')===[42,55],'errors go privately only to bootstrap-authorized current administrators');
-    alertCheck(str_contains($api->calls[0][1]['text'],'eporner=forbidden'),'a structured alert contains the service, reason and clean source cause');
-    $store->pushError('eporner','network','eporner=forbidden');
-    alertCheck(count($api->calls)===2,'repeated errors are throttled in process memory without a persistent outbox');
+    for($i=0;$i<1000;$i++) {
+        $store->pushError('eporner','network','eporner=forbidden');
+        Zero\ErrorAlerts::report('runtime','process');
+        Zero\ErrorAlerts::event('Worker failure with private diagnostic');
+    }
+    alertCheck($api->calls===[],'repeated worker, runtime and legacy diagnostics never contact Telegram or administrators');
     $store->pushError('eporner','storage','https://secret.invalid/token');
-    alertCheck(!str_contains(json_encode($api->calls),'secret.invalid'),'raw URLs and arbitrary diagnostics never enter notifications');
     $api->fail=true; $store->pushError('batch','upload');
-    alertCheck(count($api->calls)===6,'a rejected alert never recurses or retries delivery');
+    alertCheck($api->calls===[],'even a failing Telegram transport is never invoked or retried for technical alerts');
     $store->set('last_job_error','in-flight only'); $store->set('recent_errors','must not persist');
     $reopen=new Zero\Store($root);
     alertCheck($reopen->get('last_job_error')===''&&$reopen->get('recent_errors')===''&&$reopen->get('preserve')==='settings','request diagnostics disappear with their process and settings survive');
@@ -37,9 +37,9 @@ try {
     alertCheck(ini_get('log_errors')==='0'&&ini_get('display_errors')==='0','runtime PHP diagnostics are not written to server logs');
     $api->fail=false;
     Zero\ErrorAlerts::report('instagram','blocked','instagram=profile, http=429');
-    alertCheck(str_contains(end($api->calls)[1]['text'],'instagram=profile, http=429'),'Instagram alerts preserve only a fixed stage and a numeric HTTP status');
     Zero\ErrorAlerts::report('instagram','format','instagram=search, http=404, username=private');
-    alertCheck(!str_contains(end($api->calls)[1]['text'],'username=private'),'arbitrary extra Instagram diagnostic fields are rejected');
+    trigger_error('Private runtime diagnostic',E_USER_WARNING);
+    alertCheck($api->calls===[],'HTTP failures and native PHP warnings also remain silent');
 } finally {
     restore_error_handler(); restore_exception_handler();
     require_once dirname(__DIR__).'/src/Download.php'; Zero\Download::clean($root);

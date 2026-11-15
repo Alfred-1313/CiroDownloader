@@ -579,7 +579,7 @@ final class Store
         $this->query('INSERT INTO stats(day,service,ok,failed,ms) VALUES(?,?,?,?,?) ON CONFLICT(day,service) DO UPDATE SET ok=ok+excluded.ok,failed=failed+excluded.failed,ms=ms+excluded.ms',[$day,$service,$ok?1:0,$ok?0:1,max(0,$ms)]);
         if(random_int(1,50)===1) $this->query('DELETE FROM stats WHERE day<?',[gmdate('Y-m-d',time()-90*86400)]);
     }
-    /** Notify now; never retain an error history. */
+    /** Compatibility hook while technical alerts are paused; never retain error history. */
     public function pushError(string $service,string $reason,string $sources=''): void
     {
         ErrorAlerts::report($service,$reason,$sources);

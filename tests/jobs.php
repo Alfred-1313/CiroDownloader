@@ -95,16 +95,16 @@ try {
     $deadline=microtime(true)+12;
     do {
         $recorded=calls($log);
-        if($store->query('SELECT status FROM jobs WHERE update_id=3')->fetchColumn()==='failed'&&count($recorded)>=4) break;
+        if($store->query('SELECT status FROM jobs WHERE update_id=3')->fetchColumn()==='failed'&&count($recorded)>=3) break;
         usleep(100000);
     } while(microtime(true)<$deadline&&proc_get_status($worker)['running']);
     $alerts=array_values(array_filter($recorded,fn($entry)=>$entry['method']==='sendMessage'&&(int)$entry['params']['chat_id']===42));
-    expectJob(count($alerts)===1&&str_contains($alerts[0]['params']['text'],'cookies'),'the failed worker sends the clean error privately to the administrator');
+    expectJob($alerts===[],'a failed worker never sends technical alerts to administrators');
     $recorded=array_values(array_filter($recorded,fn($entry)=>(int)($entry['params']['chat_id']??99)!==42));
     expectJob(array_column($recorded,'method')===['sendMessage','editMessageText','editMessageText'],
         'real worker cookie failure edits the queued message instead of sending three messages');
-    expectJob(str_contains($recorded[2]['params']['text'],'کوکی')&&(int)$recorded[2]['params']['message_id']===501,
-        'Persian cookie failure is shown in the original status message');
+    expectJob($recorded[2]['params']['text']===$bot->ui->forService('youtube')->text('error_cookies')&&(int)$recorded[2]['params']['message_id']===501,
+        'the public failure notice remains in the original status message without technical details');
     expectJob($store->query('SELECT status FROM jobs WHERE update_id=3')->fetchColumn()==='failed','worker records the failed job');
     expectJob($store->query('SELECT status FROM jobs WHERE update_id=4')->fetchColumn()==='waiting_quality','the real worker leaves an old unchosen menu unchanged without sending an expiry notice');
     $pidFile=$temp.'/slow-downloader.pid';
