@@ -114,8 +114,10 @@ try {
         $handle=fopen($storage.'/worker.lock','c'); $free=flock($handle,LOCK_EX|LOCK_NB);
         if($free) flock($handle,LOCK_UN); fclose($handle); return $free;
     },'the inherited supervisor lock is released when the last child exits');
+    // Runtime logs are deliberately disabled; a fresh heartbeat proves the replacement holds the lock and runs.
+    $store->set('worker_heartbeat','0');
     $worker=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/worker.php'],[0=>['file','/dev/null','r'],1=>['file',$temp.'/final-worker.log','w'],2=>['file',$temp.'/final-worker-error.log','w']],$pipes,dirname(__DIR__),$environment);
-    waitParallel(fn()=>str_contains((string)file_get_contents($temp.'/final-worker.log'),'worker started'),'a replacement supervisor starts safely after all old children finish');
+    waitParallel(fn()=>(int)$store->get('worker_heartbeat','0')>0&&proc_get_status($worker)['running'],'a replacement supervisor starts safely after all old children finish');
     $records=array_map(fn($line)=>json_decode($line,true),file($log,FILE_IGNORE_NEW_LINES));
     parallelCheck(count(array_filter($records,fn($record)=>$record['method']==='sendVideo'&&$record['params']['caption']===$ids[4]))===1,'the crashed job is not uploaded a second time');
 } finally {

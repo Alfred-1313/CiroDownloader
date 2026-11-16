@@ -9,16 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  google-play-runtime:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-      - name: Build the pinned Play downloader for Bookworm
-        run: |
-          docker build --target apkeep --tag ciro-apkeep-test .
-          docker run --rm --entrypoint /out/bin/apkeep ciro-apkeep-test --version
-
   test:
     runs-on: ubuntu-latest
     steps:
@@ -174,6 +164,7 @@ jobs:
         run: |
           chmod -R go-rwx src bin resources
           docker build --tag ciro-downloader:ci .
+          docker run --rm --entrypoint apkeep ciro-downloader:ci --version
 
       - name: Verify radio artwork, controls and transitions under production limits
         run: |
