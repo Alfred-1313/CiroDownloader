@@ -55,6 +55,9 @@ try {
     };
     $job=$prepare(); $menu=$api->last('editMessageText');
     playCheck(count($menu['reply_markup']['inline_keyboard'])===5&&str_contains($menu['text'],'org.example.app'),'four profiles and cancel in the original status message');
+    $labels=array_column(array_merge(...$menu['reply_markup']['inline_keyboard']),'text');
+    playCheck(str_contains(implode(' ',$labels),'ARM64')&&str_contains(implode(' ',$labels),'ARM32')&&str_contains(implode(' ',$labels),'x86_64 (AMD / Intel)')
+        &&!preg_match('/Pixel|S20|A13|HPE|Universal/i',implode(' ',$labels)),'the real menu offers processor architectures without phone models or a false universal option');
     foreach([fn()=>$tap($job,'px_9a',43,43),fn()=>$tap($job,'px_9a',7,7,(int)$job['message_id']+1),fn()=>$tap($job,'px_9a',7,-200)] as $foreign) {
         $count=count($api->calls); $foreign(); playCheck(count($api->calls)===$count+1&&$api->last('answerCallbackQuery')['show_alert']&&$status($job)==='waiting_quality','foreign admin, copied or stale message only gets an alert');
     }
@@ -64,10 +67,57 @@ try {
     $worker->process($store->claim('media'));
     playCheck($status($job)==='failed'&&!$api->documents&&$api->last('editMessageText')['text']===$bot->text('play_error_cookies'),'missing credentials get the editable user notice, not a fake download');
     $session="[google]\nemail = fixture@example.test\naas_token = made_up_fixture_token_123456789\n";
+    $oauth='oauth2_4/made_up_oauth_token_123456789'; $exchangeCalls=0;
+    $exchange=function(string $address,string $form)use(&$exchangeCalls,$oauth):array {
+        $exchangeCalls++; parse_str($form,$fields);
+        playCheck($address==='https://android.clients.google.com/auth'&&$fields['Email']==='fixture@example.test'&&$fields['Token']===$oauth
+            &&$fields['service']==='ac2dm'&&$fields['callerPkg']==='com.google.android.gms'&&$fields['ACCESS_TOKEN']==='1'
+            &&$fields['callerSig']==='38918a453d07199354f8b19af05ec6562ced5788','one-time exchange targets the pinned gpapi auth contract directly');
+        return [200,"SID=fixture\nToken=made_up_fixture_token_123456789\r\n"];
+    };
+    playCheck(Zero\GooglePlay::oauthSession('fixture@example.test',$oauth,$exchange)===$session&&$exchangeCalls===1,'browser OAuth exchanges once and returns only a normalized AAS session');
+    foreach(['wrong_prefix_token_123456789',"oauth2_4/bad\nToken=secret",str_repeat('a',17000)]as$invalid){
+        try{Zero\GooglePlay::oauthSession('fixture@example.test',$invalid,$exchange);$rejected=false;}catch(Zero\MediaFailure){$rejected=true;}
+        playCheck($rejected&&$exchangeCalls===1,'invalid browser tokens never reach the network');
+    }
+    foreach([[302,'Token=made_up_fixture_token_123456789'],[429,'Error=RateLimit'],[200,'Error=BadAuthentication'],[200,'<html>not a token</html>'],[200,"Token=made_up_fixture_token_123456789\ntoken=duplicate_token_123456789"],[200,str_repeat('x',17000)],[200,'Token=bad']]as$response){
+        $attempts=0;
+        try{Zero\GooglePlay::oauthSession('fixture@example.test',$oauth,function()use($response,&$attempts){$attempts++;return $response;});$safe=false;}
+        catch(Zero\MediaFailure $error){$safe=$error->reason==='cookies'&&!str_contains($error->getMessage(),$oauth)&&!str_contains($error->getMessage(),'fixture@example.test');}
+        playCheck($safe&&$attempts===1,'a refused, redirected, oversized or malformed OAuth response is sanitized and never retried');
+    }
     playCheck(Zero\GooglePlay::session("[google]\nemail = \"fixture@example.test\"\naas_token = \"made_up_fixture_token_123456789\"\n")===$session,'old quoted session files normalize to bare apkeep credentials without changing the token');
     playCheck(Zero\GooglePlay::session("[google]\nemail = \"fixture@example.test\"\nauth_token = \"ya29.made_up_fixture_token_123456789\"\n")==="[google]\nemail = fixture@example.test\nauth_token = ya29.made_up_fixture_token_123456789\n",'auth tokens also reach apkeep without surrounding quote characters');
     mkdir(dirname(Zero\GooglePlay::sessionPath($config)),0700); file_put_contents(Zero\GooglePlay::sessionPath($config),$session); chmod(Zero\GooglePlay::sessionPath($config),0600);
     playCheck(Zero\GooglePlay::configured($config),'valid private session file recognized');
+    $prepend=$root.'/oauth-fixture.php';file_put_contents($prepend,<<<'PHP'
+<?php
+namespace Zero;
+function curl_init($url){if($url!=='https://android.clients.google.com/auth')throw new \RuntimeException();return new \stdClass();}
+function curl_setopt_array($h,$o){
+    if($o[CURLOPT_FOLLOWLOCATION]!==false||$o[CURLOPT_SSL_VERIFYPEER]!==true||$o[CURLOPT_SSL_VERIFYHOST]!==2
+        ||$o[CURLOPT_PROTOCOLS]!==CURLPROTO_HTTPS||$o[CURLOPT_TIMEOUT]>30)throw new \RuntimeException();
+    $h->options=$o;return true;
+}
+function curl_exec($h){
+    parse_str($h->options[CURLOPT_POSTFIELDS],$f);
+    if($f['Email']!=='fixture@example.test'||!str_starts_with($f['Token'],'oauth2_4/made_up_'))throw new \RuntimeException();
+    $body=str_ends_with($f['Token'],'reject')?'Error=BadAuthentication':"Token=made_up_fixture_token_123456789\n";
+    return ($h->options[CURLOPT_WRITEFUNCTION])($h,$body)===strlen($body);
+}
+function curl_getinfo($h,$key){return 200;}
+function curl_close($h){}
+PHP);
+    $runSetup=function(string $input)use($config,$prepend):array{
+        $p=proc_open([PHP_BINARY,'-d','auto_prepend_file='.$prepend,dirname(__DIR__).'/bin/play-session.php'],[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,null,array_merge(getenv(),['BOT_TOKEN'=>'123:fixture','ADMIN_IDS'=>'42','STORAGE_DIR'=>$config->storage]));
+        fwrite($pipes[0],$input);fclose($pipes[0]);$out=stream_get_contents($pipes[1]).stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);return [proc_close($p),$out];
+    };
+    [$code,$output]=$runSetup("fixture@example.test\noauth_token\n".$oauth."\n");
+    playCheck($code===0&&str_contains($output,'Session saved privately')&&file_get_contents(Zero\GooglePlay::sessionPath($config))===$session
+        &&(fileperms(Zero\GooglePlay::sessionPath($config))&0077)===0&&!str_contains($output,$oauth)&&!str_contains($output,'made_up_fixture_token'),'interactive OAuth setup stores only the resulting private AAS session without printing credentials');
+    [$code,$output]=$runSetup("fixture@example.test\noauth_token\noauth2_4/made_up_reject\n");
+    playCheck($code===1&&str_contains($output,'Existing credentials were kept')&&file_get_contents(Zero\GooglePlay::sessionPath($config))===$session
+        &&!str_contains($output,'BadAuthentication'),'a rejected CLI exchange preserves the existing session and hides raw Google replies');
     [$exit,$check]=$checkSession();playCheck($exit===0&&$check===['session'=>'ready','login_tested'=>false],'a valid local file is not presented as a verified Google login');
     chmod(Zero\GooglePlay::sessionPath($config),0644); playCheck(!Zero\GooglePlay::configured($config),'publicly readable session refused'); chmod(Zero\GooglePlay::sessionPath($config),0600);
     $path=Zero\GooglePlay::sessionPath($config);chmod($path,0644);[$exit,$check]=$checkSession();playCheck($exit===2&&$check['session']==='insecure_permissions','the local check identifies unsafe permissions without changing them');chmod($path,0000);if(!is_readable($path)){[$exit,$check]=$checkSession();playCheck($exit===2&&$check['session']==='unreadable','the check runs with the worker account permissions');}chmod($path,0600);
@@ -145,4 +195,13 @@ PY);
     foreach(Zero\UiRegistry::items('play',Zero\Ui::definitions()) as [$kind,$key]) playCheck($bot->ui->customizable($kind,$key),'public Play field reachable in Personalization: '.$key);
     playCheck($bot->ui->required('play_cancel'),'cancel cannot be hidden');
     $store->set('text.play_queued','CUSTOM PLAY'); playCheck($bot->ui->forService('play')->text('play_queued')==='CUSTOM PLAY'&&$bot->ui->text('queued')!=='CUSTOM PLAY','Play overrides do not change other services');
+    $migration=$root.'/architecture-migration'; $before=new Zero\Store($migration);
+    $before->set('text.play_choose',Zero\Ui::definitions()['texts']['play_choose']['legacy_values'][0]);
+    $before->set('button.play_device_px_9a',Zero\Ui::definitions()['buttons']['play_device_px_9a']['legacy_values'][0]);
+    $before->set('button.play_device_sm_a13_5g','دستگاه دلخواه');$before->set('button.style.play_device_px_9a','primary');
+    $before->set('text.play_caption','کپشن دلخواه'); $before->query("DELETE FROM settings WHERE key='ui_play_architecture_v1'");
+    $after=new Zero\Store($migration);
+    playCheck($after->get('text.play_choose')===''&&$after->get('button.play_device_px_9a')===''
+        &&$after->get('button.play_device_sm_a13_5g')==='دستگاه دلخواه'&&$after->get('button.style.play_device_px_9a')==='primary'
+        &&$after->get('text.play_caption')==='کپشن دلخواه','architecture defaults migrate without changing deliberate names, styles or captions');
 } finally { putenv('PATH='.$oldPath); Zero\Download::clean($root); }

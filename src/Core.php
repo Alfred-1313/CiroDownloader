@@ -449,6 +449,15 @@ final class Store
                 }
                 $this->set('ui_play_user_notices_v1','1');
             }
+            if($this->get('ui_play_architecture_v1','0')!=='1') {
+                foreach(['texts'=>'text','buttons'=>'button'] as $bucket=>$kind) foreach(Ui::definitions()[$bucket] as $key=>$definition) {
+                    if(($definition['group']??'')!=='play') continue;
+                    $legacy=$definition['legacy_values']??[];
+                    $saved=$this->get($kind.'.'.$key);
+                    if($saved!==''&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',[$kind.'.'.$key]);
+                }
+                $this->set('ui_play_architecture_v1','1');
+            }
             if($this->get('ui_instagram_source_v1','0')!=='1') {
                 foreach(['instagram_caption','instagram_page_caption'] as $key) {
                     $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];

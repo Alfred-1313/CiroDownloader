@@ -21,14 +21,18 @@ if(($argv[1]??'')==='--check') {
 }
 if(count($argv)>1) { fwrite(STDERR,"Usage: php bin/play-session.php [--check]\n"); exit(1); }
 fwrite(STDERR,"Google Play email: "); $email=trim((string)fgets(STDIN));
-fwrite(STDERR,"Token type (aas_token or auth_token): "); $type=trim((string)fgets(STDIN));
-if(!in_array($type,['aas_token','auth_token'],true)) { fwrite(STDERR,"Unsupported token type.\n"); exit(1); }
+fwrite(STDERR,"Token type (oauth_token from browser, aas_token or auth_token): "); $type=trim((string)fgets(STDIN));
+if(!in_array($type,['oauth_token','aas_token','auth_token'],true)) { fwrite(STDERR,"Unsupported token type.\n"); exit(1); }
 $terminal=function_exists('stream_isatty')&&stream_isatty(STDIN);
 if($terminal) system('stty -echo');
 try { fwrite(STDERR,"Token (hidden): "); $token=trim((string)fgets(STDIN,16385)); }
 finally { if($terminal) system('stty echo'); fwrite(STDERR,"\n"); }
-try { $content=Zero\GooglePlay::session("[google]\nemail = \"".$email."\"\n".$type.' = "'.$token."\"\n"); }
-catch(Throwable) { fwrite(STDERR,"Invalid session; existing credentials were kept.\n"); exit(1); }
+try {
+    if($type==='oauth_token') {
+        fwrite(STDERR,"Exchanging the one-time token with Google; no download or terms acceptance.\n");
+        $content=Zero\GooglePlay::oauthSession($email,$token);
+    } else $content=Zero\GooglePlay::session("[google]\nemail = \"".$email."\"\n".$type.' = "'.$token."\"\n");
+} catch(Throwable) { fwrite(STDERR,"Session not saved. Check the email/token; browser OAuth tokens can only be used once. Existing credentials were kept.\n"); exit(1); }
 $directory=dirname(Zero\GooglePlay::sessionPath($config));
 if(!is_dir($directory)&&!mkdir($directory,0700,true)) { fwrite(STDERR,"Cannot create session directory.\n"); exit(1); }
 $temporary=tempnam($directory,'.session-');

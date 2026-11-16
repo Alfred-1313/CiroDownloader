@@ -32,6 +32,45 @@ final class GooglePlay
     {
         try { self::credentials($config); return true; } catch(\Throwable) { return false; }
     }
+    /** One-shot exchange used only by the interactive setup, matching gpapi 6.1.0 AuthRequest. */
+    public static function oauthSession(string $email,string $oauth,?callable $request=null): string
+    {
+        // Validate before any request. Never persist or print the one-time OAuth token.
+        if(!filter_var($email,FILTER_VALIDATE_EMAIL)||preg_match('/["\r\n\x00]/',$email)
+            ||!preg_match('~^oauth2_4/[A-Za-z0-9._/+\x7e=:-]{4,8183}$~D',$oauth)) throw new MediaFailure('cookies','Invalid OAuth credentials');
+        $form=http_build_query(['Email'=>$email,'Token'=>$oauth,'lang'=>'en','google_play_services_version'=>'19629032',
+            'sdk_version'=>'28','device_country'=>'us','service'=>'ac2dm','get_accountid'=>'1','ACCESS_TOKEN'=>'1',
+            'callerPkg'=>'com.google.android.gms','add_account'=>'1','callerSig'=>'38918a453d07199354f8b19af05ec6562ced5788','droidguard_results'=>'null'],'','&',PHP_QUERY_RFC3986);
+        $url='https://android.clients.google.com/auth';
+        try {
+            if($request!==null) [$status,$body]=$request($url,$form);
+            else {
+                $body=''; $handle=curl_init($url);
+                try {
+                    curl_setopt_array($handle,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$form,
+                        CURLOPT_HTTPHEADER=>['Content-Type: application/x-www-form-urlencoded','app: com.google.android.gms'],
+                        CURLOPT_FOLLOWLOCATION=>false,CURLOPT_PROTOCOLS=>CURLPROTO_HTTPS,
+                        CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2,
+                        CURLOPT_CONNECTTIMEOUT=>8,CURLOPT_TIMEOUT=>25,
+                        CURLOPT_WRITEFUNCTION=>static function($handle,string $chunk) use(&$body): int {
+                            if(strlen($body)+strlen($chunk)>16384) return 0;
+                            $body.=$chunk; return strlen($chunk);
+                        }]);
+                    $ok=curl_exec($handle); $status=$ok===false?0:(int)curl_getinfo($handle,CURLINFO_RESPONSE_CODE);
+                } finally { curl_close($handle); }
+            }
+            if($status!==200||!is_string($body)||strlen($body)>16384) throw new \RuntimeException();
+            $values=[];
+            foreach(explode("\n",$body) as $line) {
+                if(!str_contains($line,'=')) continue;
+                [$key,$value]=explode('=',rtrim($line,"\r"),2); $key=strtolower($key);
+                if(array_key_exists($key,$values)) throw new \RuntimeException();
+                $values[$key]=$value;
+            }
+            if(isset($values['error'])||!preg_match('~^[A-Za-z0-9._/+\x7e=:-]{12,8192}$~D',$values['token']??'')) throw new \RuntimeException();
+            return self::session("[google]\nemail = ".$email."\naas_token = ".$values['token']."\n");
+        } catch(\Throwable) { throw new MediaFailure('cookies','Google OAuth exchange failed; existing session was kept'); }
+    }
     public static function open(Bot $bot,array $job): void
     {
         $ui=$bot->ui; $saved=$bot->store->get('play.device.'.$job['user_id']); $slots=[];
