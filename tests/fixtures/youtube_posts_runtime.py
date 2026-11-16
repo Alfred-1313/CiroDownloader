@@ -16,14 +16,14 @@ mode = json.loads((root / "mode.json").read_text())
 
 def get(self, url, **kwargs):
     if url.startswith("https://www.youtube.com/post/"):
-        path = "/post"
+        path = "/post-anonymous" if mode.get("anonymous_response") and self.cookies.get("SID") != "TEST_ONLY" else "/post"
     elif url.startswith("https://yt3.ggpht.com/image-"):
         path = "/bad-image" if mode.get("bad_second") and url.endswith("-2") else "/photo.jpg"
     else:
         raise AssertionError("Unexpected upstream request")
     cookie = sys.argv[sys.argv.index("--cookies") + 1] if "--cookies" in sys.argv else None
     with (root / "backend.jsonl").open("a") as output:
-        output.write(json.dumps({"kind": "post" if path == "/post" else "image", "private_cookie": bool(cookie and os.stat(cookie).st_mode & 0o777 == 0o600), "session": self.cookies.get("SID") == "TEST_ONLY", "proxy": bool(self.proxies)}) + "\n")
+        output.write(json.dumps({"kind": "post" if path.startswith("/post") else "image", "private_cookie": bool(cookie and os.stat(cookie).st_mode & 0o777 == 0o600), "session": self.cookies.get("SID") == "TEST_ONLY", "proxy": bool(self.proxies)}) + "\n")
     proxies = self.proxies.copy()
     self.proxies.clear()
     try:

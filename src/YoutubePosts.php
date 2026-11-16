@@ -34,8 +34,11 @@ final class YoutubePosts extends GalleryMedia
             catch(MediaFailure $error) {
                 $reason=preg_match('/YOUTUBE_POST_ERROR (blocked|cookies|restricted|format|size|network)\b/',$error->getMessage(),$match)?$match[1]:$error->reason;
                 // A post refusal must not invalidate the cookies used by video downloads.
-                // In fallback mode only one anonymous auth refusal may try one jar; no rate-limit fanout.
-                if($reason==='cookies'&&$jar===null&&isset($attempts[$index+1])) continue;
+                // YouTube also returns HTTP 200 pages without the requested post
+                // to anonymous clients. One jar may resolve that refusal, while
+                // image/schema failures and HTTP 429 never trigger another try.
+                $canAuthenticate=preg_match('/YOUTUBE_POST_ERROR (?:cookies page_http_401|blocked page_http_403|format (?:page_data|post_missing))\b/',$error->getMessage())===1;
+                if($canAuthenticate&&$jar===null&&isset($attempts[$index+1])) continue;
                 throw new MediaFailure($reason,'YouTube post request failed');
             } finally { if(is_file($private)) unlink($private); }
             $post=json_decode($output,true,512,JSON_THROW_ON_ERROR);

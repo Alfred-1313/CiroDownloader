@@ -12,14 +12,17 @@ import requests
 from yt_dlp import YoutubeDL
 from yt_dlp.extractor.youtube import YoutubeTabIE
 from yt_dlp.networking._requests import RequestsHTTPAdapter
+from yt_dlp.utils import ExtractorError
 
 PAGE_HOSTS = {"www.youtube.com", "youtube.com", "m.youtube.com"}
 IMAGE_HOSTS = {"yt3.ggpht.com", "yt3.googleusercontent.com"}
 
 
 class PostError(Exception):
-    def __init__(self, reason):
+    def __init__(self, reason, cause=""):
+        super().__init__(reason)
         self.reason = reason
+        self.cause = cause
 
 
 def trusted(url, hosts):
@@ -43,7 +46,8 @@ def response(session, url, hosts):
         if r.status_code != 200:
             code = r.status_code
             r.close()
-            raise PostError("blocked" if code in (403, 429) else "cookies" if code == 401 else "restricted" if code in (404, 410) else "network")
+            raise PostError("blocked" if code in (403, 429) else "cookies" if code == 401 else "restricted" if code in (404, 410) else "network",
+                            ("page" if hosts == PAGE_HOSTS else "image") + f"_http_{code}")
         return r
     raise PostError("blocked")
 
@@ -84,8 +88,10 @@ def parse(data, post_id):
         elif isinstance(value, list):
             stack.extend((v, depth + 1) for v in value if isinstance(v, (list, dict)))
     unique = {json.dumps(post, sort_keys=True): post for post in found}
-    if len(unique) != 1:
+    if not unique:
         # A login page or a changed response does not prove the post was deleted.
+        raise PostError("format", "post_missing")
+    if len(unique) != 1:
         raise PostError("format")
     post = next(iter(unique.values()))
     attachment = post.get("backstageAttachment") or {}
@@ -145,8 +151,11 @@ def download(args):
                 jar.clear(cookie.domain, cookie.path, cookie.name)
         session.cookies.update(jar)
     page = b"".join(chunks(response(session, args.url, PAGE_HOSTS), 8 * 1024 * 1024)).decode("utf-8", "replace")
-    with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-        data = YoutubeTabIE(ydl).extract_yt_initial_data(args.url.rsplit("/", 1)[1], page)
+    try:
+        with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+            data = YoutubeTabIE(ydl).extract_yt_initial_data(args.url.rsplit("/", 1)[1], page)
+    except ExtractorError:
+        raise PostError("format", "page_data") from None
     post = parse(data, args.url.rsplit("/", 1)[1])
     files = []
     for index, url in enumerate(post.pop("images"), 1):
@@ -171,7 +180,7 @@ def main():
     try:
         print(json.dumps(download(args), ensure_ascii=False))
     except PostError as error:
-        print("YOUTUBE_POST_ERROR " + error.reason, file=sys.stderr)
+        print("YOUTUBE_POST_ERROR " + error.reason + (" " + error.cause if error.cause else ""), file=sys.stderr)
         return 1
     except requests.RequestException:
         print("YOUTUBE_POST_ERROR network", file=sys.stderr)

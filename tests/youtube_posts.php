@@ -65,7 +65,18 @@ try {
         $mode($failureMode); $before=count(array_filter($calls(),fn($call)=>$call['method']==='sendPhoto')); $send($url); $failed=$run();
         postCheck($saved((int)$failed['id'])['status']==='failed'&&count(array_filter($calls(),fn($call)=>$call['method']==='sendPhoto'))===$before,'incomplete, oversized and mismatched posts never send partial or unrelated images');
     }
-    $mode(['http'=>429]); $store->set('cookies.fallback','1'); $before=count(file($temp.'/backend.jsonl')); $send($url); $limited=$run();
+    $store->set('cookies.fallback','1');
+    foreach(['missing_post','no_data','forbidden'] as $anonymousResponse) {
+        $mode(['images'=>10,'anonymous_response'=>$anonymousResponse]); $before=count(file($temp.'/backend.jsonl')); $send($url); $authenticated=$run();
+        $trace=array_map(fn($line)=>json_decode($line,true),array_slice(file($temp.'/backend.jsonl',FILE_IGNORE_NEW_LINES),$before));
+        $pages=array_values(array_filter($trace,fn($entry)=>$entry['kind']==='post'));
+        $state=json_decode($saved((int)$authenticated['id'])['options'],true)['pages']??[];
+        postCheck($saved((int)$authenticated['id'])['status']==='done'&&count($state['items']??[])===10&&count($pages)===2&&!$pages[0]['session']&&$pages[1]['session'],'anonymous '.$anonymousResponse.' uses one authenticated fallback and delivers all ten photos');
+    }
+    $mode(['images'=>2,'bad_second'=>true,'image_http'=>403]); $before=count(file($temp.'/backend.jsonl')); $send($url); $imageRefused=$run();
+    $trace=array_map(fn($line)=>json_decode($line,true),array_slice(file($temp.'/backend.jsonl',FILE_IGNORE_NEW_LINES),$before));
+    postCheck($saved((int)$imageRefused['id'])['status']==='failed'&&count(array_filter($trace,fn($entry)=>$entry['kind']==='post'))===1,'an image refusal never retries the whole post with cookies');
+    $mode(['http'=>429]); $before=count(file($temp.'/backend.jsonl')); $send($url); $limited=$run();
     postCheck($saved((int)$limited['id'])['status']==='failed'&&count(file($temp.'/backend.jsonl'))===$before+1&&str_contains($last('editMessageText')['params']['text'],'موقتاً'),'rate limiting stops after one attempt with a public notice and no cookie fanout');
     $before=count(file($temp.'/backend.jsonl')); $mode(['images'=>1]); $send($url); $store->set('youtube.posts','0'); $off=$run();
     postCheck($saved((int)$off['id'])['status']==='failed'&&count(file($temp.'/backend.jsonl'))===$before,'disabling posts after intake prevents processing and uploading');

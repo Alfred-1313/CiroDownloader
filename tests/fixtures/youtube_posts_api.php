@@ -2,6 +2,12 @@
 declare(strict_types=1);
 $root=(string)getenv('FIXTURE_ROOT'); $path=(string)parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH);
 $mode=json_decode((string)file_get_contents($root.'/mode.json'),true);
+if($path==='/post-anonymous') {
+    if(($mode['anonymous_response']??'')==='forbidden') http_response_code(403);
+    header('Content-Type: text/html');
+    echo ($mode['anonymous_response']??'')==='no_data'?'<html><body>Sign in</body></html>':'<script>var ytInitialData = {"contents":[]};</script>';
+    return;
+}
 if($path==='/post') {
     http_response_code((int)($mode['http']??200));
     $id='UgkxcNOh_kIeoLnJzcsUSE6xIg1-fz_PrvBY';
@@ -18,5 +24,5 @@ if($path==='/post') {
     echo '<script>var ytInitialData = '.json_encode(['contents'=>[$other,['backstagePostRenderer'=>$post]]],JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES).';</script>';
     return;
 }
-if($path==='/bad-image') { http_response_code(503); echo 'not media'; return; }
+if($path==='/bad-image') { http_response_code((int)($mode['image_http']??503)); echo 'not media'; return; }
 require __DIR__.'/instagram_stories_api.php';
