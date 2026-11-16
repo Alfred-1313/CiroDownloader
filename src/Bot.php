@@ -452,6 +452,7 @@ final class Bot
         }
         $this->store->observeUser($cb['from']??$message['from']);
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+        if(!$cb&&(new Administrators($this))->replyCommand($message,$user,$chat,$thread)) return;
         if(!$cb&&(new InstagramCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
         $custom=new Personalization($this);
         if($cb) {

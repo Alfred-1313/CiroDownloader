@@ -572,6 +572,27 @@ final class Store
             $this->db->exec('COMMIT'); return $added;
         } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
     }
+    /** Reply commands are root-only; revocation also removes dependent grants. */
+    public function replyAdministrator(int $target,int $actor,array $roots,bool $add): array
+    {
+        $this->db->exec('BEGIN IMMEDIATE');
+        try {
+            if($target<1||!in_array($actor,$roots,true)) throw new \RuntimeException('Root administrator required');
+            $exists=$this->isAdmin($target,$roots); $count=0;
+            if($add) {
+                $status=$exists?'exists':'added';
+                if(!$exists) { $this->query('INSERT INTO bot_admins(user_id,added_by,created) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET added_by=excluded.added_by,created=excluded.created',[$target,$actor,time()]); $count=1; }
+            } elseif(in_array($target,$roots,true)) $status='protected';
+            elseif(!$exists) $status='not_admin';
+            else {
+                // Stop at independent configured roots; their grants remain valid.
+                $seeds=implode(',',array_fill(0,count($roots),'CAST(? AS INTEGER)'));
+                $this->query("WITH RECURSIVE revoked(id) AS (SELECT CAST(? AS INTEGER) UNION SELECT a.user_id FROM bot_admins a JOIN revoked r ON a.added_by=r.id WHERE a.user_id NOT IN ($seeds)) DELETE FROM bot_admins WHERE user_id IN (SELECT id FROM revoked)",array_merge([$target],$roots));
+                $count=(int)$this->query('SELECT changes()')->fetchColumn(); $status='deleted';
+            }
+            $this->db->exec('COMMIT'); return ['status'=>$status,'count'=>$count];
+        } catch(\Throwable $e) { $this->db->exec('ROLLBACK'); throw $e; }
+    }
     /** One finished request, counted per day and service for the status report (kept 90 days). */
     public function record(string $service,bool $ok,int $ms): void
     {

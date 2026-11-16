@@ -55,6 +55,7 @@ jobs:
           php tests/personalization_scope.php
           php tests/admin_keyboard.php
           php tests/administrators.php
+          php tests/admin_reply_commands.php
           php tests/reactions.php
           php tests/groups.php
           php tests/group_updates.php

@@ -270,6 +270,7 @@ final class Personalization
             'help'=>[['text','welcome'],['text','help'],['text','prompt'],['text','your_id'],['button','help']],
             'group'=>[['text','group_help'],['text','help_groups_hint'],['text','groups_disabled'],['button','add_to_group']],
             'access'=>[['text','offline'],['text','admin_only_notice']],
+            'admin_replies'=>[],
             'progress'=>[['text','queued'],['text','inspecting'],['text','quality_expired'],['text','quality_busy'],['text','downloading'],['text','uploading'],['text','audio_downloading'],['text','audio_uploading']],
             'errors'=>[],
         ];
@@ -300,6 +301,7 @@ final class Personalization
         if(!array_key_exists($section,$screens)) return [];
         $items=$screens[$section];
         if($section==='errors') foreach($this->entries('text','errors') as $key=>$item) $items[]=['text',$key];
+        if($section==='admin_replies') foreach($this->entries('text','admin_replies') as $key=>$item) $items[]=['text',$key];
         if(in_array($section,[...galleryServices(),...musicServices()],true)) foreach($this->entries('text',$section) as $key=>$item) if(!in_array(['text',$key],$items,true)) $items[]=['text',$key];
         if(in_array($section,['cover','video','audio','progress'],true)) $items=array_map(fn($item)=>[$item[0],UiRegistry::legacy($item[0],$item[1])],$items);
         return array_values(array_filter($items,fn($item)=>$this->bot->ui->customizable($item[0],$item[1])));
@@ -496,7 +498,7 @@ final class Personalization
     }
     private function samples(string $key=''): array
     {
-        $samples=['topic'=>'17','destination'=>'گروه نمونه','used'=>'1','limit'=>'3','minutes'=>'5','mode'=>'📷📥 هر دو','bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        $samples=['user'=>'@ExampleUser','command'=>'/add_admin','topic'=>'17','destination'=>'گروه نمونه','used'=>'1','limit'=>'3','minutes'=>'5','mode'=>'📷📥 هر دو','bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
         if(str_starts_with($key,'instagram_checker_')) $samples=array_replace($samples,['status'=>'فعال','checked'=>'حدود ۱ دقیقه پیش']);

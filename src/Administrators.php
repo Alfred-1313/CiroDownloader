@@ -5,6 +5,33 @@ namespace Zero;
 final class Administrators
 {
     public function __construct(private Bot $bot) {}
+    public function replyCommand(array $message,int $actor,int $chat,int $thread): bool
+    {
+        $text=trim((string)($message['text']??''));
+        if(!preg_match('~^/(add_admin|delete_admin)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',$text,$m)) return false;
+        if(($m[2]??'')!==''&&strcasecmp($m[2],$this->bot->store->get('bot_username'))!==0) return true;
+        $send=function(string $key,array $values=[])use($chat,$thread):void{$this->bot->send($chat,$this->bot->text($key,$values),[],0,$thread);};
+        if(!in_array($actor,$this->bot->config->admins,true)) { $send('admin_reply_denied'); return true; }
+        $reply=$message['reply_to_message']??null; $target=is_array($reply)?($reply['from']??null):null;
+        $command='/'.$m[1];
+        if(trim($m[3]??'')!==''||!is_array($reply)) { $send('admin_reply_usage',['command'=>$command]); return true; }
+        if(!is_array($target)||(int)($target['id']??0)<1||!empty($target['is_bot'])||!empty($reply['sender_chat'])||(int)($reply['chat']['id']??0)!==$chat) {
+            $send('admin_reply_invalid'); return true;
+        }
+        $user=(int)$target['id'];
+        $label=trim((string)($target['first_name']??'').' '.(string)($target['last_name']??''));
+        if(!empty($target['username'])) $label='@'.$target['username'];
+        if($label==='') $label=(string)$user;
+        $values=['user'=>mb_substr($label,0,100),'id'=>$user];
+        $this->bot->store->observeUser($target);
+        $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$actor]);
+        (new CookieJars($this->bot))->cancelLabel($actor);
+        try { $result=$this->bot->store->replyAdministrator($user,$actor,$this->bot->config->admins,$m[1]==='add_admin'); }
+        catch(\Throwable) { $send('admin_reply_failed'); return true; }
+        $key='admin_reply_'.$result['status'];
+        if($result['status']==='deleted'&&$result['count']>1) { $key='admin_reply_deleted_dependents'; $values['count']=$result['count']-1; }
+        $send($key,$values); return true;
+    }
     public function begin(int $chat,int $user): void
     {
         if($chat!==$user||!$this->bot->admin($user)) return;
