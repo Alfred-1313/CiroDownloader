@@ -28,7 +28,10 @@ final class Worker
         // Recovery belongs only to the exact claim that child was processing.
         $changed=$this->store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='running' AND run_token=?",[$job['id'],(int)($job['run_token']??0)])->rowCount();
         if(!$changed&&(int)$this->store->query('SELECT run_token FROM jobs WHERE id=?',[$job['id']])->fetchColumn()!==(int)($job['run_token']??0)) return;
-        if($changed) {
+        if($changed&&InstagramChecker::deliveryId($job)>0) {
+            (new InstagramChecker($this->config,$this->store,$this->api))->failure($job);
+            (new GalleryPages($this->config,$this->store,$this->api,'instagram'))->clean($job);
+        } elseif($changed) {
             $bot=new Bot($this->config,$this->store,$this->api);
             try { $bot->jobMessage($job,$bot->text('restarted')); } catch(Throwable) {}
             if($service=galleryService($job['url'])) (new GalleryPages($this->config,$this->store,$this->api,$service))->clean($job);
@@ -39,6 +42,7 @@ final class Worker
     public function process(array $job): void
     {
         $config=$this->config; $store=$this->store; $api=$this->api;
+        $checker=InstagramChecker::deliveryId($job)>0?new InstagramChecker($config,$store,$api):null;
         $config->cookieFallback=$store->get('cookies.fallback','0')==='1';
         $config->musicCopy=$store->get('music.mp3','0')!=='1';
         $bot=new Bot($config,$store,$api); $downloader=new Download($config);
@@ -59,6 +63,10 @@ final class Worker
         $bot->ui=$bot->ui->forService($gallery?$service:($music??($adult?$adultSite:($collection===null&&$job['phase']!=='batch'?'youtube':''))));
         $started=hrtime(true); $timings=[];
         try {
+            if($checker&&!$checker->canDeliver($job,$job['phase']==='instagram_page')) {
+                $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);
+                $checker->cancel($job); return;
+            }
             if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
@@ -69,7 +77,7 @@ final class Worker
                 (new GalleryPages($config,$store,$api,'youtube'))->clean($job);
                 $bot->jobMessage($job,$bot->text('youtube_post_disabled')); return;
             }
-            if($instagramStory&&!InstagramStories::enabled($store)) {
+            if($instagramStory&&!$checker&&!InstagramStories::enabled($store)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 (new GalleryPages($config,$store,$api,'instagram'))->clean($job);
                 $bot->jobMessage($job,$bot->text('instagram_story_disabled')); return;
@@ -105,23 +113,26 @@ final class Worker
                     $this->noteSpeed($service,$sent,$timings,0);
                     return;
                 }
-                $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_downloading'));
+                if(!$checker) $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_downloading'));
                 $inspectionStarted=hrtime(true);
-                $media=GalleryMedia::forService($config,$service)->fetch($job['url'],$folder);
+                $galleryMedia=GalleryMedia::forService($config,$service);
+                if($checker) $galleryMedia=$galleryMedia->usingCookiePool(InstagramCheckerMedia::pool($config));
+                $media=$galleryMedia->fetch($job['url'],$folder);
                 $timings['prepare_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
                 $stage='upload'; $uploadStarted=hrtime(true); $mediaBytes=self::bytesOf($media);
                 if($instagramStory&&!$media) {
                     $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+                    if($checker) { $checker->cancel($job); return; }
                     $bot->jobMessage($job,$bot->text('instagram_story_empty',['username'=>instagramStoryUsername($job['url'])])); return;
                 }
-                if($instagramStory&&!InstagramStories::enabled($store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
+                if($instagramStory&&!$checker&&!InstagramStories::enabled($store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
                 if($service==='youtube'&&!YoutubePosts::enabled($store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
                 if($service==='youtube'&&count($media)===1&&($media[0]['type']??'')==='text') {
                     $description=mb_substr($media[0]['description'],0,3000);
                     $bot->jobMessage($job,$bot->text('youtube_post_text',['description'=>$description,'author'=>$media[0]['author'],'url'=>$job['url']]),$bot->ui->gallerySourceRows('youtube',$job['url']));
                     $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]); return;
                 }
-                if(!$instagramStory&&$service!=='youtube'&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
+                if(!$checker&&!$instagramStory&&$service!=='youtube'&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text($service.'_article_building'));
                     $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
                     Download::clean($folder);
@@ -241,6 +252,12 @@ final class Worker
             throw $e;
         } catch(Throwable $e) {
             if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
+            if($checker) {
+                if($instagramStory&&$e instanceof MediaFailure&&in_array($e->reason,['not_found','restricted'],true)) {
+                    $checker->cancel($job); $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);
+                } else { $checker->failure($job); $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); }
+                return;
+            }
             // A missing account is a normal result, not a broken session. Keep
             // authentication, rate limits and ambiguous page responses separate.
             if($instagramStory&&$e instanceof MediaFailure&&$e->reason==='not_found') {
@@ -737,19 +754,24 @@ final class Worker
         if(count($media)!==1) throw new MediaFailure('format','Expected one gallery media file');
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
         $story=instagramStoryUrl($job['url'])!==null;
+        $checker=InstagramChecker::deliveryId($job)>0?new InstagramChecker($this->config,$this->store,$this->api):null;
         if($service==='youtube'&&!YoutubePosts::enabled($this->store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
-        if($story&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
+        if($story&&!$checker&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
         $item=$media[0];
-        $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_uploading',['sent'=>0,'count'=>1]));
+        if(!$checker) $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_uploading',['sent'=>0,'count'=>1]));
         if($this->config->api==='http://ciro-telegram-api:8081'&&!$this->config->localApiSharedStorage) Download::ensureSpace('/telegram-api',filesize($item['path'])+268435456);
         // Match the carousel's description budget; Ui escapes upstream text before inserting it into HTML.
         $description=(string)($item['description']??'');
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
-        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text(galleryUiPrefix($service,$job['url']).'_caption',['index'=>1,'count'=>1,'url'=>$job['url'],'description'=>$description,'username'=>instagramStoryUsername($job['url']),'author'=>$item['author']??''])),'parse_mode'=>'HTML'];
+        $prefix=$checker?InstagramChecker::prefix($job):galleryUiPrefix($service,$job['url']);
+        $username=$checker?($checker->context($job)['username']??''):instagramStoryUsername($job['url']);
+        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text($prefix.'_caption',['index'=>1,'count'=>1,'url'=>$job['url'],'description'=>$description,'username'=>$username,'author'=>$item['author']??''])),'parse_mode'=>'HTML'];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         if($item['type']==='video') $params+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($item['path'],$item['type']==='photo'?'image/jpeg':'video/mp4',$item['type']==='photo'?'photo.jpg':'video.mp4');
-        $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+[$item['type']=>$file,'reply_markup'=>['inline_keyboard'=>$story?$bot->ui->instagramStorySourceRows($job['url']):$bot->ui->gallerySourceRows($service,$job['url'])]]);
+        if($checker) $checker->beginSend($job);
+        $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+[$item['type']=>$file,'reply_markup'=>['inline_keyboard'=>$checker?$bot->ui->checkerSourceRows($job['url']):($story?$bot->ui->instagramStorySourceRows($job['url']):$bot->ui->gallerySourceRows($service,$job['url']))]]);
         if(!is_array($result)||empty($result['message_id'])) throw new MediaFailure('upload','Missing gallery delivery confirmation');
+        if($checker) $checker->confirmed($job,(int)$result['message_id']);
     }
 }

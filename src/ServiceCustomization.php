@@ -92,7 +92,7 @@ final class ServiceCustomization
         if(!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return; }
         $ui=$this->bot->ui; $rows=[];
         if(in_array($service,['youtube',...adultServices()],true)) { $rows[]=$this->heading('hub_cover'); $rows[]=[$this->navigation('hub_edit_cover','custom:coverhub:'.$service,$this->changed($service,'cover')||$this->changed($service,'quality')||$this->layoutChanged($service,'quality'))]; }
-        foreach($service==='instagram'?['caption','button','text','stories']:($service==='youtube'?['caption','button','text','posts']:['caption','button','text']) as $kind) {
+        foreach($service==='instagram'?['caption','button','text','stories','checker']:($service==='youtube'?['caption','button','text','posts']:['caption','button','text']) as $kind) {
             if(!$this->items($service,$kind)) continue;
             $rows[]=$this->heading('hub_'.$kind); $rows[]=[$this->navigation('hub_edit_'.$kind,'custom:items:'.$service.':'.$kind.':0',$this->changed($service,$kind))];
         }
@@ -166,8 +166,11 @@ final class ServiceCustomization
         return array_values(array_filter(UiRegistry::items($service,Ui::definitions()),function($item) use($filter) {
             [$kind,$key]=$item; $definition=$this->bot->ui->definition($kind,$key); $definition['key']=$key;
             $instagram=($definition['group']??'')==='instagram';
-            $part=$instagram&&(str_starts_with($key,'instagram_story_')||in_array($key,['source_instagram_story','command_story_instagram'],true))?'stories':(($definition['group']??'')==='youtube'&&(str_starts_with($key,'youtube_post_')||$key==='source_youtube_post')?'posts':'');
-            if(in_array($filter,['stories','posts'],true)) return $part===$filter;
+            $part='';
+            if($instagram&&(str_starts_with($key,'instagram_checker_')||in_array($key,['instagram_checker','command_insta_checker'],true))) $part='checker';
+            elseif($instagram&&(str_starts_with($key,'instagram_story_')||in_array($key,['source_instagram_story','command_story_instagram'],true))) $part='stories';
+            elseif(($definition['group']??'')==='youtube'&&(str_starts_with($key,'youtube_post_')||$key==='source_youtube_post')) $part='posts';
+            if(in_array($filter,['stories','posts','checker'],true)) return $part===$filter;
             if($part!=='') return false;
             $cover=$kind==='text'&&in_array($definition['base']??'',['quality_prompt','cover_title','cover_instruction','cover_limit'],true);
             $quality=$kind==='button'&&in_array($definition['base']??'',UiRegistry::QUALITY_BUTTONS,true);
@@ -187,7 +190,7 @@ final class ServiceCustomization
     }
     public function listing(int $chat,int $message,string $service,string $kind,int $page=0): void
     {
-        if(!in_array($kind,['caption','button','text','cover','quality','stories','posts'],true)||!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return; }
+        if(!in_array($kind,['caption','button','text','cover','quality','stories','posts','checker'],true)||!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return; }
         $ui=$this->bot->ui; $items=$this->items($service,$kind); $pages=max(1,(int)ceil(count($items)/self::PAGE_SIZE)); $page=max(0,min($pages-1,$page));
         $rows=[$this->heading('hub_'.$kind)];
         foreach(array_slice($items,$page*self::PAGE_SIZE,self::PAGE_SIZE) as [$type,$key]) $rows[]=[$this->editor->marked($type,$key)];

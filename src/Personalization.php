@@ -330,7 +330,10 @@ final class Personalization
             $rows[]=[$this->choice($section.'_mode_pages','custom:'.$prefix.'mode:pages',!$article)];
             $rows[]=[$this->choice($section.'_mode_article','custom:'.$prefix.'mode:article',$article)];
             $rows[]=[$this->switchButton($section.'_source_toggle','custom:'.$prefix.'source',$ui->gallerySourceEnabled($section))];
-            if($section==='instagram') $rows[]=[$this->switchButton('instagram_story_toggle','custom:igstories',InstagramStories::enabled($this->bot->store))];
+            if($section==='instagram') {
+                $rows[]=[$this->switchButton('instagram_story_toggle','custom:igstories',InstagramStories::enabled($this->bot->store))];
+                $rows[]=[$ui->button('instagram_checker_settings','checker:settings')];
+            }
         } elseif($section==='menu') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->switchButton('menu_close_toggle','custom:menuclose',MusicMenu::closesOnChoice($this->bot->store))];
@@ -491,18 +494,20 @@ final class Personalization
         // title, quality and duration across two catalog pages.
         return $group==='download'&&in_array($kind,['caption','button'],true)?16:8;
     }
-    private function samples(): array
+    private function samples(string $key=''): array
     {
-        return ['bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        $samples=['topic'=>'17','destination'=>'گروه نمونه','used'=>'1','limit'=>'3','minutes'=>'5','mode'=>'📷📥 هر دو','bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
+        if(str_starts_with($key,'instagram_checker_')) $samples=array_replace($samples,['status'=>'فعال','checked'=>'حدود ۱ دقیقه پیش']);
+        return $samples;
     }
     public function item(int $chat,string $kind,string $key,int $message=0,string $notice='',bool $strictPreview=false): void
     {
         $key=UiRegistry::legacy($kind,$key);
         $ui=$this->bot->ui; $definition=$ui->definition($kind,$key);
         if(!$ui->customizable($kind,$key)) { $this->home($chat,$message); return; }
-        $samples=$this->samples();
+        $samples=$this->samples($key);
         $base=$definition['base']??$key;
         if(preg_match('/^quality_(240|360|480|720)$/D',$base,$match)) $samples['quality']=$match[1].'p';
         elseif($base==='quality_high') $samples['quality']='1080p';
@@ -559,7 +564,7 @@ final class Personalization
         if(!$definition||!$ui->customizable('text',$key)) { $this->home($chat,$message); return; }
         // The default is rendered through the preview layer, never saved.
         $ui->preview(['text.'.$key=>$definition['value']]);
-        try { $value=$ui->text($key,$this->samples()); }
+        try { $value=$ui->text($key,$this->samples($key)); }
         finally { $ui->preview([]); }
         $this->send($chat,$ui->text('custom_default',['title'=>$definition['label'],'value'=>$value],['value']),[[$ui->button('back','custom:item:text:'.$key)]],$message);
     }

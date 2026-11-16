@@ -36,6 +36,8 @@ jobs:
           php tests/cookie_manager.php
           php tests/instagram.php
           php tests/instagram_story_cookies.php
+          php tests/instagram_checker.php
+          php tests/instagram_checker_ui.php
           php tests/pinterest.php
           php tests/social.php
           php tests/article_transport.php
@@ -69,6 +71,8 @@ jobs:
           /tmp/ciro-gallery-tests/bin/pip install 'gallery-dl==1.32.19' 'yt-dlp[default,curl-cffi]==2026.10.26'
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_media.php
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_stories.php
+          GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/instagram_checker_media.php
+          /tmp/ciro-gallery-tests/bin/python -B tests/instagram_checker_scan.py
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/youtube_posts.php
           /tmp/ciro-gallery-tests/bin/python -B tests/test_youtube_post_parser.py
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php

@@ -5,6 +5,8 @@ namespace Zero;
 abstract class GalleryMedia
 {
     public const MAX_ITEMS=20;
+    private ?CookiePool $requestCookiePool=null;
+    public function usingCookiePool(CookiePool $pool): self { $copy=clone $this; $copy->requestCookiePool=$pool; return $copy; }
     protected const SERVICE='instagram', NAME='Instagram', PREFIX='ig', SESSION_COOKIE='sessionid', COOKIE_DOMAIN='instagram.com';
     protected const SESSION_ALIASES=[];
     public static function service(): string { return static::SERVICE; }
@@ -61,7 +63,7 @@ abstract class GalleryMedia
         $python=dirname($this->config->galleryDl).'/python';
         $backend=basename($this->config->galleryDl)==='gallery-dl'&&is_executable($python)
             ?[$python,dirname(__DIR__).'/bin/'.static::SERVICE.'-download.py']:[$this->config->galleryDl];
-        $command=array_merge($backend,['--ignore-config','--no-input','--quiet','--retries',$story?'0':'2','--http-timeout','20',
+        $command=array_merge($backend,['--ignore-config','--no-input','--quiet','--retries',($story||$this->requestCookiePool!==null)?'0':'2','--http-timeout','20',
             '--directory',$folder,'--filename',static::PREFIX.'-{num:02d}.{extension}',
             '-o','extractor.'.static::SERVICE.'.videos='.(static::SERVICE==='instagram'?'merged':'true'),
             '-o','extractor.'.static::SERVICE.'.previews=false','-o','extractor.tiktok.audio=false','-o','extractor.tiktok.covers=false',
@@ -71,10 +73,10 @@ abstract class GalleryMedia
         if(static::SERVICE==='tiktok'&&!$this->config->tiktokPreferH264) $command=array_merge($command,['-o','extractor.tiktok.prefer-h264=false']);
         // Instagram, Pinterest, TikTok and X may need a cleaner exit address than the server's.
         if($this->config->galleryProxy!=='') $command=array_merge($command,['--proxy',$this->config->galleryProxy]);
-        $pool=$story?InstagramStories::pool($this->config):static::pool($this->config); $jars=$pool->order(3);
-        if($story&&!$jars) throw new MediaFailure('cookies','Instagram stories require a signed-in session');
+        $pool=$this->requestCookiePool??($story?InstagramStories::pool($this->config):static::pool($this->config)); $jars=$pool->order($this->requestCookiePool===null?3:1);
+        if(($story||$this->requestCookiePool!==null)&&!$jars) throw new MediaFailure('cookies','Instagram stories require a signed-in session');
         // Anonymous first when cookies are only a last resort; otherwise rotate through the jars.
-        $attempts=!$jars?[null]:($this->config->cookieFallback&&!$story?array_merge([null],$jars):$jars);
+        $attempts=!$jars?[null]:($this->config->cookieFallback&&!$story&&$this->requestCookiePool===null?array_merge([null],$jars):$jars);
         $output=''; $failure=null; $refused=[];
         foreach($attempts as $jar) {
             $arguments=[];

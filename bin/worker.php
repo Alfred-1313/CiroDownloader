@@ -10,12 +10,14 @@ $config=Zero\Config::load(); $store=new Zero\Store($config->storage); Zero\Error
 $lock=Zero\lockProcess($config->storage.'/worker.lock');
 new Zero\Radio($config,$store);
 $processor=new Zero\Worker($config,$store,new Zero\Telegram($config));
+$checkerProcessor=new Zero\InstagramChecker($config,$store,new Zero\Telegram($config));
 $downloads=$config->storage.'/downloads';
 if(!is_dir($downloads)) mkdir($downloads,0700,true);
 // The supervisor lock is inherited by its children. A replacement supervisor
 // cannot recover their running jobs or erase their files while they are alive.
 foreach($store->query("SELECT * FROM jobs WHERE status='running'")->fetchAll() as $job) $processor->recover($job);
 foreach(glob($downloads.'/job-*')?:[] as $folder) Zero\Download::clean($folder);
+foreach(glob($downloads.'/checker-*')?:[] as $folder) if(preg_match('/^checker-[a-f0-9]{12}$/D',basename($folder))) Zero\Download::clean($folder);
 
 pcntl_async_signals(true);
 $stopping=false; $children=[]; $lastHeartbeat=0;
@@ -61,9 +63,23 @@ try {
                     } elseif($pid>0) $deletePid=$pid;
                 }
             }
+            if(isset($checkerPid)&&pcntl_waitpid($checkerPid,$checkerStatus,WNOHANG)!==0) unset($checkerPid);
+            if(!isset($checkerPid)&&time()-($lastCheckerTick??0)>=5) {
+                $lastCheckerTick=time();
+                if($checkerProcessor->due()&&$store->get('update_in_progress','0')!=='1') {
+                    $pid=pcntl_fork();
+                    if($pid===0) {
+                        pcntl_signal(SIGTERM,static function(): void { throw new Zero\WorkerStopped('Checker stopped'); });
+                        pcntl_signal(SIGINT,static function(): void { throw new Zero\WorkerStopped('Checker stopped'); });
+                        try { (new Zero\InstagramChecker($config,new Zero\Store($config->storage),new Zero\Telegram($config)))->poll(); exit(0); }
+                        catch(Throwable) { exit(1); }
+                    } elseif($pid>0) $checkerPid=$pid;
+                }
+            }
             if(time()-$lastHeartbeat>=10) {
                 if(!isset($lastPageCleanup)||time()-$lastPageCleanup>=60) {
                     Zero\MusicMenu::purge($config,$store);
+                    $checkerProcessor->prune();
                     foreach(Zero\galleryServices() as $service) (new Zero\GalleryPages($config,$store,new Zero\Telegram($config),$service))->prune(); $lastPageCleanup=time();
                 }
                 $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();
@@ -121,6 +137,11 @@ try {
         } catch(Throwable $e) { Zero\ErrorAlerts::event('Worker supervisor error: '.get_class($e)); if(!$stopping) usleep(500000); }
     }
 } finally {
+    if(isset($checkerPid)) {
+        posix_kill($checkerPid,SIGTERM); $until=microtime(true)+8;
+        do { $reaped=pcntl_waitpid($checkerPid,$checkerStatus,WNOHANG); if($reaped===0) usleep(50000); } while($reaped===0&&microtime(true)<$until);
+        if($reaped===0) { posix_kill($checkerPid,SIGKILL); pcntl_waitpid($checkerPid,$checkerStatus); }
+    }
     if(isset($radioPanelPid)) {
         posix_kill($radioPanelPid,SIGTERM); $until=microtime(true)+1;
         do { $reaped=pcntl_waitpid($radioPanelPid,$panelStatus,WNOHANG); if($reaped===0) usleep(50000); } while($reaped===0&&microtime(true)<$until);

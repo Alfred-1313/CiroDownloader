@@ -21,7 +21,7 @@ def clean_files(data, logs, apply=False):
     if downloads.is_symlink():
         raise MaintenanceError('Unsafe downloads path.')
     if downloads.is_dir():
-        paths.extend(p for p in downloads.iterdir() if re.fullmatch(r'job-\d+-[a-f0-9]+', p.name))
+        paths.extend(p for p in downloads.iterdir() if re.fullmatch(r'(?:job-\d+-[a-f0-9]+|checker-[a-f0-9]{12})', p.name))
     cache = data / 'yt-cache'
     if cache.exists() or cache.is_symlink():
         paths.append(cache)

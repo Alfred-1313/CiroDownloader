@@ -27,6 +27,8 @@ require_once __DIR__.'/TimedDeletes.php';
 require_once __DIR__.'/XnxxSearch.php';
 require_once __DIR__.'/InstagramStories.php';
 require_once __DIR__.'/InstagramStoryCookies.php';
+require_once __DIR__.'/InstagramCheckerPanel.php';
+require_once __DIR__.'/InstagramCheckerCookies.php';
 require_once __DIR__.'/YoutubePosts.php';
 
 final class Bot
@@ -197,6 +199,7 @@ final class Bot
     public function home(int $chat,int $user): void
     {
         $rows=[[$this->replyButton('help')]];
+        if($this->admin($user)||(InstagramChecker::enabled($this->store)&&InstagramChecker::everyone($this->store))) $rows[]=[$this->replyButton('instagram_checker')];
         if($this->admin($user)) $rows[]=[$this->replyButton('admin')];
         $this->sendKeyboard($chat,$this->text('welcome'),$rows);
     }
@@ -216,6 +219,7 @@ final class Bot
             [$this->replyButton('customize'),$this->replyButton('health')],
             [$this->replyButton('cookies'),$this->replyButton('cookie_settings')],
             [$this->replyButton('update'),$this->replyButton('add_admin')],
+            [$this->replyButton('instagram_checker')],
             [$this->replyButton($on?'off':'on')],
             [$this->replyButton('back_home')],
         ]);
@@ -448,6 +452,7 @@ final class Bot
         }
         $this->store->observeUser($cb['from']??$message['from']);
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+        if(!$cb&&(new InstagramCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
@@ -459,7 +464,8 @@ final class Bot
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
             $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|s|b|[up]:\d{1,2})$/D',$action)===1;
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser;
+            $isChecker=preg_match('/^ic:[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser&&!$isChecker;
             if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
             }
@@ -480,6 +486,8 @@ final class Bot
                 elseif(in_array($action,['update:back','update:close'],true)) $updater->close($chat,$user,$menu);
                 return;
             }
+            if($isChecker) { (new InstagramCheckerPanel($this))->callback($cb,$user,$chat,$thread); return; }
+            if($action==='checker:settings') { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>true]); return; }
             if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isRadio) { (new RadioPanel($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
@@ -491,7 +499,8 @@ final class Bot
                 $topic=$group&&!isset($message['message_thread_id'])?null:$thread;
                 $pageService=galleryFromPrefix(substr(strstr($action,':',true),0,-4));
                 $notice=(new GalleryPages($this->config,$this->store,$this->api,$pageService))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$topic,(int)$page[2],isset($page[3])?(int)$page[3]:null);
-                $pagePrefix=galleryUiPrefix($pageService,(string)$this->store->query('SELECT url FROM jobs WHERE id=?',[(int)$page[1]])->fetchColumn());
+                $pageJob=$this->store->query('SELECT * FROM jobs WHERE id=?',[(int)$page[1]])->fetch();
+                $pagePrefix=$pageJob&&InstagramChecker::deliveryId($pageJob)>0?InstagramChecker::prefix($pageJob):galleryUiPrefix($pageService,(string)($pageJob['url']??''));
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pagePrefix.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }
@@ -557,7 +566,7 @@ final class Bot
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help','/radio'];
-        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','igs_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
+        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','igs_cookie_confirm','igc_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
         if(in_array($text,$commands,true)||$reply!==null) { $this->store->query('DELETE FROM states WHERE user_id=?',[$user]); (new CookieJars($this))->cancelLabel($user); }
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
@@ -567,6 +576,7 @@ final class Bot
             if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
             if($reply!==null&&(new InstagramCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new InstagramStoryCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
+            if($reply!==null&&(new InstagramCheckerCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new PinterestCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new TikTokCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new TwitterCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
@@ -601,11 +611,12 @@ final class Bot
             elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);
             elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
             elseif($state==='igs_cookie.upload') (new InstagramStoryCookies($this))->document($chat,$user,$message);
+            elseif($state==='igc_cookie.upload') (new InstagramCheckerCookies($this))->document($chat,$user,$message);
             else $this->cookieDocument($chat,$user,$message);
             return;
         }
         // Phones often cannot save a file, so a pasted export (Netscape, JSON or header string) is accepted while an import waits.
-        $pasting=$text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','igs_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)?$this->pastedParts($chat,$user,$message,$text,$state):false;
+        $pasting=$text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','igs_cookie.upload','igc_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)?$this->pastedParts($chat,$user,$message,$text,$state):false;
         if($pasting===true) return;
         if(is_string($pasting)) {
             $message['text']=$pasting;
@@ -614,11 +625,13 @@ final class Bot
             elseif($state==='pin_cookie.upload') (new PinterestCookies($this))->document($chat,$user,$message);
             elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
             elseif($state==='igs_cookie.upload') (new InstagramStoryCookies($this))->document($chat,$user,$message);
+            elseif($state==='igc_cookie.upload') (new InstagramCheckerCookies($this))->document($chat,$user,$message);
             else $this->cookieDocument($chat,$user,$message);
             return;
         }
         if($text==='') return;
         if($state==='cookie.upload'&&$this->admin($user)) { $this->cookieNotice($chat,$user,$this->text('cookie_waiting')); return; }
+        if($state==='igc_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('igc_cookie_waiting')); return; }
         if($state==='igs_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('igs_cookie_waiting')); return; }
         if($state==='ig_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('ig_cookie_waiting')); return; }
         if($state==='pin_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('pin_cookie_waiting')); return; }

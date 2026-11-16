@@ -5,7 +5,7 @@ require_once __DIR__.'/UiRegistry.php';
 
 final class Ui
 {
-    public const REPLY_KEYS=['help','admin','health','update','cookies','cookie_settings','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_mode','cookie_guide','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now','cookie_back_youtube','cookie_back_admin','cookie_instagram_stories','igs_cookie_upload','igs_cookie_view','igs_cookie_export','igs_cookie_remove','igs_cookie_confirm','igs_cookie_back','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back','cookie_pinterest','pin_cookie_upload','pin_cookie_view','pin_cookie_export','pin_cookie_remove','pin_cookie_confirm','pin_cookie_back','cookie_tiktok','tt_cookie_upload','tt_cookie_view','tt_cookie_export','tt_cookie_remove','tt_cookie_confirm','tt_cookie_back','cookie_twitter','x_cookie_upload','x_cookie_view','x_cookie_export','x_cookie_remove','x_cookie_confirm','x_cookie_back'];
+    public const REPLY_KEYS=['instagram_checker','cookie_instagram_checker','igc_cookie_upload','igc_cookie_view','igc_cookie_export','igc_cookie_remove','igc_cookie_confirm','igc_cookie_back','help','admin','health','update','cookies','cookie_settings','download','customize','on','off','back_home','add_admin','cookie_youtube','cookie_upload','cookie_view','cookie_remove','cookie_export','cookie_delete_confirm','cookie_back_services','cookie_mode','cookie_guide','cookie_alerts','cookie_keepalive','cookie_interval','cookie_check_now','cookie_back_youtube','cookie_back_admin','cookie_instagram_stories','igs_cookie_upload','igs_cookie_view','igs_cookie_export','igs_cookie_remove','igs_cookie_confirm','igs_cookie_back','cookie_instagram','ig_cookie_upload','ig_cookie_view','ig_cookie_export','ig_cookie_remove','ig_cookie_confirm','ig_cookie_back','cookie_pinterest','pin_cookie_upload','pin_cookie_view','pin_cookie_export','pin_cookie_remove','pin_cookie_confirm','pin_cookie_back','cookie_tiktok','tt_cookie_upload','tt_cookie_view','tt_cookie_export','tt_cookie_remove','tt_cookie_confirm','tt_cookie_back','cookie_twitter','x_cookie_upload','x_cookie_view','x_cookie_export','x_cookie_remove','x_cookie_confirm','x_cookie_back'];
     private static ?array $definitions=null;
     private array $preview=[];
     private string $service='';
@@ -192,6 +192,13 @@ final class Ui
         if(!$this->instagramSourceEnabled()) return [];
         $button=$this->button('source_instagram_story'); $button['url']=$url;
         return $this->layout('instagram','story_delivery',['source'=>[$button]],[['source']]);
+    }
+    public function checkerSourceRows(string $url): array
+    {
+        if($this->get('instagram.checker.source_button','0')!=='1') return [];
+        $kind=instagramStoryUrl($url)!==null?'story':'post';
+        $button=$this->button('instagram_checker_'.$kind.'_source'); $button['url']=$url;
+        return $this->layout('instagram','checker_'.$kind.'_delivery',['source'=>[$button]],[['source']]);
     }
     public function gallerySourceEnabled(string $service): bool { return $this->get(($service==='youtube'?'youtube.posts_source_button':$service.'.source_button'),'0')==='1'; }
     public function gallerySourceRows(string $service,string $url): array

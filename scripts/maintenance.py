@@ -231,6 +231,12 @@ class Maintenance:
                 raise MaintenanceError('This database is not from Ciro Downloader.')
             connection.execute("UPDATE settings SET value='0' WHERE key='update_in_progress'")
             connection.execute("UPDATE jobs SET status='failed' WHERE status IN ('queued','running','choosing','confirming')")
+            if {'ig_check_subs', 'ig_check_targets', 'ig_check_deliveries'}.issubset(tables):
+                # A restored baseline must not replay content already delivered
+                # after the backup; the next scan silently establishes a new one.
+                connection.execute('UPDATE ig_check_subs SET posts_ready=0,stories_ready=0,generation=generation+1')
+                connection.execute("UPDATE ig_check_targets SET lease='',lease_until=0,next_check=0")
+                connection.execute("UPDATE ig_check_deliveries SET status=CASE WHEN status='sending' THEN 'uncertain' ELSE 'cancelled' END WHERE status IN ('pending','queued','retry','sending')")
             if 'update_requests' in tables:
                 connection.execute("UPDATE update_requests SET status='failed' WHERE status IN ('queued','running')")
             connection.commit()

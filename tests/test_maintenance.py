@@ -223,6 +223,26 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual((self.project / '.env').read_bytes(), ENV)
         self.assertEqual(self.app.services, ['bot'])
 
+    def test_restored_checkers_rebaseline_without_replaying_old_deliveries(self):
+        database = self.root / 'checker.sqlite'
+        with sqlite3.connect(database) as connection:
+            connection.executescript('''CREATE TABLE settings(key TEXT,value TEXT);
+                CREATE TABLE jobs(id INTEGER,status TEXT);
+                CREATE TABLE ig_check_subs(posts_ready INTEGER,stories_ready INTEGER,generation INTEGER);
+                CREATE TABLE ig_check_targets(lease TEXT,lease_until INTEGER,next_check INTEGER);
+                CREATE TABLE ig_check_deliveries(status TEXT);
+                INSERT INTO ig_check_subs VALUES(1,1,4);
+                INSERT INTO ig_check_targets VALUES('old-token',9999999999,9999999999);
+                INSERT INTO ig_check_deliveries VALUES('queued'),('sending'),('sent');''')
+        self.app.data = data_archive(database.read_bytes())
+        backup = self.app.backup()
+        with tempfile.TemporaryDirectory(dir=self.root) as folder:
+            data = self.app.unpack(backup, folder)
+            with sqlite3.connect(data / 'zero.sqlite') as restored:
+                self.assertEqual(restored.execute('SELECT * FROM ig_check_subs').fetchone(), (0, 0, 5))
+                self.assertEqual(restored.execute('SELECT * FROM ig_check_targets').fetchone(), ('', 0, 0))
+                self.assertEqual(restored.execute('SELECT status FROM ig_check_deliveries').fetchall(), [('cancelled',), ('uncertain',), ('sent',)])
+
     def test_restoring_a_backup_does_not_replay_old_downloads_or_updates(self):
         database = self.root / 'pending.sqlite'
         connection = sqlite3.connect(database)

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__ . '/InstagramStories.php';
+require_once __DIR__ . '/InstagramCheckerMedia.php';
 
 /**
  * Administrator-facing helpers shared by every cookie panel: importing one or
@@ -11,12 +12,13 @@ require_once __DIR__ . '/InstagramStories.php';
  */
 final class CookieJars
 {
-    public const SERVICES=['yt'=>'youtube','ig'=>'instagram','igs'=>'instagram_stories','pin'=>'pinterest','tt'=>'tiktok','x'=>'twitter'];
+    public const SERVICES=['yt'=>'youtube','ig'=>'instagram','igs'=>'instagram_stories','igc'=>'instagram_checker','pin'=>'pinterest','tt'=>'tiktok','x'=>'twitter'];
     public function __construct(private Bot $bot) {}
     public static function pool(Config $config,string $code): ?CookiePool
     {
         if($code==='yt') return youtubeCookiePool($config);
         if($code==='igs') return InstagramStories::pool($config);
+        if($code==='igc') return InstagramCheckerMedia::pool($config);
         $service=galleryFromPrefix($code);
         return $service===null?null:GalleryMedia::poolFor($config,$service);
     }
@@ -183,6 +185,7 @@ final class CookieJars
             try {
                 if($code==='yt') validateYouTubeCookies($content);
                 elseif($code==='igs') InstagramStories::validateCookies($content);
+                elseif($code==='igc') InstagramCheckerMedia::validateCookies($content);
                 else GalleryMedia::validateFor((string)galleryFromPrefix($code),$content);
             } catch(\RuntimeException) { $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed'); }
             if($code!=='yt') { $pool->markWorking($jar['id']); return $ui->text('cookie_test_structure_ok'); }
@@ -205,7 +208,7 @@ final class CookieJars
     public function pendingLabel(int $user): ?string
     {
         $saved=$this->bot->store->get('cklabel.'.$user);
-        if(!preg_match('/^(yt|igs|ig|pin|tt|x):([a-f0-9]{12}|main):(\d+)$/D',$saved,$match)||(int)$match[3]<time()) return null;
+        if(!preg_match('/^(yt|igs|igc|ig|pin|tt|x):([a-f0-9]{12}|main):(\d+)$/D',$saved,$match)||(int)$match[3]<time()) return null;
         return $match[1].':'.$match[2];
     }
     public function cancelLabel(int $user): void { $this->bot->store->query('DELETE FROM settings WHERE key=?',['cklabel.'.$user]); }
@@ -224,7 +227,7 @@ final class CookieJars
     public function callback(array $query,int $chat,int $user,int $message): void
     {
         $ui=$this->bot->ui; $answer=fn(string $text='',bool $alert=false)=>$this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$query['id'],'text'=>$text,'show_alert'=>$alert,'cache_time'=>0]);
-        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^ck(rm|ex|ts|lb):(yt|igs|ig|pin|tt|x):([a-f0-9]{12}|main):([a-f0-9]{8})$/D',(string)($query['data']??''),$match)) { $answer($ui->plain('denied'),true); return; }
+        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^ck(rm|ex|ts|lb):(yt|igs|igc|ig|pin|tt|x):([a-f0-9]{12}|main):([a-f0-9]{8})$/D',(string)($query['data']??''),$match)) { $answer($ui->plain('denied'),true); return; }
         [, $action,$code,$id,$prefix]=$match;
         $pool=self::pool($this->bot->config,$code); $jar=null;
         $position=0;
