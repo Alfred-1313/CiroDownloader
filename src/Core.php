@@ -441,23 +441,8 @@ final class Store
                 }
                 $this->set('ui_delivery_v2','1');
             }
-            if($this->get('ui_play_user_notices_v1','0')!=='1') {
-                foreach(['play_error_cookies','play_error_storage'] as $key) {
-                    $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];
-                    $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.'.$key])->fetchColumn();
-                    if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.'.$key]);
-                }
-                $this->set('ui_play_user_notices_v1','1');
-            }
-            if($this->get('ui_play_architecture_v1','0')!=='1') {
-                foreach(['texts'=>'text','buttons'=>'button'] as $bucket=>$kind) foreach(Ui::definitions()[$bucket] as $key=>$definition) {
-                    if(($definition['group']??'')!=='play') continue;
-                    $legacy=$definition['legacy_values']??[];
-                    $saved=$this->get($kind.'.'.$key);
-                    if($saved!==''&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',[$kind.'.'.$key]);
-                }
-                $this->set('ui_play_architecture_v1','1');
-            }
+            // Retired downloader work must never enter another service's queue after an upgrade.
+            $this->query("UPDATE jobs SET status='cancelled',options='{}',expires=0 WHERE phase='play' AND status IN ('queued','running','confirming','waiting_quality','choosing')");
             if($this->get('ui_instagram_source_v1','0')!=='1') {
                 foreach(['instagram_caption','instagram_page_caption'] as $key) {
                     $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];
@@ -680,7 +665,7 @@ final class Store
             elseif (!$menu&&(int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id,options) VALUES(?,?,?,?,?,0,?,?,?)", [$update,$user,$chat,$url,time(),$phase??galleryService($url)??musicService($url)??(playUrl($url)!==null?'play':'inspect'),$chat<0?max(0,$thread):0,json_encode($options?:new \stdClass,JSON_THROW_ON_ERROR)]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id,options) VALUES(?,?,?,?,?,0,?,?,?)", [$update,$user,$chat,$url,time(),$phase??galleryService($url)??musicService($url)??'inspect',$chat<0?max(0,$thread):0,json_encode($options?:new \stdClass,JSON_THROW_ON_ERROR)]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -1085,20 +1070,7 @@ function galleryFromPrefix(string $prefix): ?string { $service=array_search($pre
 function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),'youtube'=>youtubePostUrl($input),default=>null}; }
 function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
 function galleryUiPrefix(string $service,string $url=''): string { return $service==='youtube'?'youtube_post':(instagramStoryUrl($url)!==null?'instagram_story':$service); }
-/** One app on Google's own store; never follow arbitrary APK URLs. */
-function playUrl(string $input): ?string
-{
-    $input=trim($input);
-    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
-    if(str_starts_with($input,'play.google.com/')) $input='https://'.$input;
-    $url=parse_url($input);
-    if(!$url||!in_array($url['scheme']??'',['http','https'],true)||($url['host']??'')!=='play.google.com'
-        ||($url['path']??'')!=='/store/apps/details'||isset($url['user'])||isset($url['pass'])||isset($url['port'])) return null;
-    parse_str($url['query']??'',$query); $package=$query['id']??null;
-    if(!is_string($package)||strlen($package)>200||!preg_match('/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/D',$package)) return null;
-    return 'https://play.google.com/store/apps/details?id='.$package;
-}
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??youtubePostUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??playUrl($input)??(collectionUrl($input)['url']??null); }
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??youtubePostUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??(collectionUrl($input)['url']??null); }
 
 function lockProcess(string $path): mixed
 {

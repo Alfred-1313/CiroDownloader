@@ -43,7 +43,7 @@ jobs:
           php tests/pinterest.php
           php tests/social.php
           php tests/article_transport.php
-          php tests/google_play.php
+          php tests/removed_services.php
           php tests/jobs.php
           php tests/customization.php
           php tests/personalization_recovery.php
@@ -164,7 +164,6 @@ jobs:
         run: |
           chmod -R go-rwx src bin resources
           docker build --tag ciro-downloader:ci .
-          docker run --rm --entrypoint apkeep ciro-downloader:ci --version
 
       - name: Verify radio artwork, controls and transitions under production limits
         run: |

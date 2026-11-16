@@ -64,7 +64,7 @@ final class ServiceCustomization
     public function home(int $chat,int $message=0,string $notice=''): void
     {
         $ui=$this->bot->ui; $rows=[$this->heading('hub_downloaders')];
-        foreach(array_unique(['youtube',...galleryServices(),...musicServices(),'play']) as $service) $rows[]=[$this->navigation('section_'.$service,'custom:service:'.$service,$this->changed($service))];
+        foreach(array_unique(['youtube',...galleryServices(),...musicServices()]) as $service) $rows[]=[$this->navigation('section_'.$service,'custom:service:'.$service,$this->changed($service))];
         foreach(['adult','music','general'] as $category) {
             $changed=$category==='adult'?(bool)array_filter(adultServices(),fn($service)=>$this->changed($service)):$this->groupChanged($category==='music'?['menu','batch','search','radio','radio_player']:['help','inputs','group','access','admin_replies','errors']);
             $rows[]=$this->heading('hub_'.$category); $rows[]=[$this->navigation('hub_open_'.$category,'custom:category:'.$category,$changed)];
@@ -245,7 +245,6 @@ final class ServiceCustomization
         array_push($rows,...$settings);
         if(in_array($service,musicServices(),true)) $rows[]=[$ui->button('hub_open_music','custom:category:music')];
         $rows[]=$this->footer('custom:service:'.$service);
-        if($service==='play') $notice=trim($notice."\n\n".$ui->text(GooglePlay::configured($this->bot->config)?'play_session_ready':'play_session_setup'));
         $this->show($chat,$message,$ui->text('hub_settings_info',['title'=>$this->title($service)]).($notice!==''?"\n\n".$notice:''),$rows,['type'=>'settings','service'=>$service]);
     }
     private function mode(int $chat,int $message,string $service,string $type,string $mode): void

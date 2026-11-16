@@ -338,11 +338,7 @@ final class Personalization
     public function settingsRows(string $section): array
     {
         $ui=$this->bot->ui; $rows=[];
-        if($section==='play') {
-            $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
-            $rows[]=[$this->switchButton('play_toggle','custom:play',GooglePlay::enabled($this->bot->store))];
-            $rows[]=[$this->switchButton('play_source_toggle','custom:playsource',$this->bot->store->get('play.source_button','0')==='1')];
-        } elseif($section==='youtube') {
+        if($section==='youtube') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->switchButton('youtube_post_toggle','custom:ytposts',YoutubePosts::enabled($this->bot->store))];
             $rows[]=[$this->switchButton('youtube_post_source_toggle','custom:ytpsource',$ui->gallerySourceEnabled('youtube'))];
@@ -858,11 +854,6 @@ final class Personalization
         elseif($op==='ytpsource') {
             $this->bot->store->set('youtube.posts_source_button',$ui->gallerySourceEnabled('youtube')?'0':'1');
             if(!$this->menus()->settingsReturn($chat,$message,'youtube')) $this->menus()->service($chat,$message,'youtube');
-        }
-        elseif($op==='play'||$op==='playsource') {
-            $setting=$op==='play'?'play.enabled':'play.source_button';
-            $this->bot->store->set($setting,$this->bot->store->get($setting,'0')==='1'?'0':'1');
-            if(!$this->menus()->settingsReturn($chat,$message,'play')) $this->menus()->service($chat,$message,'play');
         }
         elseif($op==='ytposts') {
             $this->bot->store->set('youtube.posts',YoutubePosts::enabled($this->bot->store)?'0':'1');
