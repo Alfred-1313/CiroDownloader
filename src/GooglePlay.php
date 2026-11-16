@@ -17,7 +17,9 @@ final class GooglePlay
         if(!is_string($email)||!filter_var($email,FILTER_VALIDATE_EMAIL)||preg_match('/["\r\n\x00]/',$email)||!is_string($aas)||!is_string($auth)
             ||($aas==='')===($auth==='')||!preg_match('~^[A-Za-z0-9._/+\x7e=:-]{12,8192}$~D',$aas?:$auth))
             throw new MediaFailure('cookies','Google Play session unavailable');
-        return "[google]\nemail = \"".$email."\"\n".($aas!==''?'aas_token':'auth_token').' = "'.($aas?:$auth)."\"\n";
+        // apkeep's configparser retains surrounding quotes as credential bytes.
+        // PHP accepts old quoted files; always give the downloader bare values.
+        return "[google]\nemail = ".$email."\n".($aas!==''?'aas_token':'auth_token').' = '.($aas?:$auth)."\n";
     }
     public static function credentials(Config $config): string
     {

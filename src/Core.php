@@ -441,6 +441,14 @@ final class Store
                 }
                 $this->set('ui_delivery_v2','1');
             }
+            if($this->get('ui_play_user_notices_v1','0')!=='1') {
+                foreach(['play_error_cookies','play_error_storage'] as $key) {
+                    $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];
+                    $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.'.$key])->fetchColumn();
+                    if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.'.$key]);
+                }
+                $this->set('ui_play_user_notices_v1','1');
+            }
             if($this->get('ui_instagram_source_v1','0')!=='1') {
                 foreach(['instagram_caption','instagram_page_caption'] as $key) {
                     $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];

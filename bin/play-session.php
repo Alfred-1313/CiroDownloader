@@ -7,6 +7,19 @@ umask(0077);
 // Run interactively: docker compose run --rm --no-deps worker php bin/play-session.php
 // Secrets are read on stdin, never as arguments, stored UI settings or process output.
 $config=Zero\Config::load();
+if(($argv[1]??'')==='--check') {
+    $path=Zero\GooglePlay::sessionPath($config);
+    if(is_link($path)) $status='unsafe_link';
+    elseif(!is_file($path)) $status='missing';
+    elseif(!is_readable($path)) $status='unreadable';
+    elseif((fileperms($path)&0077)!==0) $status='insecure_permissions';
+    elseif(!Zero\GooglePlay::configured($config)) $status='invalid_format';
+    else $status='ready';
+    // This is only a local-file check, never a claim that Google accepted login.
+    fwrite(STDOUT,json_encode(['session'=>$status,'login_tested'=>false],JSON_THROW_ON_ERROR)."\n");
+    exit($status==='ready'?0:2);
+}
+if(count($argv)>1) { fwrite(STDERR,"Usage: php bin/play-session.php [--check]\n"); exit(1); }
 fwrite(STDERR,"Google Play email: "); $email=trim((string)fgets(STDIN));
 fwrite(STDERR,"Token type (aas_token or auth_token): "); $type=trim((string)fgets(STDIN));
 if(!in_array($type,['aas_token','auth_token'],true)) { fwrite(STDERR,"Unsupported token type.\n"); exit(1); }

@@ -25,6 +25,15 @@ try {
     $config=new Zero\Config('123:fixture',[42,43],$root.'/data'); $store=new Zero\Store($config->storage); mkdir($config->storage.'/downloads',0700);
     $api=new PlayApi(); $bot=new Zero\Bot($config,$store,$api); $worker=new Zero\Worker($config,$store,$api); $serial=0;
     $url='https://play.google.com/store/apps/details?id=org.example.app';
+    playCheck(Zero\playUrl('https://play.google.com/store/apps/details?id=com.zhiliaoapp.musically')==='https://play.google.com/store/apps/details?id=com.zhiliaoapp.musically','the reported TikTok app URL is a supported Play app link');
+    $checkSession=function()use($config):array {
+        $process=proc_open([PHP_BINARY,dirname(__DIR__).'/bin/play-session.php','--check'],[0=>['file','/dev/null','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,null,array_merge(getenv(),['BOT_TOKEN'=>'123:fixture','ADMIN_IDS'=>'42','STORAGE_DIR'=>$config->storage]));
+        if(!is_resource($process))throw new RuntimeException('Cannot run session check');
+        $out=stream_get_contents($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$code=proc_close($process);
+        playCheck(!str_contains($out.$err,'fixture@example.test')&&!str_contains($out.$err,'made_up_fixture_token'),'the local session check never discloses email or token');
+        return [$code,json_decode($out,true),$err];
+    };
+    [$exit,$check]=$checkSession();playCheck($exit===2&&$check===['session'=>'missing','login_tested'=>false],'missing local credentials are identified without network login or input prompts');
     foreach([$url,$url.'&hl=fa&gl=IR','play.google.com/store/apps/details?id=org.example.app'] as $link) playCheck(Zero\playUrl($link)===$url&&Zero\mediaUrl($link)===$url,'one app URL canonicalized');
     foreach(['https://play.google.com/store/apps','https://play.google.com.evil.test/store/apps/details?id=org.example.app','https://evil.test/app.apk','https://user@play.google.com/store/apps/details?id=org.example.app','https://play.google.com:443/store/apps/details?id=org.example.app','https://play.google.com/store/apps/details?id[]=org.example.app','https://play.google.com/store/apps/details?id=../bad','market://details?id=org.example.app','com.instagram.android'] as $bad) playCheck(Zero\playUrl($bad)===null,'reject non-app, foreign or malformed URL');
     $input=function(int $user=7,int $chat=7,int $thread=0) use($bot,$url,&$serial): void {
@@ -53,11 +62,19 @@ try {
     $tap($job); $again=count($api->calls); $tap($job);
     playCheck($status($job)==='queued'&&count($api->calls)===$again+1&&$store->get('play.device.7')==='px_9a','one tap queues once and remembers only the owner profile');
     $worker->process($store->claim('media'));
-    playCheck($status($job)==='failed'&&!$api->documents&&str_contains($api->last('editMessageText')['text'],'نشست'),'missing credentials get a clear notice, not a fake download');
+    playCheck($status($job)==='failed'&&!$api->documents&&$api->last('editMessageText')['text']===$bot->text('play_error_cookies'),'missing credentials get the editable user notice, not a fake download');
     $session="[google]\nemail = fixture@example.test\naas_token = made_up_fixture_token_123456789\n";
+    playCheck(Zero\GooglePlay::session("[google]\nemail = \"fixture@example.test\"\naas_token = \"made_up_fixture_token_123456789\"\n")===$session,'old quoted session files normalize to bare apkeep credentials without changing the token');
+    playCheck(Zero\GooglePlay::session("[google]\nemail = \"fixture@example.test\"\nauth_token = \"ya29.made_up_fixture_token_123456789\"\n")==="[google]\nemail = fixture@example.test\nauth_token = ya29.made_up_fixture_token_123456789\n",'auth tokens also reach apkeep without surrounding quote characters');
     mkdir(dirname(Zero\GooglePlay::sessionPath($config)),0700); file_put_contents(Zero\GooglePlay::sessionPath($config),$session); chmod(Zero\GooglePlay::sessionPath($config),0600);
     playCheck(Zero\GooglePlay::configured($config),'valid private session file recognized');
+    [$exit,$check]=$checkSession();playCheck($exit===0&&$check===['session'=>'ready','login_tested'=>false],'a valid local file is not presented as a verified Google login');
     chmod(Zero\GooglePlay::sessionPath($config),0644); playCheck(!Zero\GooglePlay::configured($config),'publicly readable session refused'); chmod(Zero\GooglePlay::sessionPath($config),0600);
+    $path=Zero\GooglePlay::sessionPath($config);chmod($path,0644);[$exit,$check]=$checkSession();playCheck($exit===2&&$check['session']==='insecure_permissions','the local check identifies unsafe permissions without changing them');chmod($path,0000);if(!is_readable($path)){[$exit,$check]=$checkSession();playCheck($exit===2&&$check['session']==='unreadable','the check runs with the worker account permissions');}chmod($path,0600);
+    file_put_contents($path,'invalid fixture');[$exit,$check]=$checkSession();playCheck($exit===2&&$check['session']==='invalid_format','malformed local configuration has its own fixed status');file_put_contents($path,$session);
+    rename($path,$path.'.saved');symlink($path.'.saved',$path);[$exit,$check]=$checkSession();playCheck($exit===2&&$check['session']==='unsafe_link','a symbolic link is never treated as a ready private session');unlink($path);rename($path.'.saved',$path);
+    foreach(['play_error_cookies','play_error_storage']as$key)playCheck(!preg_match('/مدیر|نشست|توکن|تنظیم|سرور/',$bot->text($key)),'the public default gives an end-user action without private setup instructions: '.$key);
+    $migration=$root.'/migration';$oldStore=new Zero\Store($migration);$oldStore->query("DELETE FROM settings WHERE key='ui_play_user_notices_v1'");foreach(['play_error_cookies','play_error_storage']as$key)$oldStore->set('text.'.$key,Zero\Ui::definitions()['texts'][$key]['legacy_values'][0]);$newStore=new Zero\Store($migration);playCheck($newStore->get('text.play_error_cookies')===''&&$newStore->get('text.play_error_storage')==='','only exact historical Play defaults are retired on upgrade');$newStore->set('text.play_error_cookies','متن دلخواه من');$newStore->query("DELETE FROM settings WHERE key='ui_play_user_notices_v1'");$againStore=new Zero\Store($migration);playCheck($againStore->get('text.play_error_cookies')==='متن دلخواه من','intentional Play error customization is preserved');
     foreach(["[google]\nemail=x\naas_token=abc",$session."auth_token=also_a_made_up_token\n",str_repeat('a',17000)] as $bad) {
         try { Zero\GooglePlay::session($bad); $rejected=false; } catch(Zero\MediaFailure $e) { $rejected=!str_contains($e->getMessage(),'fixture_token'); }
         playCheck($rejected,'invalid credentials rejected without disclosure');
@@ -71,6 +88,8 @@ args=sys.argv[1:]; home=Path(__file__).parent; mode=(home/'mode').read_text()
 package=args[args.index('-a')+1]; ini=Path(args[args.index('-i')+1]); out=Path(args[-1]); options=args[args.index('-o')+1]
 assert args[args.index('-d')+1]=='google-play' and 'split_apk=true' in options and 'device=' in options
 assert stat.S_IMODE(ini.stat().st_mode)==0o600 and not any('fixture_token' in x for x in args)
+values={k.strip():v.strip()for k,v in (line.split('=',1)for line in ini.read_text().splitlines()if '=' in line)}
+assert values['email']=='fixture@example.test' and values['aas_token']=='made_up_fixture_token_123456789', 'credential bytes differ from the real apkeep parser expectation'
 if mode=='auth':
  print(ini.read_text(),file=sys.stderr); print('Could not log in to Google Play',file=sys.stderr); sys.exit(1)
 if mode=='skip':
