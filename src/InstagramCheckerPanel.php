@@ -71,13 +71,14 @@ final class InstagramCheckerPanel
             $rows=$ui->layout('instagram',$layout,$slots,UiRegistry::rows('instagram',$layout));
         } elseif($view==='settings') {
             if($chat!==$owner||!$this->bot->admin($owner)) return;
-            $text=$ui->text('instagram_checker_settings_text',['limit'=>$this->bot->store->get('instagram.checker.limit','3'),'minutes'=>(string)($this->checker->interval()/60)]);
+            $access=$ui->plain(InstagramChecker::everyone($this->bot->store)?'instagram_checker_access_everyone':'instagram_checker_access_admins');
+            $text=$ui->text('instagram_checker_settings_text',['limit'=>$this->bot->store->get('instagram.checker.limit','3'),'minutes'=>(string)($this->checker->interval()/60),'access'=>$access,'state'=>$ui->plain(InstagramChecker::enabled($this->bot->store)?'switch_on':'switch_off')]);
             $rows=[[$this->b('enabled',$p,'enabled',null,['state'=>$ui->plain(InstagramChecker::enabled($this->bot->store)?'switch_on':'switch_off')])],
-                [$this->b('public',$p,'public',null,['state'=>$ui->plain(InstagramChecker::everyone($this->bot->store)?'switch_on':'switch_off')])],
+                [$this->b('public',$p,'public',null,['access'=>$access])],
                 [$this->b('default_limit',$p,'limit'),$this->b('user_limit',$p,'userlimit')],
                 [$this->b('interval',$p,'interval')],[$this->b('cookies',$p,'cookies')],
                 [$this->b('source_toggle',$p,'source',null,['state'=>$ui->plain($this->bot->store->get('instagram.checker.source_button','0')==='1'?'switch_on':'switch_off')])]];
-            $rows[]=!empty($data['custom'])?[$ui->button('back','custom:settings:instagram'),$this->b('close',$p,'close')]:$back;
+            $rows[]=!empty($data['custom'])?[$ui->button('back',($data['custom']==='service'?'custom:service:instagram':'custom:settings:instagram')),$this->b('close',$p,'close')]:$back;
         } elseif(in_array($view,['limit','userlimit','interval'],true)) {
             if($chat!==$owner||!$this->bot->admin($owner)) return;
             $text=$ui->text('instagram_checker_prompt_'.$view); $rows=[[$this->b('back',$p,'settings'),$this->b('close',$p,'close')]];

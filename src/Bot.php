@@ -487,7 +487,7 @@ final class Bot
                 return;
             }
             if($isChecker) { (new InstagramCheckerPanel($this))->callback($cb,$user,$chat,$thread); return; }
-            if($action==='checker:settings') { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>true]); return; }
+            if(in_array($action,['checker:settings','checker:settings:instagram'],true)) { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>$action==='checker:settings:instagram'?'service':true]); return; }
             if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
             if($isRadio) { (new RadioPanel($this))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }

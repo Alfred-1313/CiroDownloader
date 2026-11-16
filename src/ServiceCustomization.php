@@ -95,6 +95,7 @@ final class ServiceCustomization
         foreach($service==='instagram'?['caption','button','text','stories','checker']:($service==='youtube'?['caption','button','text','posts']:['caption','button','text']) as $kind) {
             if(!$this->items($service,$kind)) continue;
             $rows[]=$this->heading('hub_'.$kind); $rows[]=[$this->navigation('hub_edit_'.$kind,'custom:items:'.$service.':'.$kind.':0',$this->changed($service,$kind))];
+            if($service==='instagram'&&$kind==='checker') $rows[]=[$ui->button('instagram_checker_settings','checker:settings:instagram')];
         }
         $rows[]=$this->heading('hub_layout'); $rows[]=[$this->navigation('hub_edit_layout','custom:layouts:'.$service,(bool)array_filter(array_keys(UiRegistry::layouts($service)),fn($id)=>$this->layoutChanged($service,$id)))];
         $rows[]=$this->heading('sec_settings'); $rows[]=[$ui->button('hub_settings','custom:settings:'.$service)];
