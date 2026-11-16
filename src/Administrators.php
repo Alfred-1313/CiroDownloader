@@ -8,10 +8,11 @@ final class Administrators
     public function replyCommand(array $message,int $actor,int $chat,int $thread): bool
     {
         $text=trim((string)($message['text']??''));
-        if(!preg_match('~^/(add_admin|delete_admin)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',$text,$m)) return false;
+        if(!preg_match('~^/(add_admin|delete_admin|list_admin)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',$text,$m)) return false;
         if(($m[2]??'')!==''&&strcasecmp($m[2],$this->bot->store->get('bot_username'))!==0) return true;
         $send=function(string $key,array $values=[])use($chat,$thread):void{$this->bot->send($chat,$this->bot->text($key,$values),[],0,$thread);};
         if(!in_array($actor,$this->bot->config->admins,true)) { $send('admin_reply_denied'); return true; }
+        if($m[1]==='list_admin') { $this->list($chat,$thread,trim($m[3]??'')); return true; }
         $reply=$message['reply_to_message']??null; $target=is_array($reply)?($reply['from']??null):null;
         $command='/'.$m[1];
         if(trim($m[3]??'')!==''||!is_array($reply)) { $send('admin_reply_usage',['command'=>$command]); return true; }
@@ -31,6 +32,28 @@ final class Administrators
         $key='admin_reply_'.$result['status'];
         if($result['status']==='deleted'&&$result['count']>1) { $key='admin_reply_deleted_dependents'; $values['count']=$result['count']-1; }
         $send($key,$values); return true;
+    }
+    private function listText(string $key,array $values,int $limit,array $raw=[]): string
+    {
+        $html=$this->bot->text($key,$values,$raw);$plain=html_entity_decode(strip_tags($html),ENT_QUOTES|ENT_HTML5,'UTF-8');
+        return TextFormat::length($plain)<=$limit?$html:Ui::escape(mb_substr($plain,0,intdiv($limit,2)));
+    }
+    private function list(int $chat,int $thread,string $argument): void
+    {
+        $argument=strtr($argument,array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹',-1,PREG_SPLIT_NO_EMPTY),range(0,9)));
+        if($argument!==''&&!preg_match('/^[1-9][0-9]{0,5}$/D',$argument)) { $this->bot->send($chat,$this->bot->text('admin_list_usage'),[],0,$thread); return; }
+        $roots=array_values(array_unique($this->bot->config->admins));
+        $added=array_values(array_diff($this->bot->store->administratorIds($roots),$roots));sort($added,SORT_NUMERIC);
+        $ids=array_merge($roots,$added);$pages=max(1,(int)ceil(count($ids)/10));$page=min($pages,max(1,(int)$argument));
+        $values=['total'=>count($ids),'roots'=>count($roots),'added'=>count($added),'page'=>$page,'pages'=>$pages];
+        $text=$this->listText('admin_list_header',$values,800);$offset=($page-1)*10;
+        foreach(array_slice($ids,$offset,10)as$index=>$id) {
+            $username=(string)$this->bot->store->query('SELECT username FROM user_profiles WHERE user_id=?',[$id])->fetchColumn();
+            $role=$this->bot->text(in_array($id,$roots,true)?'admin_list_role_root':'admin_list_role_added');
+            $text.="\n".$this->listText('admin_list_row',['index'=>$offset+$index+1,'id'=>$id,'user'=>$username!==''?'@'.$username:(string)$id,'role'=>$role],240,['role']);
+        }
+        if($page<$pages)$text.="\n\n".$this->listText('admin_list_more',['command'=>'/list_admin '.($page+1)],300);
+        $this->bot->send($chat,$text,[],0,$thread);
     }
     public function begin(int $chat,int $user): void
     {
