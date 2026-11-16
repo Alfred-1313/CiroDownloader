@@ -71,7 +71,13 @@ try {
                     if($pid===0) {
                         pcntl_signal(SIGTERM,static function(): void { throw new Zero\WorkerStopped('Checker stopped'); });
                         pcntl_signal(SIGINT,static function(): void { throw new Zero\WorkerStopped('Checker stopped'); });
-                        try { (new Zero\InstagramChecker($config,new Zero\Store($config->storage),new Zero\Telegram($config)))->poll(); exit(0); }
+                        try {
+                            $checkStore=new Zero\Store($config->storage); $checkApi=new Zero\Telegram($config);
+                            $checkPanel=new Zero\InstagramCheckerPanel(new Zero\Bot($config,$checkStore,$checkApi));
+                            $checkPanel->refreshChecks();
+                            (new Zero\InstagramChecker($config,$checkStore,$checkApi))->poll();
+                            $checkPanel->refreshChecks(); exit(0);
+                        }
                         catch(Throwable) { exit(1); }
                     } elseif($pid>0) $checkerPid=$pid;
                 }

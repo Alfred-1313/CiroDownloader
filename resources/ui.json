@@ -1,6 +1,18 @@
 {
   "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg","xnxx":"XNXX","xvideos":"XVideos","tikporn":"TikPorn","youporn":"YouPorn","eporner":"Eporner","youtube":"یوتیوب"},
   "texts": {
+    "command_checker":{"audience":"user","group":"instagram","label":"توضیح دستور منوی چکر","value":"مدیریت پیج‌های چکر اینستاگرام"},
+    "admin_cmd_checker":{"audience":"admin","group":"custom","label":"دستور منوی چکر","value":"منوی چکرهای پی‌وی یا گروه، بدون افزودن پیج"},
+    "instagram_checker_menu_hint":{"audience":"user","group":"instagram","label":"راهنمای بازکردن منوی چکر","value":"💡 برای بازکردن این منو، بدون آیدی پیج بنویس: <code>/checker</code>"},
+    "instagram_checker_check_queued":{"audience":"user","group":"instagram","label":"در حال صحت‌سنجی","value":"⏳ در حال صحت‌سنجی پیج…\nنتیجه در همین پیام نمایش داده می‌شود."},
+    "instagram_checker_check_ok":{"audience":"user","group":"instagram","label":"صحت‌سنجی موفق","value":"✅ بررسی تازه موفق بود؛ دریافت اطلاعات این پیج برقرار است."},
+    "instagram_checker_check_failed":{"audience":"user","group":"instagram","label":"صحت‌سنجی ناموفق","value":"⚠️ صحت‌سنجی موفق نبود؛ اطلاعات این پیج فعلاً دریافت نمی‌شود. کمی بعد دوباره بررسی کن."},
+    "instagram_checker_check_timeout":{"audience":"user","group":"instagram","label":"نتیجه دریافت نشده","value":"⌛ هنوز نتیجهٔ بررسی تازه دریافت نشده است؛ کمی بعد دوباره امتحان کن."},
+    "instagram_checker_check_cooldown":{"audience":"user","group":"instagram","label":"فاصلهٔ بررسی دستی","value":"⏳ برای بررسی دوباره، یک دقیقه از درخواست قبلی صبر کن."},
+    "instagram_checker_check_busy":{"audience":"user","group":"instagram","label":"بررسی هم‌زمان","value":"⏳ این پیج همین حالا در حال بررسی است؛ کمی بعد دوباره امتحان کن."},
+    "instagram_checker_check_paused":{"audience":"user","group":"instagram","label":"بررسی چکر متوقف","value":"⏸ چکر این پیج متوقف است؛ برای صحت‌سنجی، ابتدا «ادامه» را بزن."},
+    "instagram_checker_check_updating":{"audience":"user","group":"instagram","label":"بررسی هنگام به‌روزرسانی","value":"⏳ ربات در حال به‌روزرسانی است؛ پس از پایان آن دوباره بررسی کن."},
+    "instagram_checker_check_blocked":{"audience":"user","group":"instagram","label":"محدودیت بررسی دستی","value":"⏳ اینستاگرام فعلاً بررسی را محدود کرده است؛ حدود {minutes} دقیقهٔ دیگر دوباره امتحان کن.","variables":["minutes"]},
     "instagram_checker_access_admins":{"audience":"admin","group":"custom","label":"دسترسی محدود چکر","value":"فقط ادمین‌های ربات"},
     "instagram_checker_access_everyone":{"audience":"admin","group":"custom","label":"دسترسی همگانی چکر","value":"همهٔ کاربران"},
     "instagram_checker_destination_private":{"audience":"user","group":"instagram","label":"مقصد خصوصی چکر","value":"💬 پی‌وی"},
@@ -939,6 +951,8 @@
     "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← 🔞 سایت‌های بزرگسال ← Beeg ← ⚙️ تنظیمات این سرویس»."}
   },
   "buttons": {
+    "instagram_checker_check":{"audience":"user","group":"instagram","label":"صحت‌سنجی پیج","value":"🔎 صحت‌سنجی چکر"},
+    "instagram_checker_checking":{"audience":"user","group":"instagram","label":"دکمهٔ بررسی در حال انجام","value":"⏳ در حال بررسی…"},
     "layout_checker_home":{"audience":"admin","group":"custom","label":"👁 چیدمان فهرست چکر","value":"👁 چیدمان فهرست چکر"},
     "layout_checker_manage":{"audience":"admin","group":"custom","label":"⚙️ چیدمان مدیریت پیج چکر","value":"⚙️ چیدمان مدیریت پیج چکر"},
     "layout_checker_new":{"audience":"admin","group":"custom","label":"➕ چیدمان انتخاب محتوای چکر","value":"➕ چیدمان انتخاب محتوای چکر"},

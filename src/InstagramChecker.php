@@ -19,7 +19,17 @@ final class InstagramChecker
             CREATE TABLE IF NOT EXISTS ig_check_seen(target INTEGER NOT NULL,kind TEXT NOT NULL,item TEXT NOT NULL,seen INTEGER NOT NULL,PRIMARY KEY(target,kind,item));
             CREATE TABLE IF NOT EXISTS ig_check_deliveries(id INTEGER PRIMARY KEY,subscription INTEGER NOT NULL,generation INTEGER NOT NULL,kind TEXT NOT NULL,item TEXT NOT NULL,url TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',job_id INTEGER NOT NULL DEFAULT 0,attempts INTEGER NOT NULL DEFAULT 0,due INTEGER NOT NULL DEFAULT 0,message_id INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL,UNIQUE(subscription,kind,item));
             CREATE INDEX IF NOT EXISTS ig_check_pending ON ig_check_deliveries(status,due);
-            CREATE TABLE IF NOT EXISTS ig_check_panels(token TEXT PRIMARY KEY,owner INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL,message_id INTEGER NOT NULL DEFAULT 0,view TEXT NOT NULL DEFAULT 'home',data TEXT NOT NULL DEFAULT '{}',expires INTEGER NOT NULL);");
+            CREATE TABLE IF NOT EXISTS ig_check_panels(token TEXT PRIMARY KEY,owner INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL,message_id INTEGER NOT NULL DEFAULT 0,view TEXT NOT NULL DEFAULT 'home',data TEXT NOT NULL DEFAULT '{}',expires INTEGER NOT NULL);
+            CREATE INDEX IF NOT EXISTS ig_check_requested_panels ON ig_check_panels(expires) WHERE view='item' AND json_type(data,'$.check')='object';");
+        $columns=array_column($store->query('PRAGMA table_info(ig_check_targets)')->fetchAll(),'name');
+        if(array_diff(['scan_version','manual_at'],$columns)) {
+            $store->db->exec('BEGIN IMMEDIATE');
+            try {
+                $columns=array_column($store->query('PRAGMA table_info(ig_check_targets)')->fetchAll(),'name');
+                foreach(['scan_version','manual_at'] as $column) if(!in_array($column,$columns,true)) $store->db->exec("ALTER TABLE ig_check_targets ADD COLUMN $column INTEGER NOT NULL DEFAULT 0");
+                $store->db->exec('COMMIT');
+            } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
+        }
         self::$schemas[$store]=true;
     }
     public static function prefix(array $job): string { return instagramStoryUrl($job['url'])!==null?'instagram_checker_story':'instagram_checker_post'; }
@@ -47,6 +57,29 @@ final class InstagramChecker
     public function owned(int $id,int $owner): ?array
     {
         $r=$this->store->query('SELECT s.*,t.username,t.state,t.checked FROM ig_check_subs s JOIN ig_check_targets t ON t.id=s.target WHERE s.id=? AND s.owner=? AND s.deleted=0',[$id,$owner])->fetch(); return $r?:null;
+    }
+    /** Schedule one real shared scan; callbacks never block on Instagram. */
+    public function requestCheck(array $sub,int $owner): array
+    {
+        if((int)$sub['owner']!==$owner||!$this->allowed($owner,(int)$sub['chat_id'])) return ['result'=>'denied'];
+        $s=$this->store; $s->db->exec('BEGIN IMMEDIATE');
+        try {
+            $live=$this->subscription((int)$sub['id'],$owner,(int)$sub['chat_id'],(int)$sub['thread_id']);
+            $target=$live?$s->query('SELECT * FROM ig_check_targets WHERE id=?',[$live['target']])->fetch():false;
+            $result='queued';
+            if(!$live||!$target||!$this->allowed($owner,(int)$sub['chat_id'],false)) $result='denied';
+            elseif((int)$live['paused']) $result='paused';
+            elseif($s->get('update_in_progress','0')==='1') $result='updating';
+            elseif($target['state']==='blocked'&&(int)$target['next_check']>time()) $result='blocked';
+            elseif((int)$target['lease_until']>=time()) $result='busy';
+            elseif((int)$target['manual_at']>time()-60||(int)$s->get('instagram.checker.manual.'.$owner,'0')>time()-60) $result='cooldown';
+            if($result==='queued') {
+                $s->query('UPDATE ig_check_targets SET next_check=0,manual_at=? WHERE id=?',[time(),$live['target']]);
+                $s->set('instagram.checker.manual.'.$owner,(string)time());
+            }
+            $s->db->exec('COMMIT');
+            return ['result'=>$result,'minutes'=>max(1,(int)ceil(((int)($target['next_check']??0)-time())/60)),'check'=>['version'=>(int)($target['scan_version']??0),'requested'=>time(),'generation'=>(int)($live['generation']??0)]];
+        } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
     }
     public function add(int $owner,int $chat,int $thread,string $name,int $mode): int
     {
@@ -157,8 +190,13 @@ final class InstagramChecker
     }
     public function due(): bool
     {
+        if($this->checksReady()) return true;
         if(!self::enabled($this->store)) return false;
         return (bool)$this->store->query("SELECT 1 FROM ig_check_deliveries WHERE status IN ('pending','retry') AND due<=? UNION ALL SELECT 1 FROM ig_check_targets t WHERE next_check<=? AND lease_until<? AND EXISTS(SELECT 1 FROM ig_check_subs s WHERE s.target=t.id AND s.paused=0 AND s.deleted=0) LIMIT 1",[time(),time(),time()])->fetchColumn();
+    }
+    public function checksReady(): bool
+    {
+        return (bool)$this->store->query("SELECT 1 FROM ig_check_panels p JOIN ig_check_subs s ON s.id=json_extract(p.data,'$.id') JOIN ig_check_targets t ON t.id=s.target WHERE p.view='item' AND p.expires>? AND json_type(p.data,'$.check')='object' AND CAST(COALESCE(json_extract(p.data,'$.check.retry_after'),0) AS INTEGER)<=? AND (t.scan_version>json_extract(p.data,'$.check.version') OR CAST(json_extract(p.data,'$.check.requested') AS INTEGER)<?) LIMIT 1",[time(),time(),time()-180])->fetchColumn();
     }
     public function claimTarget(): ?array
     {
@@ -206,7 +244,7 @@ final class InstagramChecker
                 }
             }
             $s->query('UPDATE ig_check_subs SET posts_ready=CASE WHEN (mode&1)<>0 AND (?&1)<>0 THEN 1 ELSE posts_ready END,stories_ready=CASE WHEN (mode&2)<>0 AND (?&2)<>0 THEN 1 ELSE stories_ready END WHERE target=? AND paused=0 AND deleted=0',[$mode,$mode,$target['id']]);
-            $s->query("UPDATE ig_check_targets SET account_id=?,next_check=?,lease='',lease_until=0,checked=?,failures=0,state='ok' WHERE id=?",[$account,time()+$this->interval(),time(),$target['id']]);
+            $s->query("UPDATE ig_check_targets SET account_id=?,next_check=?,lease='',lease_until=0,checked=?,failures=0,state='ok',scan_version=scan_version+1 WHERE id=?",[$account,time()+$this->interval(),time(),$target['id']]);
             $s->db->exec('COMMIT');
         } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
     }
@@ -232,7 +270,7 @@ final class InstagramChecker
             $reason=$e instanceof MediaFailure?$e->reason:'process';
             $state=in_array($reason,['blocked','cookies','restricted','network','format'],true)?$reason:'process';
             $delay=min(3600,max($this->interval(),($state==='blocked'?900:300)*(1+min(6,(int)$target['failures']))));
-            $this->store->query("UPDATE ig_check_targets SET next_check=?,lease='',lease_until=0,failures=failures+1,state=? WHERE id=? AND lease=?",[time()+$delay,$state,$target['id'],$target['lease']]);
+            $this->store->query("UPDATE ig_check_targets SET next_check=?,lease='',lease_until=0,failures=failures+1,state=?,scan_version=scan_version+1 WHERE id=? AND lease=?",[time()+$delay,$state,$target['id'],$target['lease']]);
         }
         return true;
     }

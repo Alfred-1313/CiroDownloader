@@ -90,6 +90,16 @@ class CheckerScanTests(unittest.TestCase):
             args=self.args();args.username=username
             with self.assertRaises(scan.InvalidSnapshot):scan.snapshot(args)
         self.assertEqual(self.operations,[])
+    def test_identity_refusal_preserves_its_safe_rate_or_session_reason(self):
+        import sys
+        for status,reason in [(429,'blocked'),(401,'cookies'),(403,'cookies'),(404,'restricted'),(0,'network')]:
+            CACHE_MEMORY.clear()
+            response=Response();response.status_code=status;response._content=b'';response._content_consumed=True
+            def refuse(api,path):
+                raise exception.HttpError('Fixture refusal',response)
+            with patch.object(InstagramAPI,'_webpage',refuse),patch.object(sys,'argv',['instagram-check.py','--username','fixture','--cookies',str(self.cookie),'--mode','3']),contextlib.redirect_stderr(io.StringIO())as out:
+                self.assertEqual(scan.main(),1)
+            self.assertEqual(out.getvalue().strip(),'CHECKER_ERROR '+reason)
 
 
 if __name__=='__main__':unittest.main()

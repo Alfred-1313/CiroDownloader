@@ -38,6 +38,7 @@ jobs:
           php tests/instagram_story_cookies.php
           php tests/instagram_checker.php
           php tests/instagram_checker_ui.php
+          php tests/instagram_checker_checks.php
           php tests/pinterest.php
           php tests/social.php
           php tests/article_transport.php

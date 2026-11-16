@@ -168,7 +168,7 @@ final class ServiceCustomization
             [$kind,$key]=$item; $definition=$this->bot->ui->definition($kind,$key); $definition['key']=$key;
             $instagram=($definition['group']??'')==='instagram';
             $part='';
-            if($instagram&&(str_starts_with($key,'instagram_checker_')||in_array($key,['instagram_checker','command_insta_checker'],true))) $part='checker';
+            if($instagram&&(str_starts_with($key,'instagram_checker_')||in_array($key,['instagram_checker','command_insta_checker','command_checker'],true))) $part='checker';
             elseif($instagram&&(str_starts_with($key,'instagram_story_')||in_array($key,['source_instagram_story','command_story_instagram'],true))) $part='stories';
             elseif(($definition['group']??'')==='youtube'&&(str_starts_with($key,'youtube_post_')||$key==='source_youtube_post')) $part='posts';
             if(in_array($filter,['stories','posts','checker'],true)) return $part===$filter;

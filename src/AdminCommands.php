@@ -9,7 +9,7 @@ namespace Zero;
  */
 final class AdminCommands
 {
-    public const LIST=['admin','health','cookies','update','customize','insta_checker','id','help','cancel','start'];
+    public const LIST=['admin','health','cookies','update','customize','checker','insta_checker','id','help','cancel','start'];
 
     /** One tappable line per command for the panel message. */
     public static function lines(Ui $ui): string

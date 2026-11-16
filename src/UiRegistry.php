@@ -74,7 +74,7 @@ final class UiRegistry
                 'story_slides'=>['prev'=>'instagram_story_prev','next'=>'instagram_story_next','source'=>'source_instagram_story'],
                 'story_delivery'=>['source'=>'source_instagram_story'],
                 'checker_home'=>['add'=>'instagram_checker_add',...array_fill_keys(array_map(fn($n)=>'entry'.$n,range(1,8)),'instagram_checker_entry'),'prev'=>'instagram_checker_previous','next'=>'instagram_checker_next','close'=>'instagram_checker_close'],
-                'checker_manage'=>['toggle'=>'instagram_checker_pause','mode'=>'instagram_checker_change_mode','delete'=>'instagram_checker_delete','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
+                'checker_manage'=>['check'=>'instagram_checker_check','toggle'=>'instagram_checker_pause','mode'=>'instagram_checker_change_mode','delete'=>'instagram_checker_delete','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
                 'checker_new'=>['posts'=>'instagram_checker_mode1','stories'=>'instagram_checker_mode2','both'=>'instagram_checker_mode3','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
                 'checker_delete'=>['yes'=>'instagram_checker_delete_yes','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
                 'checker_post_slides'=>['prev'=>'instagram_checker_post_prev','next'=>'instagram_checker_post_next','source'=>'instagram_checker_post_source'],
@@ -88,7 +88,7 @@ final class UiRegistry
     {
         return match($layout) {
             'checker_home'=>[['add'],...array_map(fn($n)=>['entry'.$n],range(1,8)),['prev','next'],['close']],
-            'checker_manage'=>[['toggle'],['mode','delete'],['back','close']],
+            'checker_manage'=>[['check'],['toggle'],['mode','delete'],['back','close']],
             'checker_new'=>[['posts'],['stories'],['both'],['back','close']],
             'checker_delete'=>[['yes'],['back','close']],
             'quality'=>array_merge(array_chunk(array_values(array_filter(array_map('strval',array_keys(self::layouts($service)[$layout])),fn($id)=>$id!=='audio')),2),[['audio']]),

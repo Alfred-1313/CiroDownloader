@@ -38,6 +38,12 @@ try {
     do { if($store->query('SELECT state FROM ig_check_targets')->fetchColumn()==='ok') break; usleep(100000); } while(microtime(true)<$deadline&&proc_get_status($supervisor)['running']);
     ec($store->query('SELECT state FROM ig_check_targets')->fetchColumn()==='ok','the real supervisor runs the initial scanner automatically');
     ec((int)$store->query('SELECT COUNT(*) FROM ig_check_deliveries')->fetchColumn()===0,'the native scanner baselines existing post and story IDs without Telegram output');
+    $verifyPanel=new Zero\InstagramCheckerPanel($bot);$verifyPanel->open(42,-100,321,777,'item',['id'=>$group]);
+    $detail=$last('editMessageText');$verifyRows=json_decode($detail['params']['reply_markup'],true)['inline_keyboard'];$verifyButton=$verifyRows[0][0]['callback_data'];
+    $tap($verifyButton,42,777);$deadline=microtime(true)+20;
+    do { $verified=$last('editMessageText');if(str_contains($verified['params']['text']??'','بررسی تازه موفق بود'))break;usleep(100000); } while(microtime(true)<$deadline&&proc_get_status($supervisor)['running']);
+    ec(str_contains($verified['params']['text']??'','بررسی تازه موفق بود')&&(int)$verified['params']['message_id']===777&&(int)$verified['params']['chat_id']===-100,'the real supervisor completes an explicit native scan and edits the original group panel');
+    ec((int)$store->query('SELECT COUNT(*) FROM ig_check_deliveries')->fetchColumn()===0,'manual verification does not replay existing posts or stories');
     $mode(['posts'=>[101,100],'stories'=>[200,201],'carousel'=>2,'story_video'=>true]);$store->query('UPDATE ig_check_targets SET next_check=0');
     $deadline=microtime(true)+40;
     do { if((int)$store->query("SELECT COUNT(*) FROM ig_check_deliveries WHERE status='sent'")->fetchColumn()===4) break; usleep(100000); } while(microtime(true)<$deadline&&proc_get_status($supervisor)['running']);

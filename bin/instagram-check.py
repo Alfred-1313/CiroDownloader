@@ -101,6 +101,10 @@ def main():
         reason = 'cookies'
     except exception.NotFoundError:
         reason = 'restricted'
+    except exception.ExtractionError as error:
+        status = re.search(r'Instagram story identity HTTP ([0-9]{1,3})\b', str(error))
+        code = int(status[1]) if status else None
+        reason = 'blocked' if code == 429 else 'cookies' if code in (401, 403) else 'restricted' if code == 404 else 'network' if code == 0 else 'format'
     except Exception:
         reason = 'format'
     print('CHECKER_ERROR ' + reason, file=sys.stderr)

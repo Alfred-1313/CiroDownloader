@@ -13,7 +13,7 @@ final class InstagramCheckerPanel
     }
     public static function command(string $text): ?array
     {
-        if(!preg_match('~^/insta_checker(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
+        if(!preg_match('~^/(?:insta_checker|checker)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
         return ['bot'=>$m[1]??'','argument'=>trim($m[2]??'')];
     }
     private function b(string $key,array $p,string $op,?int $id=null,array $vars=[]): array
@@ -47,6 +47,7 @@ final class InstagramCheckerPanel
         if($view==='home') {
             $page=max(0,(int)($data['page']??0)); $subs=$this->checker->subscriptions($owner,$chat,(int)$p['thread_id'],$chat===$owner); $pages=max(1,(int)ceil(count($subs)/8)); $page=min($page,$pages-1); $data=['page'=>$page];
             $text=$ui->text('instagram_checker_home',['used'=>$this->checker->used($owner),'limit'=>$this->checker->limit($owner)?:$ui->plain('instagram_checker_unlimited')]);
+            $text.="\n\n".$ui->text('instagram_checker_menu_hint');
             $slots=['add'=>[$this->b('add',$p,'add')],'close'=>[$this->b('close',$p,'close')]];
             foreach(array_slice($subs,$page*8,8) as $n=>$sub) $slots['entry'.($n+1)]=[$this->b('entry',$p,'item',(int)$sub['id'],['username'=>$sub['username'],'state'=>$ui->plain((int)$sub['paused']?'instagram_checker_paused':'instagram_checker_active'),'destination'=>$this->destination($sub)])];
             if(!$subs) $text.="\n\n".$ui->text('instagram_checker_empty');
@@ -67,7 +68,7 @@ final class InstagramCheckerPanel
             $slots=['back'=>[$this->b('back',$p,$view==='item'?'home':'item',$view==='item'?null:$id)],'close'=>[$this->b('close',$p,'close')]];
             if($view==='delete') { $text.="\n\n".$ui->text('instagram_checker_delete_prompt'); $slots['yes']=[$this->b('delete_yes',$p,'remove',$id)]; $layout='checker_delete'; }
             elseif($view==='mode') { $slots+=['posts'=>[$this->b('mode1',$p,'mode1',$id)],'stories'=>[$this->b('mode2',$p,'mode2',$id)],'both'=>[$this->b('mode3',$p,'mode3',$id)]]; $layout='checker_new'; }
-            else { $slots+=['toggle'=>[$this->b((int)$sub['paused']?'resume':'pause',$p,'pause',$id)],'mode'=>[$this->b('change_mode',$p,'mode',$id)],'delete'=>[$this->b('delete',$p,'delete',$id)]]; $layout='checker_manage'; }
+            else { $slots+=['check'=>[$this->b(isset($data['check'])?'checking':'check',$p,'check',$id)],'toggle'=>[$this->b((int)$sub['paused']?'resume':'pause',$p,'pause',$id)],'mode'=>[$this->b('change_mode',$p,'mode',$id)],'delete'=>[$this->b('delete',$p,'delete',$id)]]; $layout='checker_manage'; }
             $rows=$ui->layout('instagram',$layout,$slots,UiRegistry::rows('instagram',$layout));
         } elseif($view==='settings') {
             if($chat!==$owner||!$this->bot->admin($owner)) return;
@@ -142,6 +143,20 @@ final class InstagramCheckerPanel
             return;
         }
         if($op==='item') { $this->show($p,'item',['id'=>$id]); return; }
+        if($op==='check') {
+            if($p['view']!=='item'||(int)($data['id']??0)!==$id) return;
+            $sub=$this->item($p,$id);
+            if(!$sub) { $this->show($p,'home',[],$this->bot->text('instagram_checker_expired')); return; }
+            if(isset($data['check'])) {
+                $key='instagram_checker_check_queued';
+                if((int)$data['check']['requested']<time()-180) { unset($data['check']); $key='instagram_checker_check_timeout'; }
+                $this->show($p,'item',$data,$this->bot->text($key)); return;
+            }
+            $result=$this->checker->requestCheck($sub,$owner);
+            if($result['result']==='queued') $data['check']=$result['check'];
+            $key=$result['result']==='denied'?(!InstagramChecker::enabled($this->bot->store)?'instagram_checker_disabled':'instagram_checker_denied'):'instagram_checker_check_'.$result['result'];
+            $this->show($p,'item',$data,$this->bot->text($key,['minutes'=>$result['minutes']??1])); return;
+        }
         if(in_array($op,['pause','mode','delete','mode1','mode2','mode3','remove'],true)) {
             if(!in_array($p['view'],['item','mode','delete'],true)||(int)($data['id']??0)!==$id) { $this->show($p,'home'); return; }
             if($op==='remove'&&$p['view']!=='delete') return;
@@ -171,4 +186,28 @@ final class InstagramCheckerPanel
         }
     }
     private function input(int $owner,string $token): void { $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$owner,'ic:'.$token,time()+600]); }
+
+    /** Finish only an explicitly requested check, while its original view is open. */
+    public function refreshChecks(): void
+    {
+        $store=$this->bot->store;
+        $panels=$store->query("SELECT p.* FROM ig_check_panels p JOIN ig_check_subs s ON s.id=json_extract(p.data,'$.id') JOIN ig_check_targets t ON t.id=s.target WHERE p.view='item' AND p.expires>? AND json_type(p.data,'$.check')='object' AND CAST(COALESCE(json_extract(p.data,'$.check.retry_after'),0) AS INTEGER)<=? AND (t.scan_version>json_extract(p.data,'$.check.version') OR CAST(json_extract(p.data,'$.check.requested') AS INTEGER)<?) LIMIT 10",[time(),time(),time()-180])->fetchAll();
+        foreach($panels as $p) {
+            $data=json_decode($p['data'],true); $check=$data['check']; unset($data['check']);
+            $sub=$this->item($p,(int)$data['id']);
+            if(!$sub||(int)$sub['generation']!==(int)$check['generation']||!$this->checker->allowed((int)$p['owner'],(int)$sub['chat_id'])) {
+                $store->query('UPDATE ig_check_panels SET data=? WHERE token=? AND data=?',[json_encode($data,JSON_THROW_ON_ERROR),$p['token'],$p['data']]); continue;
+            }
+            $target=$store->query('SELECT * FROM ig_check_targets WHERE id=?',[$sub['target']])->fetch();
+            $result=(int)$target['scan_version']<=(int)$check['version']?'timeout':($target['state']==='ok'?'ok':($target['state']==='blocked'?'blocked':'failed'));
+            if(!$store->query("SELECT 1 FROM ig_check_panels WHERE token=? AND view='item' AND data=?",[$p['token'],$p['data']])->fetchColumn()) continue;
+            try { $this->show($p,'item',$data,$this->bot->text('instagram_checker_check_'.$result,['minutes'=>max(1,(int)ceil(((int)$target['next_check']-time())/60))])); }
+            catch(\Throwable) {
+                // A result is an edit of the requested message, never a new DM.
+                $tries=(int)($check['tries']??0)+1;
+                if($tries<3) $data['check']=array_replace($check,['tries'=>$tries,'retry_after'=>time()+30]);
+                $store->query('UPDATE ig_check_panels SET data=? WHERE token=? AND data=?',[json_encode($data,JSON_THROW_ON_ERROR),$p['token'],$p['data']]);
+            }
+        }
+    }
 }
