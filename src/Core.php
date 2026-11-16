@@ -663,7 +663,7 @@ final class Store
             elseif (!$menu&&(int)$this->query('SELECT last_request FROM users WHERE id=?', [$user])->fetchColumn() > time()-15
                 &&!$this->query("SELECT 1 FROM jobs WHERE user_id=? AND status IN ('waiting_quality','queued','running','confirming')",[$user])->fetchColumn()) $result = 'cooldown';
             else {
-                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id,options) VALUES(?,?,?,?,?,0,?,?,?)", [$update,$user,$chat,$url,time(),$phase??galleryService($url)??musicService($url)??'inspect',$chat<0?max(0,$thread):0,json_encode($options?:new \stdClass,JSON_THROW_ON_ERROR)]);
+                $this->query("INSERT INTO jobs(update_id,user_id,chat_id,url,created,message_id,phase,thread_id,options) VALUES(?,?,?,?,?,0,?,?,?)", [$update,$user,$chat,$url,time(),$phase??galleryService($url)??musicService($url)??(playUrl($url)!==null?'play':'inspect'),$chat<0?max(0,$thread):0,json_encode($options?:new \stdClass,JSON_THROW_ON_ERROR)]);
                 $this->query('UPDATE users SET last_request=? WHERE id=?', [time(),$user]);
                 $result = 'queued';
             }
@@ -695,7 +695,7 @@ final class Store
         if($native&&(!is_int($quality)||$quality<72||$quality>8640)) return null;
         $this->db->exec('BEGIN IMMEDIATE');
         try {
-            $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality'",[$id,$user,$chat])->fetch();
+            $job=$this->query("SELECT * FROM jobs WHERE id=? AND user_id=? AND chat_id=? AND status='waiting_quality' AND phase<>'play'",[$id,$user,$chat])->fetch();
             if($native&&$job&&!in_array(adultService($job['url']),['tikporn','eporner'],true)) $job=null;
             $options=$job?json_decode($job['options'],true):[];
             $audio=$quality==='audio';
@@ -1068,7 +1068,20 @@ function galleryFromPrefix(string $prefix): ?string { $service=array_search($pre
 function galleryUrl(string $service,string $input): ?string { return match($service) {'instagram'=>instagramUrl($input),'pinterest'=>pinterestUrl($input),'tiktok'=>tiktokUrl($input),'twitter'=>twitterUrl($input),'youtube'=>youtubePostUrl($input),default=>null}; }
 function galleryService(string $input): ?string { foreach(galleryServices() as $service) if(galleryUrl($service,$input)) return $service; return null; }
 function galleryUiPrefix(string $service,string $url=''): string { return $service==='youtube'?'youtube_post':(instagramStoryUrl($url)!==null?'instagram_story':$service); }
-function mediaUrl(string $input): ?string { return youtubeUrl($input)??youtubePostUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??(collectionUrl($input)['url']??null); }
+/** One app on Google's own store; never follow arbitrary APK URLs. */
+function playUrl(string $input): ?string
+{
+    $input=trim($input);
+    if(strlen($input)>2048||preg_match('/\s/u',$input)) return null;
+    if(str_starts_with($input,'play.google.com/')) $input='https://'.$input;
+    $url=parse_url($input);
+    if(!$url||!in_array($url['scheme']??'',['http','https'],true)||($url['host']??'')!=='play.google.com'
+        ||($url['path']??'')!=='/store/apps/details'||isset($url['user'])||isset($url['pass'])||isset($url['port'])) return null;
+    parse_str($url['query']??'',$query); $package=$query['id']??null;
+    if(!is_string($package)||strlen($package)>200||!preg_match('/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/D',$package)) return null;
+    return 'https://play.google.com/store/apps/details?id='.$package;
+}
+function mediaUrl(string $input): ?string { return youtubeUrl($input)??youtubePostUrl($input)??instagramUrl($input)??pinterestUrl($input)??tiktokUrl($input)??twitterUrl($input)??spotifyUrl($input)??soundcloudUrl($input)??playUrl($input)??(collectionUrl($input)['url']??null); }
 
 function lockProcess(string $path): mixed
 {

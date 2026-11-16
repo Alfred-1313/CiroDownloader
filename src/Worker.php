@@ -51,6 +51,7 @@ final class Worker
         mkdir($folder,0700);
         $stage='download'; $audio=$job['phase']==='audio';
         $instagramUsers=$job['phase']==='instagram_users';
+        $play=playUrl($job['url'])!==null;
         $instagramStory=instagramStoryUrl($job['url'])!==null;
         $service=$instagramUsers?'instagram':galleryService($job['url']); $gallery=$service!==null; $music=musicService($job['url']);
         // A track chosen from a menu may be known only by its details; those jobs name their service in the phase.
@@ -59,8 +60,8 @@ final class Worker
         if($music!==null&&$job['phase']!==$music) $music=null;
         $collection=$job['phase']==='inspect'?collectionUrl($job['url']):null;
         $adultSite=adultService($job['url']); $adult=$adultSite!==null;
-        $label=$gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':($adult?$adultSite:'youtube'))));
-        $bot->ui=$bot->ui->forService($gallery?$service:($music??($adult?$adultSite:($collection===null&&$job['phase']!=='batch'?'youtube':''))));
+        $label=$play?'play':($gallery?$service:($music??($collection!==null?'menu':($job['phase']==='batch'?'batch':($adult?$adultSite:'youtube')))));
+        $bot->ui=$bot->ui->forService($play?'play':($gallery?$service:($music??($adult?$adultSite:($collection===null&&$job['phase']!=='batch'?'youtube':'')))));
         $started=hrtime(true); $timings=[];
         try {
             if($checker&&!$checker->canDeliver($job,$job['phase']==='instagram_page')) {
@@ -90,6 +91,16 @@ final class Worker
             if($job['phase']==='inspect'&&($adultSite==='xnxx'&&xnxxSearchUrl($job['url'])!==null||$adultSite==='xvideos'&&xvideosSearchUrl($job['url'])!==null)) {
                 $stage='inspect';
                 (new XnxxSearch($bot,$adultSite==='xvideos'?$this->xvideosSearchFetch:$this->xnxxSearchFetch,$adultSite))->open($job);
+                return;
+            }
+            if($play) {
+                if(!GooglePlay::enabled($store)) {
+                    $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
+                    $bot->jobMessage($job,$bot->text('play_disabled')); return;
+                }
+                $device=json_decode((string)$job['options'],true)['device']??null;
+                if($device===null) GooglePlay::open($bot,$job);
+                else $this->playDelivery($job,$bot,$folder,(string)$device,$timings,$stage);
                 return;
             }
             if($job['phase']==='batch') {
@@ -270,16 +281,17 @@ final class Worker
             $store->set('last_job_sources',preg_match('/\[((?:[a-z]+=[a-z]+(?:, )?){1,5})\]/',$detail,$sources)===1?$sources[1]:'');
             if($instagramStory&&preg_match('/\[(instagram=(?:profile|stories), http=(?:0|[1-5][0-9]{2}))\]/',$detail,$sources)) $store->set('last_job_sources',$sources[1]);
             $store->set('last_job_error_reason',$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'));
-            $store->set('last_job_service',$gallery?$service:($music??($collection!==null?'menu':($adult?$adultSite:'youtube'))));
+            $store->set('last_job_service',$label);
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
             try { $store->pushError($label,$e instanceof MediaFailure?$e->reason:($stage==='upload'?'upload':'process'),$store->get('last_job_sources')); } catch(Throwable) {}
             $key=$e instanceof MediaFailure?'error_'.$e->reason:($stage==='upload'?'error_upload':'failed');
-            if($instagramStory) $key=str_contains($detail,'story identity unavailable')?'instagram_story_error_identity':'instagram_story_'.$key;
+            if($play) $key='play_'.$key;
+            elseif($instagramStory) $key=str_contains($detail,'story identity unavailable')?'instagram_story_error_identity':'instagram_story_'.$key;
             elseif($gallery) $key=galleryUiPrefix($service,$job['url']).'_'.$key;
             elseif($music!==null) $key=$music.'_'.$key;
             elseif($adult) $key=$bot->ui->definition('text',$adultSite.'_'.$key)?$adultSite.'_'.$key:$key;
             if($audio&&$bot->ui->definition('text','audio_'.$key)) $key='audio_'.$key;
-            $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($instagramStory?'instagram_story_failed':($service==='youtube'?'youtube_post_failed':($music!==null?$music.'_failed':'failed'))))));
+            $notice=$bot->text($job['phase']==='batch'?'batch_failed':($collection!==null?'menu_failed':($bot->ui->definition('text',$key)?$key:($play?'play_failed':($instagramStory?'instagram_story_failed':($service==='youtube'?'youtube_post_failed':($music!==null?$music.'_failed':'failed')))))));
             try { $bot->jobMessage($job,$notice); } catch(Throwable) {}
         } finally {
             $timings['total_ms']=(int)round((hrtime(true)-$started)/1e6);
@@ -736,6 +748,26 @@ final class Worker
         foreach(array_unique(array_filter([$item['path']??null,$item['thumbnail']??null],'is_string')) as $path) {
             if(is_file($path)&&!@unlink($path)) ErrorAlerts::event('Delivered media cleanup unavailable');
         }
+    }
+
+    /** Deliver one APK or a complete APKS bundle through the existing media lane. */
+    private function playDelivery(array $job,Bot $bot,string $folder,string $device,array &$timings,string &$stage): void
+    {
+        $bot->jobMessage($job,$bot->text('play_downloading'));
+        $start=hrtime(true); $file=GooglePlay::download($this->config,$job['url'],$device,$folder);
+        $timings['prepare_ms']=(int)round((hrtime(true)-$start)/1e6);
+        if(!GooglePlay::enabled($this->store)||!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Google Play delivery no longer allowed');
+        $stage='upload'; $bot->jobMessage($job,$bot->text('play_uploading')); $bytes=(int)filesize($file['path']);
+        $caption=$bot->ui->fitCaption($bot->text($file['split']?'play_split_caption':'play_caption',['package'=>GooglePlay::package($job['url']),'device'=>$bot->ui->plainWith('play_profile_'.$device,[]),'size'=>round($bytes/1048576,1)]));
+        $slots=['source'=>$this->store->get('play.source_button','0')==='1'?[$bot->ui->button('source_play')+['url'=>$job['url']]]:[]];
+        $rows=$bot->ui->layout('play','delivery',$slots,UiRegistry::rows('play','delivery'));
+        if(!GooglePlay::enabled($this->store)||!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Google Play delivery no longer allowed');
+        $start=hrtime(true); $sent=$this->sendOne($job,'document',$file,$caption,$rows);
+        if(empty($sent['message_id'])) throw new MediaFailure('upload','Google Play delivery not confirmed');
+        $timings['upload_ms']=(int)round((hrtime(true)-$start)/1e6);
+        $this->store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+        $this->noteSpeed('play',$bytes,$timings,$file['bytes']);
+        try { $bot->finishJob($job); } catch(Throwable) {}
     }
 
     /** One delivered file for the speed report; a failure to note it never touches the delivery itself. */

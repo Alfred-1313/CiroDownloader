@@ -81,6 +81,7 @@ class MaintenanceTests(unittest.TestCase):
     def test_backup_contains_configuration_and_private_cookie_data(self):
         backup = self.app.backup()
         self.assertTrue(any('--exclude=./youtube-pages' in call for call in self.app.calls))
+        self.assertTrue(any('--exclude=./google-play' in call for call in self.app.calls))
         self.assertEqual(self.app.services, ['bot'])
         self.assertEqual((self.project / '.env').read_bytes(), ENV)
         with tempfile.TemporaryDirectory(dir=self.root) as folder:

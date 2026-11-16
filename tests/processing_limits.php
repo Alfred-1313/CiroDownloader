@@ -71,8 +71,10 @@ try {
     limitCheck(in_array('custom:limits',limitActions($api),true),'Back actually reopens the features page');
     $bot->handle(limitClick('custom:section:access')); $bot->handle(limitClick('custom:item:text:admin_only_notice'));
     limitCheck(in_array('custom:section:access',limitActions($api),true),'the same notice opened from a section returns to that section');
-    $bot->handle(limitClick('custom:list:text:public:0')); $bot->handle(limitClick('custom:item:text:admin_only_notice'));
-    limitCheck(in_array('custom:list:text:public:0',limitActions($api),true),'the same notice opened from a catalog returns to that catalog');
+    $public=array_keys(array_filter(Zero\Ui::definitions()['texts'],fn($item)=>$item['group']==='public'&&$item['audience']==='user'&&empty($item['caption'])&&empty($item['hidden'])));
+    $catalog='custom:list:text:public:'.intdiv((int)array_search('admin_only_notice',$public,true),8);
+    $bot->handle(limitClick($catalog)); $bot->handle(limitClick('custom:item:text:admin_only_notice'));
+    limitCheck(in_array($catalog,limitActions($api),true),'the same notice opened from its actual catalog page returns to that catalog');
 
     $bot->handle(limitClick('custom:limit:private')); $bot->handle(limitInput('۳'));
     limitCheck($store->processingLimit(7)===3&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Persian numeric limits save and close the input session');

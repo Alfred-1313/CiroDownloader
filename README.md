@@ -11,6 +11,8 @@ YouTube, Instagram, Pinterest, TikTok, X, Spotify and SoundCloud through Telegra
 
 Download YouTube videos and Shorts with a quality or MP3 choice. Instagram photos, videos and Reels arrive directly; multi-slide posts become linked articles. See [Instagram setup and privacy](docs/instagram.md).
 
+Experimental Google Play downloads with device profiles: [setup and limitations](docs/google-play.md) (off by default).
+
 ## Install
 
 Run this command on your Linux server as root:

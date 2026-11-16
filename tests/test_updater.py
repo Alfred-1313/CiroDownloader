@@ -264,7 +264,7 @@ class UpdaterTests(unittest.TestCase):
 
     def test_update_backup_excludes_runtime_media_and_retains_persistent_data(self):
         excluded = ['downloads', 'instagram-pages', 'pinterest-pages', 'tiktok-pages', 'twitter-pages', 'youtube-pages',
-                    'music-batches', 'yt-cache', 'radio', 'adult-handoff', '.keepalive-fixture', '.cookie-check-fixture']
+                    'music-batches', 'yt-cache', 'radio', 'google-play', 'adult-handoff', '.keepalive-fixture', '.cookie-check-fixture']
         for name in excluded:
             folder = self.data / name
             folder.mkdir()

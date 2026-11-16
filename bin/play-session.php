@@ -1,0 +1,26 @@
+<?php
+declare(strict_types=1);
+require dirname(__DIR__).'/src/Core.php';
+require dirname(__DIR__).'/src/Download.php';
+require dirname(__DIR__).'/src/GooglePlay.php';
+umask(0077);
+// Run interactively: docker compose run --rm --no-deps worker php bin/play-session.php
+// Secrets are read on stdin, never as arguments, stored UI settings or process output.
+$config=Zero\Config::load();
+fwrite(STDERR,"Google Play email: "); $email=trim((string)fgets(STDIN));
+fwrite(STDERR,"Token type (aas_token or auth_token): "); $type=trim((string)fgets(STDIN));
+if(!in_array($type,['aas_token','auth_token'],true)) { fwrite(STDERR,"Unsupported token type.\n"); exit(1); }
+$terminal=function_exists('stream_isatty')&&stream_isatty(STDIN);
+if($terminal) system('stty -echo');
+try { fwrite(STDERR,"Token (hidden): "); $token=trim((string)fgets(STDIN,16385)); }
+finally { if($terminal) system('stty echo'); fwrite(STDERR,"\n"); }
+try { $content=Zero\GooglePlay::session("[google]\nemail = \"".$email."\"\n".$type.' = "'.$token."\"\n"); }
+catch(Throwable) { fwrite(STDERR,"Invalid session; existing credentials were kept.\n"); exit(1); }
+$directory=dirname(Zero\GooglePlay::sessionPath($config));
+if(!is_dir($directory)&&!mkdir($directory,0700,true)) { fwrite(STDERR,"Cannot create session directory.\n"); exit(1); }
+$temporary=tempnam($directory,'.session-');
+try {
+    if($temporary===false||file_put_contents($temporary,$content)===false||!chmod($temporary,0600)||!rename($temporary,Zero\GooglePlay::sessionPath($config))) throw new RuntimeException();
+} catch(Throwable) { fwrite(STDERR,"Cannot save session; check storage permissions.\n"); exit(1); }
+finally { if(is_string($temporary)&&is_file($temporary)) unlink($temporary); }
+fwrite(STDERR,"Session saved privately. Login will be checked on the next download.\n");

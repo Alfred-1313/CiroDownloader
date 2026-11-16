@@ -338,7 +338,11 @@ final class Personalization
     public function settingsRows(string $section): array
     {
         $ui=$this->bot->ui; $rows=[];
-        if($section==='youtube') {
+        if($section==='play') {
+            $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
+            $rows[]=[$this->switchButton('play_toggle','custom:play',GooglePlay::enabled($this->bot->store))];
+            $rows[]=[$this->switchButton('play_source_toggle','custom:playsource',$this->bot->store->get('play.source_button','0')==='1')];
+        } elseif($section==='youtube') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$this->switchButton('youtube_post_toggle','custom:ytposts',YoutubePosts::enabled($this->bot->store))];
             $rows[]=[$this->switchButton('youtube_post_source_toggle','custom:ytpsource',$ui->gallerySourceEnabled('youtube'))];
@@ -514,7 +518,7 @@ final class Personalization
     }
     private function samples(string $key=''): array
     {
-        $samples=['total'=>'5','roots'=>'2','added'=>'3','role'=>'🛡 ادمین','user'=>'@ExampleUser','command'=>'/add_admin','topic'=>'17','destination'=>'گروه نمونه','used'=>'1','limit'=>'3','minutes'=>'5','mode'=>'📷📥 هر دو','bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
+        $samples=['package'=>'org.example.app','device'=>'Pixel 9a · اندروید ۱۵ · ARM64','selected'=>'','total'=>'5','roots'=>'2','added'=>'3','role'=>'🛡 ادمین','user'=>'@ExampleUser','command'=>'/add_admin','topic'=>'17','destination'=>'گروه نمونه','used'=>'1','limit'=>'3','minutes'=>'5','mode'=>'📷📥 هر دو','bot_username'=>$this->bot->store->get('bot_username')?:'CiroDownloaderBot','name'=>'مهدی','posts'=>'128','followers'=>'12,345','following'=>'350','privacy'=>'🌐 حساب عمومی','bio'=>'عکاس و علاقه‌مند به سفر','query'=>'mehdi','author'=>'نام کانال','description'=>'متن نمونهٔ پست','people'=>'نام نمونه','views'=>' · 👁 1,234','tags'=>'🏷 #نمونه','seconds'=>'10','expiry'=>'2 دقیقه','page_url'=>'https://telegra.ph/Example-11-06','index'=>'1','count'=>'12','sent'=>'10','title'=>'عنوان نمونهٔ ویدیو','label'=>'تنظیم نمونه','quality'=>'720p','format'=>'MP3','duration'=>'05:32','artist'=>'نام خواننده','year'=>'2024','url'=>'https://youtu.be/ybNMMK5Q318','max_size'=>(string)round($this->bot->config->maxBytes/1000000,1),'id'=>'123456','username'=>'CiroDownloaderBot',
             'state'=>$this->bot->ui->plain('state_on'),'poller'=>'آنلاین','worker'=>'آنلاین','queued'=>'0','running'=>'0','users'=>'120','completed'=>'34','failed'=>'2','cookies'=>'تنظیم شده','proxy'=>'تنظیم نشده','error'=>'خطای نمونه',
             'page'=>'1','pages'=>'1','variables'=>'{title}, {quality}, {url}','value'=>'متن نمونه','notice'=>'','checked'=>'2026-11-03 12:00','version'=>Updates::version(),'bar'=>'▰▰▰▰▰▱▱▱▱▱ 50%','stage'=>'در حال بررسی','changes'=>'• یک قابلیت تازه','status'=>'کوکی قبلی موجود است.','percent'=>'50','qualities'=>'240p · 480p · 720p','track'=>'نام خواننده — نام اثر','times'=>'03:10           03:14','queue'=>'خواننده — آهنگ بعدی','tracks'=>'خواننده — نام آهنگ'];
         if(str_starts_with($key,'instagram_checker_')) $samples=array_replace($samples,['status'=>'فعال','checked'=>'حدود ۱ دقیقه پیش']);
@@ -854,6 +858,11 @@ final class Personalization
         elseif($op==='ytpsource') {
             $this->bot->store->set('youtube.posts_source_button',$ui->gallerySourceEnabled('youtube')?'0':'1');
             if(!$this->menus()->settingsReturn($chat,$message,'youtube')) $this->menus()->service($chat,$message,'youtube');
+        }
+        elseif($op==='play'||$op==='playsource') {
+            $setting=$op==='play'?'play.enabled':'play.source_button';
+            $this->bot->store->set($setting,$this->bot->store->get($setting,'0')==='1'?'0':'1');
+            if(!$this->menus()->settingsReturn($chat,$message,'play')) $this->menus()->service($chat,$message,'play');
         }
         elseif($op==='ytposts') {
             $this->bot->store->set('youtube.posts',YoutubePosts::enabled($this->bot->store)?'0':'1');

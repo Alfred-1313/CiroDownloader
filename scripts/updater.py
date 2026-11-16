@@ -590,7 +590,7 @@ class Agent:
                     destination.close()
             excluded = {'zero.sqlite', 'zero.sqlite-wal', 'zero.sqlite-shm', snapshot.name,
                         'downloads', 'instagram-pages', 'pinterest-pages', 'tiktok-pages', 'twitter-pages', 'youtube-pages',
-                        'music-batches', 'yt-cache', 'radio', 'adult-handoff', '.youtube-blocked', '.youtube-ok'}
+                        'music-batches', 'yt-cache', 'radio', 'google-play', 'adult-handoff', '.youtube-blocked', '.youtube-ok'}
             # Media queues/caches are runtime data, not a second copy of delivered files in every update backup.
             with tempfile.NamedTemporaryFile(prefix='.pre-update-', suffix='.partial', dir=BACKUPS, delete=False) as raw:
                 temporary = Path(raw.name)

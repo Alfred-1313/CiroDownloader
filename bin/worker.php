@@ -102,9 +102,14 @@ try {
                 $store->query("UPDATE jobs SET status='failed' WHERE status='queued' AND message_id=0 AND created<?",[time()-120]);
                 $store->query("UPDATE jobs SET options='{}',expires=0 WHERE phase='instagram_users' AND status IN ('done','failed','cancelled') AND options<>'{}'");
                 $store->query("UPDATE jobs SET options='{}' WHERE phase IN ('xnxx_search','xvideos_search','instagram_users') AND status IN ('done','failed') AND expires>0 AND expires<? AND options<>'{}'",[time()]);
+                foreach($store->query("SELECT * FROM jobs WHERE phase='play' AND status='waiting_quality' AND expires>0 AND expires<?",[time()])->fetchAll() as $old) {
+                    if($store->query("UPDATE jobs SET status='cancelled',options='{}',expires=0 WHERE id=? AND status='waiting_quality' AND expires<?",[$old['id'],time()])->rowCount()) {
+                        try { $bot=new Zero\Bot($config,$store,new Zero\Telegram($config)); $bot->jobMessage($old,$bot->text('play_expired')); } catch(Throwable) {}
+                    }
+                }
                 foreach($store->query("SELECT * FROM jobs WHERE status='confirming' AND expires>0 AND expires<?",[time()])->fetchAll() as $old) {
                     if($store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='confirming' AND expires<?",[$old['id'],time()])->rowCount()) {
-                        try { $bot=new Zero\Bot($config,$store,new Zero\Telegram($config)); $bot->jobMessage($old,$bot->text('quality_expired')); } catch(Throwable) {}
+                        try { $bot=new Zero\Bot($config,$store,new Zero\Telegram($config)); $bot->jobMessage($old,$bot->text($old['phase']==='play'?'play_expired':'quality_expired')); } catch(Throwable) {}
                     }
                 }
                 $store->query("DELETE FROM jobs WHERE status IN ('done','failed','cancelled') AND created<?",[time()-86400*7]);

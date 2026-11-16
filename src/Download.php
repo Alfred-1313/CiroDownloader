@@ -53,7 +53,7 @@ final class Download
         if($free===false) throw new MediaFailure('storage','Cannot determine available disk space');
         if($free<$required) throw new MediaFailure('storage','Insufficient free disk space: free='.round($free/1048576,1).' MiB required='.round($required/1048576,1).' MiB');
     }
-    public function run(array $command, string $folder, int $seconds,?int $maxTemporaryBytes=null,?int $maxFileBytes=null): string
+    public function run(array $command, string $folder, int $seconds,?int $maxTemporaryBytes=null,?int $maxFileBytes=null,bool $recursiveTemporary=false): string
     {
         // Drain both streams without writing unbounded process logs to disk.
         $stdout=''; $stderr='';
@@ -78,7 +78,9 @@ final class Download
                 if(microtime(true)>=$nextStorageCheck) {
                     self::ensureSpace($folder);
                     $bytes=0;
-                    foreach (glob($folder.'/*')?:[] as $p) {
+                    $paths=$recursiveTemporary?new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($folder,\FilesystemIterator::SKIP_DOTS)):(glob($folder.'/*')?:[]);
+                    foreach ($paths as $p) {
+                        $p=(string)$p;
                         clearstatcache(true,$p);
                         if(is_file($p)) {
                             $size=filesize($p); $bytes+=$size;

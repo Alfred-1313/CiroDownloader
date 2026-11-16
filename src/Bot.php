@@ -30,6 +30,7 @@ require_once __DIR__.'/InstagramStoryCookies.php';
 require_once __DIR__.'/InstagramCheckerPanel.php';
 require_once __DIR__.'/InstagramCheckerCookies.php';
 require_once __DIR__.'/YoutubePosts.php';
+require_once __DIR__.'/GooglePlay.php';
 
 final class Bot
 {
@@ -395,6 +396,7 @@ final class Bot
     {
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return 'denied'; }
+        if(playUrl($url)!==null&&!GooglePlay::enabled($this->store)) { $this->send($chat,$this->text('play_disabled'),[],0,$thread); return 'denied'; }
         if(instagramStoryUrl($url)!==null&&!InstagramStories::enabled($this->store)) { $this->send($chat,$this->text('instagram_story_disabled'),[],0,$thread); return 'denied'; }
         if(youtubePostUrl($url)!==null&&!YoutubePosts::enabled($this->store)) { $this->send($chat,$this->text('youtube_post_disabled'),[],0,$thread); return 'denied'; }
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
@@ -415,7 +417,7 @@ final class Bot
             }
             if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
-            $service=galleryService($url)??$phase??musicService($url);
+            $service=galleryService($url)??$phase??musicService($url)??(playUrl($url)!==null?'play':null);
             try {
                 $collection=$service?null:collectionUrl($url);
                 $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':''));
@@ -476,6 +478,7 @@ final class Bot
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
             $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|s|b|[up]:\d{1,2})$/D',$action)===1;
             $isChecker=preg_match('/^ic:[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
+            $isPlay=preg_match('/^gp:\d{1,12}:[a-z0-9_]{1,32}$/D',$action)===1;
             if($isUpdate) {
                 $updater=new Updates($this->config,$this->store,$this->api,$thread); $menu=(int)($message['message_id']??0);
                 $notice=$updater->callbackNotice($chat,$user,$menu,array_key_exists('message_thread_id',$message)?$thread:null); $owns=$notice==='';
@@ -491,7 +494,7 @@ final class Bot
                 } elseif(in_array($action,['update:back','update:close'],true)) $updater->close($chat,$user,$menu);
                 return;
             }
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser&&!$isChecker;
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser&&!$isChecker&&!$isPlay;
             if($privileged&&($group||!$this->admin($user))) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($this->admin($user)?'callback_stale':'callback_access'),'show_alert'=>true,'cache_time'=>0]); return;
             }
@@ -499,6 +502,7 @@ final class Bot
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('callback_access'),'show_alert'=>true,'cache_time'=>0]); return;
             }
             if($isChecker) { (new InstagramCheckerPanel($this))->callback($cb,$user,$chat,$thread); return; }
+            if($isPlay) { GooglePlay::callback($this,$cb,$user,$chat,$thread); return; }
             if(in_array($action,['checker:settings','checker:settings:instagram'],true)) { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>$action==='checker:settings:instagram'?'service':true]); return; }
             if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
