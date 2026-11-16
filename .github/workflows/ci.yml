@@ -58,6 +58,7 @@ jobs:
           php tests/admin_reply_commands.php
           php tests/admin_list.php
           php tests/reactions.php
+          php tests/input_notices.php
           php tests/groups.php
           php tests/group_updates.php
           php tests/callback_ownership.php

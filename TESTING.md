@@ -153,3 +153,11 @@ The same limits apply to `tests/radio_transitions.php` and `tests/radio_transpor
 - `php tests/instagram_story_cookies.php`: پنل مستقل استوری، ورود Document و Paste، فایل 0600، خروجی خصوصی و تست/برچسب per-jar، حفظ کوکی پست هنگام حذف استوری و حفظ استوری هنگام خرابی/انقضای پست، تأیید حذف قدیمی، حذف کامل کامند/آیدی پروفایل و لغو کارهای قدیمی بدون شبکه، تازه‌شدن فوری منوی کامندها. `php tests/instagram_stories.php` همچنین کامند را با کوکی پست منقضی و کوکی مستقل استوری، بدون query اطلاعات کامل پروفایل، اجرا و خطای شناسه/HTTP 429 را از restricted جدا می‌کند.
 
 - تغییر نام کامند: `tests/instagram_story_cookies.php` ورود `/insta username` به صف استوری، متن راهنما و منوی عمومی/مدیر را بررسی می‌کند؛ کلید توضیح فرمان در شخصی‌سازی برای حفظ تنظیمات قبلی ثابت است. فرمان قبلی به‌صورت alias سازگار می‌ماند.
+
+## Unknown-message and unusable-link personalization
+
+Run `php tests/input_notices.php` and `php tests/reactions.php` with PHP 8.3, curl,
+mbstring and pdo_sqlite. The first drives the real handlers and editor against an
+in-memory Telegram fixture; the second verifies the actual local HTTP payload and timeout.
+Coverage includes independent texts/reactions, HTML and premium text emoji, invalid input,
+failed previews, original-message targets, group/topic boundaries, migration and scoped resets.

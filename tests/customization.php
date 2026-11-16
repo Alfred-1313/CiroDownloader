@@ -13,7 +13,7 @@ final class SettingsApi implements Zero\Api {
 }
 function ensure(bool $ok,string $message): void { if(!$ok) throw new RuntimeException($message); echo "PASS $message\n"; }
 function input(int $id,string $text): array { return ['update_id'=>random_int(1,1000000),'message'=>['from'=>['id'=>$id],'chat'=>['id'=>$id,'type'=>'private'],'text'=>$text]]; }
-function click(int $id,string $data): array { return ['callback_query'=>['id'=>'fake','from'=>['id'=>$id],'message'=>['message_id'=>900,'chat'=>['id'=>$id,'type'=>'private']],'data'=>$data]]; }
+function click(int $id,string $data,int $message=900): array { return ['callback_query'=>['id'=>'fake','from'=>['id'=>$id],'message'=>['message_id'=>$message,'chat'=>['id'=>$id,'type'=>'private']],'data'=>$data]]; }
 $temp=sys_get_temp_dir().'/ciro-custom-'.bin2hex(random_bytes(6));
 mkdir($temp,0700);
 try {
@@ -139,10 +139,10 @@ try {
     ensure($audioRows[2][0]['text']==='🎶 Audio'&&!isset($audioRows[2][0]['style']),'audio has a neutral full-width row below the qualities');
     ensure($store->choose((int)$audioJob['id'],7,7,'audio')===null,'another user cannot request the audio of this job');
     $store->set('admins_only','1');
-    $bot->handle(click(10,'quality:'.$audioJob['id'].':audio'));
+    $bot->handle(click(10,'quality:'.$audioJob['id'].':audio',(int)$audioJob['message_id']));
     ensure($store->query('SELECT status FROM jobs WHERE id=?',[$audioJob['id']])->fetchColumn()==='waiting_quality','admin-only mode also blocks audio callbacks from existing public menus');
     $store->set('admins_only','0');
-    $bot->handle(click(10,'quality:'.$audioJob['id'].':audio'));
+    $bot->handle(click(10,'quality:'.$audioJob['id'].':audio',(int)$audioJob['message_id']));
     $saved=$store->query('SELECT * FROM jobs WHERE id=?',[$audioJob['id']])->fetch();
     ensure($saved['phase']==='audio'&&$saved['quality']===null&&$saved['status']==='queued','audio selection queues an audio job without a fake video resolution');
     ensure($store->choose((int)$audioJob['id'],10,10,'audio')===null,'repeated audio taps cannot queue duplicate downloads');

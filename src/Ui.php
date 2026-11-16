@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/UiRegistry.php';
+require_once __DIR__.'/Reactions.php';
 
 final class Ui
 {
@@ -47,12 +48,14 @@ final class Ui
         $item=$this->definition($kind,$key);
         return ($item['audience']??'')==='user'&&empty($item['hidden']);
     }
+    public function supportsReaction(string $key): bool { return $this->customizable('text',$key)&&!empty($this->definition('text',$key)['reaction']); }
+    public function messageReaction(string $key): string { return $this->supportsReaction($key)?(Reactions::normalize($this->setting('reaction.'.$key))??''):''; }
     /** Effective values include read-only legacy fallbacks and pending previews. */
     public function customized(string $kind,string $key): bool
     {
         $definition=$this->definition($kind,$key);
         if(!$definition||!$this->customizable($kind,$key)) return false;
-        if($kind==='text') return $this->template($key)!==$definition['value'];
+        if($kind==='text') return $this->template($key)!==$definition['value']||$this->messageReaction($key)!=='';
         $button=$this->button($key);
         return $this->label($key)!==$definition['value']||($button['style']??'')!==($definition['style']??'')
             ||isset($button['icon_custom_emoji_id'])||$this->setting('button.emoji.'.$key)!==''

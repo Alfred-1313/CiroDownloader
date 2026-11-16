@@ -28,9 +28,16 @@ final class Reactions
     }
     public static function apply(Store $store,Api $api,int $chat,int $message,bool $music=false): void
     {
-        $emoji=self::selected($store,$music);
+        self::send($api,$chat,$message,self::selected($store,$music));
+    }
+    public static function applyMessage(Ui $ui,Api $api,int $chat,int $message,string $key): void
+    {
+        self::send($api,$chat,$message,$ui->messageReaction($key));
+    }
+    private static function send(Api $api,int $chat,int $message,string $emoji): void
+    {
         if($message<1||$emoji==='') return;
         try { $api->call('setMessageReaction',['chat_id'=>$chat,'message_id'=>$message,'reaction'=>[['type'=>'emoji','emoji'=>$emoji]]]); }
-        catch(\Throwable $error) { ErrorAlerts::event('Link reaction unavailable: code='.(int)$error->getCode()); }
+        catch(\Throwable $error) { ErrorAlerts::event('Message reaction unavailable: code='.(int)$error->getCode()); }
     }
 }

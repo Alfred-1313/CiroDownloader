@@ -1,5 +1,18 @@
 # Link reactions
 
+## Unknown messages and unusable links
+
+**🎨 شخصی‌سازی → تنظیمات عمومی → پیام ناشناس و لینک غیرقابل استفاده → [message] → ❤️ ری‌اکشن**
+sets a separate optional emoji for each notice. Both start disabled and are independent of
+`link_reaction` and its music setting. The source is always the original human message.
+Normal group chatter stays ignored; an explicit invalid `/download` preserves its topic.
+Standard-emoji validation, bounded requests and nonfatal reaction failures use the existing
+reaction implementation. Item and category markers include reaction-only changes; item reset
+and reset-all clear the relevant appearance settings. `tests/input_notices.php` covers the
+editor, preservation on rejected previews, scoped reset, migration, access and group behavior.
+
+## Accepted download links
+
 Newly accepted YouTube, Instagram, Pinterest, TikTok and X links receive a native Telegram 👾 reaction on the user's original message. This defaults on in both private chats and groups, including `/download@BotName` commands. The bot creates the job and its status before requesting the reaction; workers can process the job while that optional request completes.
 
 Administrators can open **🎨 شخصی‌سازی → 👾 تنظیم ری‌اکشن لینک** to select a preset, enter another supported Telegram reaction emoji, or disable reactions. The choice persists across restarts and applies to future requests. Disabling the feature does not remove reactions from older messages. The blue section heading is display-only, and the controls use the neutral default style.

@@ -29,7 +29,7 @@ try {
     foreach(Zero\UiRegistry::services() as $service) foreach(['caption','button','text','cover','quality'] as $kind) $screens[]='custom:items:'.$service.':'.$kind.':0';
     foreach(['stories','checker'] as $kind) $screens[]='custom:items:instagram:'.$kind.':0';
     $screens[]='custom:items:youtube:posts:0';
-    foreach(['menu','batch','search','radio','radio_player','help','group','access','admin_replies','errors'] as $section) $screens[]='custom:section:'.$section;
+    foreach(['menu','batch','search','radio','radio_player','help','inputs','group','access','admin_replies','errors'] as $section) $screens[]='custom:section:'.$section;
     foreach($screens as $screen) {
         $queue=[$screen]; $visited=[];
         while($queue) {

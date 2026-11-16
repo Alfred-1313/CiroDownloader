@@ -61,6 +61,11 @@ try {
     $before=count($reacts()); $submit(14,144,'not a link'); $store->set('admins_only','1'); $submit(15,155,$youtube); $store->set('admins_only','0');
     $store->set('groups_enabled','0'); $submit(16,166,$youtube,-100123); $store->set('groups_enabled','1');
     reactionCheck(count($reacts())===$before,'invalid input, restricted users and disabled groups receive no reaction');
+    $click('custom:messagereaction:unknown_message:0'); $source=1401; $submit(140, $source,'پیام ناشناس'); $records=$reacts(); $reaction=end($records)['params'];
+    reactionCheck((int)$reaction['message_id']===$source&&json_decode($reaction['reaction'],true)===[['type'=>'emoji','emoji'=>'🤔']],'a configured unknown-message reaction uses the real HTTP client and original message ID');
+    touch($fail); $submit(141,1402,'یک پیام دیگر'); unlink($fail);
+    reactionCheck($bot->ui->messageReaction('unknown_message')==='🤔','a Telegram refusal leaves the unknown-message reaction setting intact');
+    $click('custom:messagereaction:unknown_message:off');
     $store->set('processing_limit.private','1'); $submit(17,177,$youtube); $before=count($reacts()); $submit(17,178,$youtube);
     reactionCheck(count($reacts())===$before,'a rejected busy request is not falsely acknowledged with a reaction');
     foreach(['reaction_info','reaction_prompt','reaction_invalid'] as $key) reactionCheck(!isset($bot->catalog('text')[$key]),'administrator reaction controls stay outside user-text editing: '.$key);

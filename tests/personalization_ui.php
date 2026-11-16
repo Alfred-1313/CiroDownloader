@@ -44,7 +44,7 @@ try {
     $bot->handle(uiClick('custom:hint:home_youtube'));
     uiCheck($pending!==false&&$store->query('SELECT key FROM states WHERE user_id=42')->fetchColumn()===$pending,'tapping a title keeps a pending text edit');
     $bot->handle(uiClick('custom:hint:home_youtube',7));
-    uiCheck(end($api->calls)[1]['text']===$bot->ui->plain('denied')&&end($api->calls)[1]['show_alert']===true,'an ordinary user is refused by the title buttons');
+    uiCheck(end($api->calls)[0]==='answerCallbackQuery'&&end($api->calls)[1]['text']===$bot->ui->plain('callback_access')&&end($api->calls)[1]['show_alert']===true,'an ordinary user is refused by the title buttons through the dedicated callback alert');
 
     // Item screen: state, default text, markers.
     $bot->handle(uiClick('custom:item:text:welcome'));

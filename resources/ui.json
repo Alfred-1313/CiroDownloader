@@ -1,5 +1,5 @@
 {
-  "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg","xnxx":"XNXX","xvideos":"XVideos","tikporn":"TikPorn","youporn":"YouPorn","eporner":"Eporner","youtube":"یوتیوب","admin_replies":"مدیریت ادمین با ریپلای"},
+  "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg","xnxx":"XNXX","xvideos":"XVideos","tikporn":"TikPorn","youporn":"YouPorn","eporner":"Eporner","youtube":"یوتیوب","admin_replies":"مدیریت ادمین با ریپلای","inputs":"🤔 پیام ناشناس و لینک غیرقابل استفاده"},
   "texts": {
     "callback_owner":{"audience":"user","group":"public","label":"آلرت دکمهٔ صاحب درخواست","value":"🔒 این دکمه مخصوص صاحب درخواست است؛ برای استفاده، درخواست خودت را بفرست.","limit":200},
     "callback_access":{"audience":"user","group":"public","label":"آلرت دسترسی دکمه","value":"🔒 این دکمه با دسترسی فعلی حساب شما قابل استفاده نیست.","limit":200},
@@ -283,7 +283,7 @@
     "audio_error_format":{"audience":"user","label":"صدای ناموجود","group":"errors","value":"<blockquote><b>صدای قابل دانلود این ویدیو در دسترس نیست.</b></blockquote>\nلینک را دوباره بفرست تا فرمت‌های فعلی بررسی شوند."},
     "audio_error_upload":{"audience":"user","label":"خطای ارسال فایل صوتی","group":"errors","value":"<blockquote><b>فایل صوتی آماده شد، اما ارسال به تلگرام انجام نشد.</b></blockquote>\nلطفاً دوباره تلاش کن."},
     "failed":{"audience":"user","label":"خطای عمومی پردازش","group":"errors","value":"<blockquote><b>⚠️ ویدیو آماده نشد</b></blockquote>\nکمی بعد دوباره تلاش کن. اگر مشکل ادامه داشت، یک ویدیوی دیگر را امتحان کن.","legacy_values":["<blockquote><b>⚠️ پردازش ویدیو انجام نشد.</b></blockquote>\nلطفاً دوباره تلاش کن؛ جزئیات برای مدیر ثبت شده است."]},
-    "invalid":{"audience":"user","label":"لینک نامعتبر","group":"errors","value":"<blockquote><b>🔗 لینک یوتیوب، اینستاگرام، پینترست، تیک‌تاک، یک پست X، یا آهنگ و صفحهٔ هنرمند اسپاتیفای/ساوندکلاود را بفرست.</b></blockquote>","legacy_values":["<blockquote><b>🔗 لینک معتبر یک ویدیو یا شورت یوتیوب را بفرست.</b></blockquote>"]},
+    "invalid":{"audience":"user","label":"لینک غیرقابل استفاده","group":"inputs","value":"<b>🔗 این لینک قابل استفاده نیست</b>\n<blockquote>لینک مستقیم پست، ویدیو یا آهنگ مورد نظرت رو بفرست. برای دیدن لینک‌های پشتیبانی‌شده /help رو بزن.</blockquote>","legacy_values":["<blockquote><b>🔗 لینک معتبر یک ویدیو یا شورت یوتیوب را بفرست.</b></blockquote>","<blockquote><b>🔗 لینک یوتیوب، اینستاگرام، پینترست، تیک‌تاک، یک پست X، یا آهنگ و صفحهٔ هنرمند اسپاتیفای/ساوندکلاود را بفرست.</b></blockquote>"],"reaction":true},
     "restarted":{"audience":"user","label":"توقف درخواست هنگام راه‌اندازی مجدد","group":"errors","value":"<blockquote><b>ربات هنگام پردازش دوباره راه‌اندازی شد.</b></blockquote>\nاگر فایل را نگرفتی، لینک را دوباره بفرست."},
     "busy":{"audience":"user","label":"درخواست فعال قبلی","group":"errors","value":"<blockquote><b>به سقف درخواست‌های فعال خود رسیده‌ای.</b></blockquote>\nپس از پایان یکی از پردازش‌ها، لینک تازه را بفرست."},
     "queue_full":{"audience":"user","label":"صف پر","group":"errors","value":"<blockquote><b>صف پر است؛ کمی بعد دوباره تلاش کن.</b></blockquote>"},
@@ -971,7 +971,10 @@
     "beeg_error_network":{"audience":"user","label":"خطای شبکهٔ Beeg","group":"beeg","value":"<blockquote><b>⚠️ ارتباط با سایت برقرار نشد</b></blockquote>\nکمی بعد دوباره تلاش کن.","legacy_values":["<blockquote><b>اتصال سرور به سایت برقرار نشد.</b></blockquote>\nکمی بعد دوباره تلاش کن."]},
     "beeg_error_blocked":{"audience":"user","label":"محدودیت دسترسی Beeg","group":"beeg","value":"<blockquote><b>⚠️ دریافت این ویدیو فعلاً ممکن نیست</b></blockquote>\nکمی بعد دوباره تلاش کن یا یک لینک دیگر بفرست.","legacy_values":["<blockquote><b>⚠️ سایت دسترسی این سرور را محدود کرده است.</b></blockquote>\nمدیر می‌تواند پراکسی شبکه‌های اجتماعی را تنظیم کند."]},
     "report_name_beeg":{"audience":"admin","label":"نام سرویس در گزارش: Beeg","group":"admin","inline":true,"value":"Beeg"},
-    "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← 🔞 سایت‌های بزرگسال ← Beeg ← ⚙️ تنظیمات این سرویس»."}
+    "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← 🔞 سایت‌های بزرگسال ← Beeg ← ⚙️ تنظیمات این سرویس»."},
+    "unknown_message":{"audience":"user","label":"پیام ناشناس","group":"inputs","reaction":true,"value":"<b>🤔 متوجه این پیام نشدم</b>\n<blockquote>برای دانلود، لینک محتوای مورد نظرت رو بفرست. اگر راهنمایی می‌خوای، /help رو بزن.</blockquote>"},
+    "message_reaction_info":{"audience":"admin","label":"تنظیم ری‌اکشن پیام","group":"custom","variables":["title","reaction"],"value":"<b>❤️ ری‌اکشن — {title}</b>\n\nری‌اکشن فعلی: {reaction}\n<blockquote>ایموجی روی پیام اصلی کاربر قرار می‌گیرد. تنظیم این پیام مستقل از پیام‌های دیگر و ری‌اکشن لینک‌های دانلود است؛ پیش‌فرض خاموش است.</blockquote>\nیک گزینه انتخاب کن، ایموجی دیگری بفرست یا ری‌اکشن را خاموش کن."},
+    "custom_state_reaction":{"audience":"admin","label":"وضعیت ری‌اکشن پیام","group":"custom","variables":["reaction"],"value":"❤️ ری‌اکشن: <b>{reaction}</b>"}
   },
   "buttons": {
     "group_admin_replies":{"audience":"admin","group":"custom","label":"گروه متن‌های مدیریت ادمین","value":"👑 متن‌های مدیریت ادمین"},
@@ -1448,6 +1451,9 @@
     "adult_xnxx":{"audience":"admin","label":"روشن و خاموش‌کردن XNXX","group":"custom","value":"🔞 XNXX: {state}"},
     "section_beeg":{"audience":"admin","label":"🔞 Beeg","group":"custom","value":"🔞 Beeg"},
     "group_beeg":{"audience":"admin","label":"Beeg","group":"custom","value":"Beeg"},
-    "adult_beeg":{"audience":"admin","label":"روشن و خاموش‌کردن Beeg","group":"custom","value":"🔞 Beeg: {state}"}
+    "adult_beeg":{"audience":"admin","label":"روشن و خاموش‌کردن Beeg","group":"custom","value":"🔞 Beeg: {state}"},
+    "section_inputs":{"audience":"admin","label":"پیام ناشناس و لینک غیرقابل استفاده","group":"custom","value":"🤔 پیام ناشناس و لینک غیرقابل استفاده"},
+    "group_inputs":{"audience":"admin","label":"پیام ناشناس و لینک غیرقابل استفاده","group":"custom","value":"🤔 پیام ناشناس و لینک غیرقابل استفاده"},
+    "message_reaction":{"audience":"admin","label":"ری‌اکشن پیام","group":"custom","value":"❤️ ری‌اکشن: {reaction}"}
   }
 }

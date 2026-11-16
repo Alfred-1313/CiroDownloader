@@ -427,6 +427,11 @@ final class Bot
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
         return $result;
     }
+    public function inputNotice(int $chat,array $message,string $key,int $thread=0): void
+    {
+        $this->send($chat,$this->ui->text($key,[],[],true),[],0,$thread);
+        if($this->allowed((int)($message['from']['id']??0),$chat)) Reactions::applyMessage($this->ui,$this->api,$chat,(int)($message['message_id']??0),$key);
+    }
     public function handle(array $update): void
     {
         // "Share" under a track: anyone may send that track on through the bot's inline mode.
@@ -642,7 +647,11 @@ final class Bot
             if($this->adultAllowed($user,$chat,adultService($adult))) $url=$adult;
             elseif(($hint=$this->adultHint($user,$chat,adultService($adult)))!==null) { $this->send($chat,$this->text($hint)); return; }
         }
-        if(!$url) { $this->send($chat,$this->text('invalid')); return; }
+        if(!$url) {
+            $link=preg_match('~https?://|www\.|\b[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/|\b)~i',$text)===1
+                ||(bool)array_filter($message['entities']??[],fn($entity)=>in_array($entity['type']??'',['url','text_link'],true));
+            $this->inputNotice($chat,$message,$link?'invalid':'unknown_message'); return;
+        }
         $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));
     }
 }

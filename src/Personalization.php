@@ -148,7 +148,7 @@ final class Personalization
         $ui=$this->bot->ui; $store=$this->bot->store; $names=['cover.parts','media.video.parts','media.audio.parts','cover.order'];
         foreach(['text','button'] as $kind) foreach(Ui::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) {
             if(!$ui->customizable($kind,$key)) continue;
-            if($kind==='text') $names[]='text.'.$key;
+            if($kind==='text') { $names[]='text.'.$key; if($ui->supportsReaction($key)) $names[]='reaction.'.$key; }
             else array_push($names,'button.'.$key,'button.style.'.$key,'button.icon.'.$key,'button.emoji.'.$key,'button.pos.'.$key,'button.plain.'.$key,'button.hidden.'.$key);
         }
         $names[]='cover.per_row';
@@ -246,11 +246,26 @@ final class Personalization
         $music=Reactions::selected($this->bot->store,true);
         $this->send($chat,$ui->text('reaction_info',['reaction'=>$current!==''?$current:$ui->plain('state_off'),'music'=>$music!==''?$music:$ui->plain('state_off')]),$rows,$message);
     }
-    private function beginReaction(int $chat,int $user,int $message): void
+    private function messageReactions(int $chat,int $message,string $key): void
     {
         $ui=$this->bot->ui;
-        $message=$this->send($chat,$ui->text('reaction_prompt'),[[$ui->button('back','custom:reaction')]],$message);
-        $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>'reaction','key'=>'link','message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
+        if(!$ui->supportsReaction($key)) { $this->home($chat,$message); return; }
+        $current=$ui->messageReaction($key); $rows=[];
+        foreach(array_chunk(['🤔','🤷',...Reactions::PRESETS],4,true) as $choices) {
+            $row=[];
+            foreach($choices as $index=>$emoji) $row[]=$ui->button('reaction_choice','custom:messagereaction:'.$key.':'.$index,['emoji'=>$emoji.($current===$emoji?' ✅':'')]);
+            $rows[]=$row;
+        }
+        $rows[]=[$ui->button('reaction_custom','custom:messagereaction:'.$key.':input'),$ui->button('reaction_off','custom:messagereaction:'.$key.':off')];
+        $rows[]=[$ui->button('back','custom:item:text:'.$key)];
+        $this->send($chat,$ui->text('message_reaction_info',['title'=>$ui->definition('text',$key)['label'],'reaction'=>$current!==''?$current:$ui->plain('state_off')]),$rows,$message);
+    }
+    private function beginReaction(int $chat,int $user,int $message,string $key='link'): void
+    {
+        $ui=$this->bot->ui;
+        $back=$key==='link'?'custom:reaction':'custom:messagereaction:'.$key;
+        $message=$this->send($chat,$ui->text('reaction_prompt'),[[$ui->button('back',$back)]],$message);
+        $this->bot->store->query('INSERT OR REPLACE INTO states(user_id,key,expires) VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>'reaction','key'=>$key,'message'=>$message],JSON_THROW_ON_ERROR),time()+600]);
     }
     private function beginLimit(int $chat,int $user,string $scope,int $message): void
     {
@@ -268,6 +283,7 @@ final class Personalization
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
             'help'=>[['text','welcome'],['text','help'],['text','prompt'],['text','your_id'],['button','help']],
+            'inputs'=>[['text','unknown_message'],['text','invalid']],
             'group'=>[['text','group_help'],['text','help_groups_hint'],['text','groups_disabled'],['button','add_to_group']],
             'access'=>[['text','offline'],['text','admin_only_notice'],['text','callback_owner'],['text','callback_access'],['text','callback_stale']],
             'admin_replies'=>[],
@@ -515,7 +531,8 @@ final class Personalization
         elseif($base==='quality_high') $samples['quality']='1080p';
         elseif($base==='quality_native') $samples['quality']='1440p';
         $value=$kind==='button'?Ui::escape($ui->label($key,$samples)):$ui->text($key,$samples);
-        $changed=$ui->plain($ui->customized($kind,$key)?'state_custom':'state_default'); $color='';
+        $modified=$kind==='text'?$ui->template($key)!==$definition['value']:$ui->customized($kind,$key);
+        $changed=$ui->plain($modified?'state_custom':'state_default'); $color='';
         $reply=$kind==='button'&&in_array($key,Ui::REPLY_KEYS,true); $required=$kind==='button'&&$ui->required($key);
         if($kind==='button') {
             $current=$ui->button($key);
@@ -525,11 +542,17 @@ final class Personalization
             $state=$ui->text('custom_state_button',['state'=>$changed,'emoji'=>$reply?$ui->plain('state_none'):($ui->setting('button.plain.'.$key)==='1'?$ui->plain('state_none'):($emoji??$ui->plain('state_none'))),
                 'pos'=>$ui->plain($ui->setting('button.pos.'.$key,'start')==='end'?'pos_end':'pos_start'),'icon'=>$ui->plain(isset($current['icon_custom_emoji_id'])?'state_has':'state_none'),
                 'color'=>$color,'visible'=>$ui->plain($required?'state_required':($hidden?'state_hidden':'state_visible'))]);
-        } else $state=$ui->text('custom_state_text',['state'=>$changed]);
+        } else {
+            $state=$ui->text('custom_state_text',['state'=>$changed]);
+            if($ui->supportsReaction($key)) $state.="\n".$ui->text('custom_state_reaction',['reaction'=>$ui->messageReaction($key)?:$ui->plain('state_off')]);
+        }
         $text=$ui->text('custom_item',['title'=>$definition['label'],'state'=>$state,'value'=>$value],['state','value']).($notice!==''?"\n\n".$notice:'');
         $rows=[];
         if($kind==='button') { $sample=$ui->button($key,'custom:noop',$samples); unset($sample['_hidden']); $sample['_preview']=true; $rows[]=[$sample]; }
-        if($kind==='text') $rows[]=[$ui->button('default_text',"custom:default:text:$key"),$ui->button('edit',"custom:edit:$kind:$key")];
+        if($kind==='text') {
+            $rows[]=[$ui->button('default_text',"custom:default:text:$key"),$ui->button('edit',"custom:edit:$kind:$key")];
+            if($ui->supportsReaction($key)) $rows[]=[$ui->button('message_reaction','custom:messagereaction:'.$key,['reaction'=>$ui->messageReaction($key)?:$ui->plain('state_off')])];
+        }
         else {
             $rows[]=$reply?[$ui->button('btn_name',"custom:edit:$kind:$key")]:[$ui->button('btn_name',"custom:edit:$kind:$key"),$ui->button('btn_emoji','custom:emoji:'.$key)];
             if(!$reply) $rows[]=[$ui->button('btn_pos','custom:pos:'.$key,['pos'=>$ui->plain($ui->setting('button.pos.'.$key,'start')==='end'?'pos_end':'pos_start')]),
@@ -690,11 +713,15 @@ final class Personalization
     {
         $ui=$this->bot->ui; ['kind'=>$kind,'key'=>$key,'message'=>$menu]=$state;
         $key=UiRegistry::legacy(in_array($kind,['icon','emoji'],true)?'button':$kind,$key);
-        if($kind==='reaction'&&$key==='link') {
+        if($kind==='reaction'&&($key==='link'||$ui->supportsReaction($key))) {
             $custom=array_filter($message['entities']??[],fn($entity)=>($entity['type']??'')==='custom_emoji');
             $emoji=$custom?null:Reactions::normalize((string)($message['text']??''));
             if($emoji===null) {
-                $this->send($chat,$ui->text('reaction_invalid'),[[$ui->button('back','custom:reaction')]],(int)$menu); return;
+                $this->send($chat,$ui->text('reaction_invalid'),[[$ui->button('back',$key==='link'?'custom:reaction':'custom:messagereaction:'.$key)]],(int)$menu); return;
+            }
+            if($key!=='link') {
+                if($this->commit($chat,'text',$key,(int)$menu,['reaction.'.$key=>$emoji])) $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
+                return;
             }
             $this->bot->store->set('link_reaction',$emoji);
             $this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);
@@ -780,6 +807,13 @@ final class Personalization
         };
         if($target&&!$ui->customizable($target[0],$target[1])) { $this->home($chat,$message); return true; }
         if($op==='home') $this->home($chat,$message);
+        elseif($op==='messagereaction') {
+            if(!$ui->supportsReaction($kind)) { $this->home($chat,$message); return true; }
+            $choices=['🤔','🤷',...Reactions::PRESETS];
+            if($key==='input') $this->beginReaction($chat,$user,$message,$kind);
+            elseif($key==='off'||(ctype_digit($key)&&isset($choices[(int)$key]))) $this->commit($chat,'text',$kind,$message,['reaction.'.$kind=>$key==='off'?'':$choices[(int)$key]]);
+            else $this->messageReactions($chat,$message,$kind);
+        }
         elseif($op==='reaction') {
             if($kind==='input') $this->beginReaction($chat,$user,$message);
             elseif($kind==='music') {
@@ -970,6 +1004,7 @@ final class Personalization
                 $this->commit($chat,$kind,$key,$message,$values); return true;
             }
             $values=[$kind.'.'.$key=>isset($definition['inherits'])&&$kind==='text'?$ui->template($definition['inherits']):$definition['value']];
+            if($kind==='text'&&$ui->supportsReaction($key)) $values['reaction.'.$key]='';
             if($kind==='button') {
                 $parent=$definition['inherits']??''; $parentButton=$parent!==''?$ui->button($parent):[];
                 if($parent!=='') $values['button.'.$key]=$ui->label($parent);
