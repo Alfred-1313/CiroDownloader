@@ -39,6 +39,6 @@ try {
     $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$chosen['id']]); $store->query('UPDATE users SET last_request=0 WHERE id=42');
     $worker->xvideosSearchFetch=fn(string $url): never=>throw new Zero\MediaFailure('format','XVIDEOS search unavailable: 403');
     $bot->handle($message(9)); $blocked=$store->claim('inspect'); $worker->process($blocked);
-    xvCheck(str_contains($api->last('editMessageText')['text'],'محدود')&&$store->query('SELECT status FROM jobs WHERE id=?',[$blocked['id']])->fetchColumn()==='failed','a site refusal explains the access restriction instead of pretending there are no results');
+    xvCheck($store->get('last_job_error_reason')==='blocked'&&$api->last('editMessageText')['text']===$bot->text('xvideos_error_blocked')&&$store->query('SELECT status FROM jobs WHERE id=?',[$blocked['id']])->fetchColumn()==='failed','a site refusal uses the current blocked notice instead of pretending there are no results');
     foreach(['loading','results','empty','expired','owner','selected'] as $key) xvCheck($bot->ui->customizable('text','xvideos_search_'.$key),'search text is customizable: '.$key);
 } finally { Zero\Download::clean($temp); }

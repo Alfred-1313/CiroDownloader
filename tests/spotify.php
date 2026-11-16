@@ -118,7 +118,7 @@ try {
     };
     $send('Look: '.$canonical.'?si=share',1);
     $notice=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendMessage'));
-    spotifyCheck($store->query('SELECT COUNT(*) FROM jobs')->fetchColumn()==0&&count($notice)===1&&str_contains($notice[0]['params']['text'],'اسپاتیفای'),'a message with extra words is not queued and the reply lists Spotify among the supported links');
+    spotifyCheck($store->query('SELECT COUNT(*) FROM jobs')->fetchColumn()==0&&count($notice)===1&&$notice[0]['params']['text']===$bot->text('invalid'),'a message with extra words is not queued and uses the current customizable invalid-link notice');
     $store->query('DELETE FROM users'); file_put_contents($log,'');
     $send($canonical.'?si=share',2);
     $queued=array_values(array_filter($calls(),fn($call)=>$call['method']==='sendMessage'));

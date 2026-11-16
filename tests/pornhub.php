@@ -230,7 +230,7 @@ try {
     chmod($broken,0700); $config->ytDlp=$broken; $store->set('adult.pornhub','1'); $store->query('UPDATE users SET last_request=0'); $send($link,42);
     $job=$store->claim('inspect'); $worker->process($job);
     $texts=array_map(fn($call)=>(string)($call[1]['text']??$call[1]['caption']??''),array_filter($api->calls,fn($call)=>str_starts_with($call[0],'edit')));
-    phCheck($store->get('last_job_sources')==='pornhub=certificate'&&$store->get('last_job_service')==='pornhub'&&str_contains(end($texts),'اتصال سرور به سایت برقرار نشد'),'an unreachable site shows the person the network message and records "pornhub=certificate" for the administrator');
+    phCheck($store->get('last_job_sources')==='pornhub=certificate'&&$store->get('last_job_service')==='pornhub'&&end($texts)===$bot->text('pornhub_error_network'),'an unreachable site uses the current network notice and keeps the fixed certificate diagnostic in memory');
     phCheck((int)$store->query("SELECT COUNT(*) FROM settings WHERE key IN ('recent_errors','last_job_error','last_job_sources','last_job_service','last_job_error_reason')")->fetchColumn()===0,'error history and diagnostic URLs are not persisted; private alerts use the current transient mechanism');
     $api->calls=[]; $bot->handle(['update_id'=>9999,'message'=>['message_id'=>1,'from'=>['id'=>42,'is_bot'=>false],'chat'=>['id'=>42,'type'=>'private'],'text'=>'/health']]);
     $health=(string)end($api->calls)[1]['text'];

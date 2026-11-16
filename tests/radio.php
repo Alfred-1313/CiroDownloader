@@ -158,9 +158,9 @@ try {
     $api->calls=[]; $bot->handle(rdText('/radio',55)); $panelText=$api->last('sendMessage'); rdCheck(!array_filter(rdActions($panelText),fn($data)=>str_starts_with($data,'rd:u:')||str_starts_with($data,'rd:v:')),'the private panel offers a chat administrator nothing to set up');
     $api->calls=[]; $bot->handle(rdText('/radio',42)); $panelText=$api->last('sendMessage'); rdCheck((bool)array_filter(rdActions($panelText),fn($data)=>str_starts_with($data,'rd:v:')),'but a bot administrator sees every radio');
     $store->set('radio.access','chat'); rdCheck($panelBot->allowed(-1100,55),'switching back gives the chat administrators their radio again');
-    // The switches are on the features page, for bot administrators only.
-    $api->calls=[]; $bot->handle(rdClick('custom:features',42,42)); $features=$api->last('editMessageText')??$api->last('sendMessage'); $labels=implode(' ',array_column(array_merge(...$features['reply_markup']['inline_keyboard']),'text'));
-    rdCheck(str_contains($labels,'📻 رادیو: ✅')&&str_contains($labels,'دسترسی همهٔ کاربران به رادیو: ❌'),'the features page shows both switches with their state');
+    // The switches live in Radio Personalization, for bot administrators only.
+    $api->calls=[]; $bot->handle(rdClick('custom:section:radio',42,42)); $features=$api->last('editMessageText')??$api->last('sendMessage'); $labels=implode(' ',array_column(array_merge(...$features['reply_markup']['inline_keyboard']),'text'));
+    rdCheck(str_contains($labels,'📻 رادیو: ✅')&&str_contains($labels,'دسترسی همهٔ کاربران به رادیو: ❌'),'the radio section shows both switches with their state');
     $bot->handle(rdClick('custom:radio',42,42)); $bot->handle(rdClick('custom:radioaccess',42,42));
     rdCheck($store->get('radio.enabled')==='0'&&$store->get('radio.access')==='all','the switches flip the settings');
     $bot->handle(rdClick('custom:radio',55,55)); rdCheck($store->get('radio.enabled')==='0','somebody who is not a bot administrator cannot flip them');
