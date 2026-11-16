@@ -38,6 +38,6 @@ try {
     $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$chosen['id']]); $store->query('UPDATE users SET last_request=0 WHERE id=42');
     $worker->xnxxSearchFetch=fn(string $url): never=>throw new Zero\MediaFailure('format','XNXX search unavailable: 403');
     $bot->handle($message(9)); $blocked=$store->claim('inspect'); $worker->process($blocked);
-    xsCheck(str_contains($api->last('editMessageText')['text'],'محدود')&&$store->query('SELECT status FROM jobs WHERE id=?',[$blocked['id']])->fetchColumn()==='failed','a site refusal explains the access restriction instead of pretending there are no results');
+    xsCheck($store->get('last_job_error_reason')==='blocked'&&$api->last('editMessageText')['text']!==$bot->text('xnxx_search_empty')&&$store->query('SELECT status FROM jobs WHERE id=?',[$blocked['id']])->fetchColumn()==='failed','a site refusal remains a blocked failure instead of an empty search result');
     foreach(['loading','results','empty','expired','owner','selected'] as $key) xsCheck($bot->ui->customizable('text','xnxx_search_'.$key),'search text is customizable: '.$key);
 } finally { Zero\Download::clean($temp); }

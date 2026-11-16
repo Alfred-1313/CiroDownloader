@@ -1,6 +1,9 @@
 {
   "groups": {"public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg","xnxx":"XNXX","xvideos":"XVideos","tikporn":"TikPorn","youporn":"YouPorn","eporner":"Eporner","youtube":"یوتیوب","admin_replies":"مدیریت ادمین با ریپلای"},
   "texts": {
+    "callback_owner":{"audience":"user","group":"public","label":"آلرت دکمهٔ صاحب درخواست","value":"🔒 این دکمه مخصوص صاحب درخواست است؛ برای استفاده، درخواست خودت را بفرست.","limit":200},
+    "callback_access":{"audience":"user","group":"public","label":"آلرت دسترسی دکمه","value":"🔒 این دکمه با دسترسی فعلی حساب شما قابل استفاده نیست.","limit":200},
+    "callback_stale":{"audience":"user","group":"public","label":"آلرت دکمهٔ قدیمی","value":"⌛ این دکمه متعلق به منوی قبلی است؛ دستور مربوط را دوباره بفرست تا منوی تازه باز شود.","limit":200},
     "admin_reply_failed":{"audience":"user","group":"admin_replies","label":"خطای تغییر دسترسی ادمین","value":"⚠️ نتیجهٔ تغییر دسترسی تأیید نشد؛ کمی بعد دوباره دستور را بفرست."},
     "admin_reply_usage":{"audience":"user","group":"admin_replies","label":"راهنمای دستور ریپلای","value":"<blockquote><b>👑 مدیریت ادمین با ریپلای</b></blockquote>\n\nروی پیام کاربر مورد نظر ریپلای کن و دستور <code>{command}</code> را بفرست.","variables":["command"]},
     "admin_reply_denied":{"audience":"user","group":"admin_replies","label":"دسترسی دستور ادمین","value":"🔒 این دستور فقط برای ادمین‌های اصلی ربات در دسترس است."},

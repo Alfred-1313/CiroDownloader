@@ -219,14 +219,16 @@ final class MusicMenu
         [, $id, $op]=$match; $arg=$match[3]??'';
         $store=$this->bot->store;
         $menu=$store->query('SELECT * FROM music_menus WHERE id=?',[(int)$id])->fetch();
+        $explicitTopic=$chat>=0||array_key_exists('message_thread_id',$cb['message']??[]);
+        if($menu&&((int)$menu['user_id']!==$user||(int)$menu['chat_id']!==$chat||($chat<0&&$explicitTopic&&(int)$menu['thread_id']!==$thread))) { $this->answer($cb,'menu_owner',true); return; }
+        if($menu&&$chat<0&&!$explicitTopic) $thread=(int)$menu['thread_id'];
         if(!$menu||(int)$menu['expires']<time()||((int)$menu['message_id']>0&&(int)$menu['message_id']!==$message)) {
             // Only time ends a menu: a button on an older message of it (now elsewhere, for example under a sent track) just goes quiet.
             if($menu&&(int)$menu['expires']<time()) $store->query('DELETE FROM music_menus WHERE id=?',[$menu['id']]);
             $this->answer($cb,'menu_expired',true);
-            try { $this->bot->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$message,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {}
+            if($menu) try { $this->bot->api->call('editMessageReplyMarkup',['chat_id'=>$chat,'message_id'=>$message,'reply_markup'=>['inline_keyboard'=>[]]]); } catch(\Throwable) {}
             return;
         }
-        if((int)$menu['user_id']!==$user||(int)$menu['chat_id']!==$chat||($chat<0&&(int)$menu['thread_id']!==$thread)) { $this->answer($cb,'menu_owner',true); return; }
         $data=json_decode($menu['data'],true); $view=json_decode($menu['view'],true);
         if(($data['batch']['state']??'')==='done'&&!in_array($op,['r','x','n'],true)) { $this->answer($cb); return; }
         try {
@@ -518,7 +520,8 @@ final class MusicMenu
     public static function stop(Bot $bot,array $cb,int $chat,int $user,int $job): void
     {
         $row=$bot->store->query("SELECT * FROM jobs WHERE id=? AND phase='batch'",[$job])->fetch();
-        $mine=$row&&(int)$row['user_id']===$user&&(int)$row['chat_id']===$chat;
+        $source=$cb['message']??[];
+        $mine=$row&&(int)$row['user_id']===$user&&(int)$row['chat_id']===$chat&&($chat>=0||!array_key_exists('message_thread_id',$source)||(int)$row['thread_id']===(int)$source['message_thread_id']);
         if($mine&&in_array($row['status'],['queued','running'],true)) $bot->store->set('batch.stop.'.$job,'1');
         $bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>mb_substr($bot->ui->plain($mine?'batch_stopping':'menu_owner'),0,200),'show_alert'=>!$mine,'cache_time'=>0]);
     }

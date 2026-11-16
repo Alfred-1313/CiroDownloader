@@ -18,6 +18,21 @@ final class Updates
     {
         return $this->authorized($chat,$user)&&$message>0&&$message===(int)$this->store->get($this->key('menu',$chat,$user),'0');
     }
+    /** Telegram may omit topic metadata on callbacks from older messages. */
+    public function callbackNotice(int $chat,int $user,int $message,?int $thread): string
+    {
+        if($message<1) return 'callback_stale';
+        foreach($this->store->query("SELECT key FROM settings WHERE key GLOB 'update_menu.*' AND value=?",[(string)$message])->fetchAll(\PDO::FETCH_COLUMN) as $key) {
+            if(!preg_match('/^update_menu\.([1-9][0-9]*)(?:\.(-[1-9][0-9]*)\.([0-9]+))?$/D',$key,$m)) continue;
+            $owner=(int)$m[1];$destination=isset($m[2])?(int)$m[2]:$owner;$topic=(int)($m[3]??0);
+            if($destination!==$chat) continue;
+            if($owner!==$user) return 'callback_owner';
+            if($thread!==null&&$topic!==$thread) return 'callback_stale';
+            $this->thread=$topic;
+            return $this->authorized($chat,$user)?'':'callback_access';
+        }
+        return 'callback_stale';
+    }
     /** Groups only get Close (it deletes the menu); the private menu has Back to the panel and Close. */
     private function back(int $chat): array
     {

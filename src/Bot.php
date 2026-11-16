@@ -286,6 +286,11 @@ final class Bot
     }
     private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
     {
+        $saved=$this->store->query('SELECT * FROM jobs WHERE id=?',[(int)$parts[1]])->fetch();
+        $notice='';$message=$cb['message']??[];
+        if($saved&&((int)$saved['user_id']!==$user||(int)$saved['chat_id']!==$chat)) $notice='callback_owner';
+        elseif($saved&&(((int)$saved['message_id']>0&&(int)($message['message_id']??0)!==(int)$saved['message_id'])||($chat<0&&array_key_exists('message_thread_id',$message)&&(int)$saved['thread_id']!==(int)$message['message_thread_id']))) $notice='callback_stale';
+        if($notice!=='') { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice),'show_alert'=>true,'cache_time'=>0]); return; }
         $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
         $context=$this->store->query('SELECT url FROM jobs WHERE id=? AND user_id=? AND chat_id=?',[(int)$parts[1],$user,$chat])->fetchColumn();
         $ui=$this->ui->forService(is_string($context)?(adultService($context)??'youtube'):'');
@@ -460,32 +465,33 @@ final class Bot
             $isPage=preg_match('/^(?:ig|pin|tt|x|ytp)page:(\d+):([1-9][0-9]?|100)(?::(\d+))?$/D',$action,$page)===1;
             $pageCounter=$action==='igpage:noop';
             $changePage=preg_match('/^update:changes(?::(\d{1,4}))?$/D',$action,$changeMatch)===1;
-            $groupUpdate=$group&&(in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:back','update:close'],true)||$changePage);
+            $isUpdate=(in_array($action,['update:menu','update:run','update:open','update:start','update:progress','update:rollback','update:rollback:confirm','update:back','update:close'],true)||$changePage);
             $isMenu=preg_match('/^mm:\d{1,12}:[a-z](?::[A-Za-z0-9_-]{1,24})?$/D',$action)===1||preg_match('/^mb:\d{1,12}$/D',$action)===1;
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
             $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|s|b|[up]:\d{1,2})$/D',$action)===1;
             $isChecker=preg_match('/^ic:[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
-            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser&&!$isChecker;
-            if($privileged&&(($group&&!$groupUpdate)||!$this->admin($user))) {
-                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('denied'),'show_alert'=>true]); return;
-            }
-            if(!$this->allowed($user,$chat)) {
-                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
-                $this->send($chat,$this->denial($chat),[],0,$thread); return;
-            }
-            if($groupUpdate) {
+            if($isUpdate) {
                 $updater=new Updates($this->config,$this->store,$this->api,$thread); $menu=(int)($message['message_id']??0);
-                $owns=$updater->ownsMenu($chat,$user,$menu);
-                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$owns?'':$this->ui->plain('denied'),'show_alert'=>!$owns,'cache_time'=>0]);
+                $notice=$updater->callbackNotice($chat,$user,$menu,array_key_exists('message_thread_id',$message)?$thread:null); $owns=$notice==='';
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$owns?'':$this->ui->plain($notice),'show_alert'=>!$owns,'cache_time'=>0]);
                 if(!$owns) return;
                 if(in_array($action,['update:menu','update:run','update:open'],true)) $updater->menu($chat,$user,$menu);
                 elseif($action==='update:start') $updater->request($chat,$user,'update',$menu);
                 elseif($action==='update:rollback') $updater->confirmRollback($chat,$user,$menu);
                 elseif($action==='update:rollback:confirm') $updater->request($chat,$user,'rollback',$menu);
                 elseif($changePage) $updater->changes($chat,$user,$menu,(int)($changeMatch[1]??0));
-                elseif(in_array($action,['update:back','update:close'],true)) $updater->close($chat,$user,$menu);
+                elseif($action==='update:back'&&!$group) {
+                    if(!$this->store->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) { $this->store->set('update_menu_hash.'.$user,''); $this->panel($chat,$menu); }
+                } elseif(in_array($action,['update:back','update:close'],true)) $updater->close($chat,$user,$menu);
                 return;
+            }
+            $privileged=!in_array($action,['home','download','help'],true)&&!$isQuality&&!$isPage&&!$pageCounter&&!$isMenu&&!$isRadio&&!$isXnxxSearch&&!$isInstagramUser&&!$isChecker;
+            if($privileged&&($group||!$this->admin($user))) {
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($this->admin($user)?'callback_stale':'callback_access'),'show_alert'=>true,'cache_time'=>0]); return;
+            }
+            if(!$this->allowed($user,$chat)) {
+                $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('callback_access'),'show_alert'=>true,'cache_time'=>0]); return;
             }
             if($isChecker) { (new InstagramCheckerPanel($this))->callback($cb,$user,$chat,$thread); return; }
             if(in_array($action,['checker:settings','checker:settings:instagram'],true)) { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>$action==='checker:settings:instagram'?'service':true]); return; }
@@ -524,7 +530,6 @@ final class Bot
             $menu=(int)($message['message_id']??0);
             if($custom->handle($chat,$user,$action,$menu)) return;
             if($action==='home') $this->home($chat,$user);
-            elseif($action==='update:progress') return;
             elseif($action==='download') $this->send($chat,$this->text('prompt'));
             elseif($action==='admin') $this->panel($chat,$menu);
             elseif($action==='admins:cancel') $this->panel($chat,$menu);
@@ -537,16 +542,7 @@ final class Bot
                 $this->beginCookieImport($chat,$user);
             }
             elseif($action==='cookies:youtube') (new Cookies($this))->handle($chat,$user,'cookie_youtube');
-            elseif(in_array($action,['update:menu','update:run','update:open'],true)) (new Updates($this->config,$this->store,$this->api))->menu($chat,$user,$menu,'',$action!=='update:menu');
-            elseif($action==='update:start') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'update',$menu);
-            elseif($action==='update:rollback') (new Updates($this->config,$this->store,$this->api))->confirmRollback($chat,$user,$menu);
-            elseif($action==='update:rollback:confirm') (new Updates($this->config,$this->store,$this->api))->request($chat,$user,'rollback',$menu);
-            elseif($changePage) (new Updates($this->config,$this->store,$this->api))->changes($chat,$user,$menu,(int)($changeMatch[1]??0));
-            elseif($action==='update:close') (new Updates($this->config,$this->store,$this->api,$thread))->close($chat,$user,$menu);
-            elseif($action==='update:back') {
-                if($this->store->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) return;
-                $this->store->set('update_menu_hash.'.$user,''); $this->panel($chat,$menu);
-            } elseif(in_array($action,['set:on','set:off'],true)) {
+            elseif(in_array($action,['set:on','set:off'],true)) {
                 $this->store->set('enabled',$action==='set:on'?'1':'0'); $this->panel($chat);
             } else {
                 // Old administration buttons remain usable after upgrading.

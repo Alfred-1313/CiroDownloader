@@ -45,13 +45,13 @@ class GalleryPages
     {
         $this->store->db->exec('BEGIN IMMEDIATE');
         try {
-            $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND chat_id=? AND phase='{$this->service}_page'",[$id,$chat])->fetch();
+            $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND phase='{$this->service}_page'",[$id])->fetch();
             $checker=$job&&InstagramChecker::deliveryId($job)>0?new InstagramChecker($this->config,$this->store,$this->api):null;
             $prefix=$checker?InstagramChecker::prefix($job):galleryUiPrefix($this->service,(string)($job['url']??''));
             $state=$job?$this->state($job):null;
-            if(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice=$prefix.'_page_expired';
+            if($job&&((int)$job['user_id']!==$user||(int)$job['chat_id']!==$chat)) $notice=$prefix.'_page_owner';
+            elseif(!$state||(int)$state['expires']<=time()||!is_dir($this->root().'/'.$state['folder'])) $notice=$prefix.'_page_expired';
             elseif((int)$state['message']!==$message) $notice=$prefix.'_page_stale';
-            elseif((int)$job['user_id']!==$user) $notice=$prefix.'_page_owner';
             elseif($checker&&!$checker->canDeliver($job,true)) $notice='instagram_checker_delivery_unavailable';
             elseif(!$checker&&instagramStoryUrl($job['url'])!==null&&!InstagramStories::enabled($this->store)) $notice='instagram_story_disabled';
             elseif($this->service==='youtube'&&!YoutubePosts::enabled($this->store)) $notice='youtube_post_disabled';

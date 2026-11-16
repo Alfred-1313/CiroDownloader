@@ -60,6 +60,7 @@ jobs:
           php tests/reactions.php
           php tests/groups.php
           php tests/group_updates.php
+          php tests/callback_ownership.php
           php tests/posters.php
           php tests/ux_fixes.php
           php tests/quality_waiting.php

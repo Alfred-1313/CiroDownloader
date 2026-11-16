@@ -78,10 +78,12 @@ final class XnxxSearch
         $site=$m[1]==='vs'?'xvideos':'xnxx'; $this->site=$site;
         $store=$this->bot->store; $job=$store->query("SELECT * FROM jobs WHERE id=? AND phase=? AND status='done'",[(int)$m[2],$site.'_search'])->fetch();
         $key=''; $alert=true;
-        if(!$job||(int)$job['expires']<time()) $key=$site.'_search_expired';
-        elseif((int)$job['user_id']!==$user||(int)$job['chat_id']!==$chat||(int)$job['message_id']!==$message||($chat<0&&(int)$job['thread_id']!==$thread)) $key=$site.'_search_owner';
+        $explicitTopic=$chat>=0||array_key_exists('message_thread_id',$cb['message']??[]);
+        if($job&&((int)$job['user_id']!==$user||(int)$job['chat_id']!==$chat||(int)$job['message_id']!==$message||($chat<0&&$explicitTopic&&(int)$job['thread_id']!==$thread))) $key=$site.'_search_owner';
+        elseif(!$job||(int)$job['expires']<time()) $key=$site.'_search_expired';
         elseif(!$this->bot->adultAllowed($user,$chat,$site)) $key='invalid';
         if($key!=='') { $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->bot->ui->plain($key),'show_alert'=>true]); return; }
+        if($chat<0&&!$explicitTopic)$thread=(int)$job['thread_id'];
         $items=json_decode((string)$job['options'],true)['items']??[]; $op=$m[3];
         if($op==='x') {
             $store->query("UPDATE jobs SET options='{}',expires=0 WHERE id=?",[$job['id']]);

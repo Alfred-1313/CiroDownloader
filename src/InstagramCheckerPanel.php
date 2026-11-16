@@ -127,9 +127,10 @@ final class InstagramCheckerPanel
     {
         $answer=function(string $key='',bool $alert=false) use($cb): void { $this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$key===''?'':$this->bot->ui->plain($key),'show_alert'=>$alert,'cache_time'=>0]); };
         if(!preg_match('/^ic:([a-f0-9]{16}):([a-z_0-9]+)(?::([0-9]{1,12}))?$/D',(string)$cb['data'],$m)) { $answer('instagram_checker_expired',true); return; }
-        $p=$this->bot->store->query('SELECT * FROM ig_check_panels WHERE token=? AND owner=? AND chat_id=? AND message_id=? AND expires>?',[$m[1],$owner,$chat,(int)$cb['message']['message_id'],time()])->fetch();
+        $p=$this->bot->store->query('SELECT * FROM ig_check_panels WHERE token=? AND chat_id=? AND message_id=?',[$m[1],$chat,(int)$cb['message']['message_id']])->fetch();
+        if($p&&(int)$p['owner']!==$owner) { $answer('callback_owner',true); return; }
         $explicitTopic=$chat>=0||array_key_exists('message_thread_id',$cb['message']);
-        if(!$p||($explicitTopic&&(int)$p['thread_id']!==($chat<0?$thread:0))) { $answer('instagram_checker_expired',true); return; }
+        if(!$p||(int)$p['expires']<=time()||($explicitTopic&&(int)$p['thread_id']!==($chat<0?$thread:0))) { $answer('instagram_checker_expired',true); return; }
         $thread=(int)$p['thread_id'];
         $op=$m[2]; $id=(int)($m[3]??0); $data=json_decode($p['data'],true);
         $settings=$chat===$owner&&$this->bot->admin($owner);
