@@ -499,6 +499,19 @@ final class Store
                 if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query("DELETE FROM settings WHERE key='text.instagram_story_usage'");
                 $this->set('ui_instagram_story_usage_v2','1');
             }
+            if($this->get('ui_checker_reply_v1','0')!=='1') {
+                $legacy=Ui::definitions()['texts']['instagram_checker_add_prompt']['legacy_values']??[];
+                $saved=$this->query("SELECT value FROM settings WHERE key='text.instagram_checker_add_prompt'")->fetchColumn();
+                if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query("DELETE FROM settings WHERE key='text.instagram_checker_add_prompt'");
+                $layout=json_decode($this->get('layout.instagram.checker_manage','null'),true);
+                if(is_array($layout)&&array_is_list($layout)&&!array_filter($layout,fn($row)=>is_array($row)&&in_array('rename',$row,true))) {
+                    foreach($layout as $i=>$row) if(is_array($row)&&($at=array_search('check',$row,true))!==false) {
+                        if(count($row)<8) array_splice($layout[$i],$at+1,0,['rename']); else array_splice($layout,$i+1,0,[['rename']]);
+                        $this->set('layout.instagram.checker_manage',json_encode($layout,JSON_THROW_ON_ERROR)); break;
+                    }
+                }
+                $this->set('ui_checker_reply_v1','1');
+            }
             if($this->get('ui_input_notices_v1','0')!=='1') {
                 $saved=$this->query("SELECT value FROM settings WHERE key='text.invalid'")->fetchColumn();
                 $legacy=Ui::definitions()['texts']['invalid']['legacy_values']??[];

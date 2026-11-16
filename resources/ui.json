@@ -42,7 +42,7 @@
     "instagram_checker_destination_group":{"audience":"user","group":"instagram","label":"مقصد گروهی چکر","value":"👥 گروه {id} · تاپیک {topic}","variables":["id","topic"]},
     "instagram_checker_home":{"audience":"user","group":"instagram","label":"منوی چکر","value":"<b>👁 چکر اینستاگرام</b>\n\nپیج‌های خودت را مدیریت کن؛ در پی‌وی، مقصدهای گروهی تو هم در فهرست نمایش داده می‌شوند.\n<blockquote>پیج‌های حساب تو: <b>{used} از {limit}</b>\nافزودن پیج، ارسال به همین گفتگو را ثبت می‌کند؛ مقصد چکرهای قبلی حفظ می‌شود.</blockquote>","variables":["used","limit"]},
     "instagram_checker_empty":{"audience":"user","group":"instagram","label":"فهرست خالی چکر","value":"هنوز پیجی برای این گفتگو ثبت نکرده‌ای؛ «افزودن پیج» را بزن."},
-    "instagram_checker_add_prompt":{"audience":"user","group":"instagram","label":"درخواست آیدی پیج","value":"<b>➕ افزودن پیج</b>\n\nآیدی پیج اینستاگرام را بفرست؛ مثلاً <code>instagram</code> یا <code>@instagram</code>.\n<blockquote>می‌توانی مستقیم هم بنویسی:\n<code>/insta_checker instagram</code></blockquote>"},
+    "instagram_checker_add_prompt":{"audience":"user","group":"instagram","label":"درخواست آیدی پیج","value":"<b>➕ افزودن پیج</b>\n<blockquote>روی همین پیام ریپلای کن و فقط آیدی پیج اینستاگرام را بفرست؛ مثلاً <code>instagram</code> یا <code>@instagram</code>. نیازی به نوشتن دستور نیست.</blockquote>\nبرای انصراف /cancel را بزن.","legacy_values":["<b>➕ افزودن پیج</b>\n\nآیدی پیج اینستاگرام را بفرست؛ مثلاً <code>instagram</code> یا <code>@instagram</code>.\n<blockquote>می‌توانی مستقیم هم بنویسی:\n<code>/insta_checker instagram</code></blockquote>"]},
     "instagram_checker_choose":{"audience":"user","group":"instagram","label":"انتخاب محتوای چکر","value":"<b>👁 چکر پیج @{username}</b>\n\nچه محتوایی دریافت شود؟\n<blockquote>محتوای موجود هنگام اولین بررسی ارسال نمی‌شود؛ از آن به بعد، فقط موارد جدید می‌آیند.</blockquote>","variables":["username"]},
     "instagram_checker_item":{"audience":"user","group":"instagram","label":"جزئیات چکر","value":"<b>👁 چکر @{username}</b>\n\nمقصد: {destination}\nنوع محتوا: {mode}\nوضعیت: {status}\nآخرین بررسی موفق: {checked}\n<blockquote>ارسال به مقصد ثبت‌شده انجام می‌شود. با توقف چکر، پیج از سقف حساب حذف نمی‌شود.</blockquote>","variables":["username","mode","status","checked","destination"]},
     "instagram_checker_added":{"audience":"user","group":"instagram","label":"ثبت موفق چکر","value":"✅ پیج ثبت شد؛ اولین بررسی، محتوای موجود را مبنا قرار می‌دهد."},
@@ -974,13 +974,16 @@
     "beeg_hint_off":{"audience":"admin","label":"راهنمای مدیر: Beeg خاموش است","group":"custom","value":"🔞 این لینک گرفته نشد چون Beeg خاموش است.\nروشنش کن: «🎨 شخصی‌سازی ← 🔞 سایت‌های بزرگسال ← Beeg ← ⚙️ تنظیمات این سرویس»."},
     "unknown_message":{"audience":"user","label":"پیام ناشناس","group":"inputs","reaction":true,"value":"<b>🤔 متوجه این پیام نشدم</b>\n<blockquote>برای دانلود، لینک محتوای مورد نظرت رو بفرست. اگر راهنمایی می‌خوای، /help رو بزن.</blockquote>"},
     "message_reaction_info":{"audience":"admin","label":"تنظیم ری‌اکشن پیام","group":"custom","variables":["title","reaction"],"value":"<b>❤️ ری‌اکشن — {title}</b>\n\nری‌اکشن فعلی: {reaction}\n<blockquote>ایموجی روی پیام اصلی کاربر قرار می‌گیرد. تنظیم این پیام مستقل از پیام‌های دیگر و ری‌اکشن لینک‌های دانلود است؛ پیش‌فرض خاموش است.</blockquote>\nیک گزینه انتخاب کن، ایموجی دیگری بفرست یا ری‌اکشن را خاموش کن."},
-    "custom_state_reaction":{"audience":"admin","label":"وضعیت ری‌اکشن پیام","group":"custom","variables":["reaction"],"value":"❤️ ری‌اکشن: <b>{reaction}</b>"}
+    "custom_state_reaction":{"audience":"admin","label":"وضعیت ری‌اکشن پیام","group":"custom","variables":["reaction"],"value":"❤️ ری‌اکشن: <b>{reaction}</b>"},
+    "instagram_checker_rename_prompt":{"audience":"user","group":"instagram","label":"درخواست تغییر آیدی چکر","variables":["username"],"value":"<b>✏️ تغییر آیدی پیج</b>\nآیدی فعلی: <code>@{username}</code>\n<blockquote>روی همین پیام ریپلای کن و فقط آیدی جدید را بفرست. نوع محتوا، وضعیت توقف و مقصد ارسال حفظ می‌شوند.</blockquote>\nبرای انصراف /cancel را بزن."},
+    "instagram_checker_renamed":{"audience":"user","group":"instagram","label":"آیدی چکر تغییر کرد","value":"✅ آیدی پیج تغییر کرد؛ چکر از پیج جدید مبنا می‌سازد و محتوای قبلی را دوباره ارسال نمی‌کند."},
+    "instagram_checker_username_placeholder":{"audience":"user","group":"instagram","label":"راهنمای کادر آیدی چکر","value":"آیدی پیج، مثلاً @instagram","inline":true,"limit":64}
   },
   "buttons": {
     "group_admin_replies":{"audience":"admin","group":"custom","label":"گروه متن‌های مدیریت ادمین","value":"👑 متن‌های مدیریت ادمین"},
     "section_admin_replies":{"audience":"admin","group":"custom","label":"متن‌های مدیریت ادمین","value":"👑 متن‌های مدیریت ادمین","style":"primary"},
-    "instagram_checker_check":{"audience":"user","group":"instagram","label":"صحت‌سنجی پیج","value":"🔎 صحت‌سنجی چکر"},
-    "instagram_checker_checking":{"audience":"user","group":"instagram","label":"دکمهٔ بررسی در حال انجام","value":"⏳ در حال بررسی…"},
+    "instagram_checker_check":{"audience":"user","group":"instagram","label":"صحت‌سنجی پیج","value":"🔎 صحت‌سنجی چکر","style":"primary"},
+    "instagram_checker_checking":{"audience":"user","group":"instagram","label":"دکمهٔ بررسی در حال انجام","value":"⏳ در حال بررسی…","style":"primary"},
     "layout_checker_home":{"audience":"admin","group":"custom","label":"👁 چیدمان فهرست چکر","value":"👁 چیدمان فهرست چکر"},
     "layout_checker_manage":{"audience":"admin","group":"custom","label":"⚙️ چیدمان مدیریت پیج چکر","value":"⚙️ چیدمان مدیریت پیج چکر"},
     "layout_checker_new":{"audience":"admin","group":"custom","label":"➕ چیدمان انتخاب محتوای چکر","value":"➕ چیدمان انتخاب محتوای چکر"},
@@ -1454,6 +1457,7 @@
     "adult_beeg":{"audience":"admin","label":"روشن و خاموش‌کردن Beeg","group":"custom","value":"🔞 Beeg: {state}"},
     "section_inputs":{"audience":"admin","label":"پیام ناشناس و لینک غیرقابل استفاده","group":"custom","value":"🤔 پیام ناشناس و لینک غیرقابل استفاده"},
     "group_inputs":{"audience":"admin","label":"پیام ناشناس و لینک غیرقابل استفاده","group":"custom","value":"🤔 پیام ناشناس و لینک غیرقابل استفاده"},
-    "message_reaction":{"audience":"admin","label":"ری‌اکشن پیام","group":"custom","value":"❤️ ری‌اکشن: {reaction}"}
+    "message_reaction":{"audience":"admin","label":"ری‌اکشن پیام","group":"custom","value":"❤️ ری‌اکشن: {reaction}"},
+    "instagram_checker_rename":{"audience":"user","group":"instagram","label":"تغییر آیدی چکر","value":"✏️ تغییر آیدی","style":"primary"}
   }
 }

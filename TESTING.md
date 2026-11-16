@@ -161,3 +161,12 @@ mbstring and pdo_sqlite. The first drives the real handlers and editor against a
 in-memory Telegram fixture; the second verifies the actual local HTTP payload and timeout.
 Coverage includes independent texts/reactions, HTML and premium text emoji, invalid input,
 failed previews, original-message targets, group/topic boundaries, migration and scoped resets.
+
+## Checker reply input and page replacement
+
+`php tests/instagram_checker_replies.php` drives actual bot handlers with a local
+Telegram API fixture and SQLite. It checks selective ForceReply payloads, owner-only
+replies before command handling, prompt/chat/topic/expiry binding, concurrent owners,
+invalid input and cancellation, rename generation/access/quota, retained destinations,
+shared targets, deleted-row reuse, delivery invalidation, first-scan baselines and UI
+migration. Run the existing checker, personalization and administrator-reply tests too.

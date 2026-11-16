@@ -112,6 +112,35 @@ final class InstagramChecker
             $s->db->exec('COMMIT'); return $id;
         } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
     }
+    /** Move only this owner's subscription; shared targets and other destinations keep their cursors. */
+    public function rename(int $id,int $owner,int $chat,int $thread,string $name,int $generation): int
+    {
+        $name=instagramUsername($name);
+        if($name===null) throw new \InvalidArgumentException('checker_invalid');
+        $name=strtolower($name);
+        if(!$this->allowed($owner,$chat)) throw new \RuntimeException('checker_denied');
+        $s=$this->store; $s->db->exec('BEGIN IMMEDIATE');
+        try {
+            $sub=$this->subscription($id,$owner,$chat,$chat<0?max(0,$thread):0);
+            if(!$sub||(int)$sub['generation']!==$generation) throw new \RuntimeException('checker_expired');
+            if(!$this->allowed($owner,$chat,false)) throw new \RuntimeException('checker_denied');
+            if($sub['username']===$name) { $s->db->exec('COMMIT'); return $id; }
+            $target=$s->query('SELECT id FROM ig_check_targets WHERE username=?',[$name])->fetchColumn();
+            $existing=$target?$s->query('SELECT id,deleted FROM ig_check_subs WHERE owner=? AND chat_id=? AND thread_id=? AND target=?',[$owner,$chat,$sub['thread_id'],$target])->fetch():false;
+            if(($existing&&!(int)$existing['deleted'])||($chat<0&&$target&&$s->query('SELECT 1 FROM ig_check_subs WHERE chat_id=? AND thread_id=? AND target=? AND deleted=0',[$chat,$sub['thread_id'],$target])->fetchColumn())) throw new \RuntimeException('checker_duplicate');
+            $owned=$target&&$s->query('SELECT 1 FROM ig_check_subs WHERE owner=? AND target=? AND deleted=0 AND id<>?',[$owner,$target,$id])->fetchColumn();
+            $used=(int)$s->query('SELECT COUNT(DISTINCT target) FROM ig_check_subs WHERE owner=? AND deleted=0 AND id<>?',[$owner,$id])->fetchColumn(); $limit=$this->limit($owner);
+            if(!$owned&&$limit>0&&$used>=$limit) throw new \RuntimeException('checker_limit_reached');
+            if(!$target) { $s->query('INSERT INTO ig_check_targets(username) VALUES(?)',[$name]); $target=(int)$s->db->lastInsertId(); }
+            $s->query("UPDATE ig_check_deliveries SET status='cancelled' WHERE subscription=? AND status IN ('pending','queued','retry')",[$id]);
+            if($existing) {
+                $s->query('UPDATE ig_check_subs SET deleted=1,generation=generation+1 WHERE id=?',[$id]);
+                $s->query('UPDATE ig_check_subs SET mode=?,paused=?,deleted=0,posts_ready=0,stories_ready=0,generation=generation+1,created=? WHERE id=?',[$sub['mode'],$sub['paused'],time(),$existing['id']]); $id=(int)$existing['id'];
+            } else $s->query('UPDATE ig_check_subs SET target=?,posts_ready=0,stories_ready=0,generation=generation+1,created=? WHERE id=?',[$target,time(),$id]);
+            $s->query('UPDATE ig_check_targets SET next_check=CASE WHEN failures=0 THEN MIN(next_check,?) ELSE next_check END WHERE id=?',[time(),$target]);
+            $s->db->exec('COMMIT'); return $id;
+        } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
+    }
     public function change(int $id,int $owner,int $chat,int $thread,string $op,bool $privateControl=false): bool
     {
         $sub=$this->subscription($id,$owner,$chat,$thread); if(!$sub) return false;

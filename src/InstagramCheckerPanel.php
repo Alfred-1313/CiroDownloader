@@ -22,7 +22,44 @@ final class InstagramCheckerPanel
     }
     private function item(array $p,int $id): ?array { return (int)$p['chat_id']===(int)$p['owner']?$this->checker->owned($id,(int)$p['owner']):$this->checker->subscription($id,(int)$p['owner'],(int)$p['chat_id'],(int)$p['thread_id']); }
     private function destination(array $sub): string { return (int)$sub['chat_id']>0?$this->bot->ui->plain('instagram_checker_destination_private'):$this->bot->ui->text('instagram_checker_destination_group',['id'=>$sub['chat_id'],'topic'=>$sub['thread_id']]); }
-    private function clearInput(int $owner): void { $this->bot->store->query("DELETE FROM states WHERE user_id=? AND key LIKE 'ic:%'",[$owner]); }
+    private function forgetReply(array $p): void
+    {
+        $s=$this->bot->store; $raw=$s->query('SELECT data FROM ig_check_panels WHERE token=? AND owner=?',[$p['token'],$p['owner']])->fetchColumn();
+        $data=is_string($raw)?json_decode($raw,true):[]; $message=(int)($data['input_message']??0);
+        if($message<1) return;
+        unset($data['input_message']);
+        $s->query('UPDATE ig_check_panels SET data=? WHERE token=? AND data=?',[json_encode($data,JSON_THROW_ON_ERROR),$p['token'],$raw]);
+        $s->query('DELETE FROM states WHERE user_id=? AND key=?',[$p['owner'],'ic:'.$p['token']]);
+        try { $this->bot->api->call('deleteMessage',['chat_id'=>(int)$p['chat_id'],'message_id'=>$message]); } catch(\Throwable) {}
+    }
+    private function clearInput(int $owner,?string $token=null): void
+    {
+        $s=$this->bot->store;
+        if($token===null) {
+            $state=$s->query('SELECT key FROM states WHERE user_id=?',[$owner])->fetchColumn();
+            if(!is_string($state)||!preg_match('/^ic:([a-f0-9]{16})$/D',$state,$m)) return;
+            $token=$m[1];
+        }
+        $p=$s->query('SELECT * FROM ig_check_panels WHERE token=? AND owner=?',[$token,$owner])->fetch();
+        if($p) $this->forgetReply($p);
+        $s->query('DELETE FROM states WHERE user_id=? AND key=?',[$owner,'ic:'.$token]);
+    }
+    private function beginReply(array $p,string $view,array $data=[],string $notice=''): void
+    {
+        $owner=(int)$p['owner']; $chat=(int)$p['chat_id']; $ui=$this->bot->ui;
+        $label=$this->bot->store->query('SELECT username FROM user_profiles WHERE user_id=?',[$owner])->fetchColumn();
+        $mention='<a href="tg://user?id='.$owner.'">'.Ui::escape($label?'@'.$label:(string)$owner).'</a>';
+        $text=$mention."\n".$ui->text($view==='rename'?'instagram_checker_rename_prompt':'instagram_checker_add_prompt',['username'=>$data['username']??'']);
+        if($notice!=='') $text=$notice."\n\n".$text;
+        $params=['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','reply_markup'=>['force_reply'=>true,'selective'=>true,'input_field_placeholder'=>$ui->plain('instagram_checker_username_placeholder')]];
+        if($chat<0&&(int)$p['thread_id']>0) $params['message_thread_id']=(int)$p['thread_id'];
+        $result=$this->bot->api->call('sendMessage',$params);
+        $prompt=(int)($result['message_id']??0); if($prompt<1) throw new \RuntimeException('Checker prompt was not confirmed');
+        $this->clearInput($owner);
+        $data['input_message']=$prompt;
+        $this->bot->store->query('UPDATE ig_check_panels SET view=?,data=?,expires=? WHERE token=?',[$view,json_encode($data,JSON_THROW_ON_ERROR),time()+3600,$p['token']]);
+        $this->input($owner,$p['token']);
+    }
     private function permitted(int $owner,int $chat,bool $settings=false): bool { return ($settings&&$chat===$owner&&$this->bot->admin($owner))||$this->checker->allowed($owner,$chat); }
     private function denial(int $owner,int $chat): string
     {
@@ -40,7 +77,7 @@ final class InstagramCheckerPanel
         try { $this->show($p,$view,$data); }
         catch(\Throwable $e) { $s->query('DELETE FROM ig_check_panels WHERE token=?',[$p['token']]); throw $e; }
     }
-    private function show(array $p,string $view,array $data=[],string $notice=''): void
+    private function show(array $p,string $view,array $data=[],string $notice='',bool $passive=false): void
     {
         $ui=$this->bot->ui; $owner=(int)$p['owner']; $chat=(int)$p['chat_id']; $rows=[]; $text='';
         $back=[$this->b('back',$p,'home'),$this->b('close',$p,'close')];
@@ -68,7 +105,7 @@ final class InstagramCheckerPanel
             $slots=['back'=>[$this->b('back',$p,$view==='item'?'home':'item',$view==='item'?null:$id)],'close'=>[$this->b('close',$p,'close')]];
             if($view==='delete') { $text.="\n\n".$ui->text('instagram_checker_delete_prompt'); $slots['yes']=[$this->b('delete_yes',$p,'remove',$id)]; $layout='checker_delete'; }
             elseif($view==='mode') { $slots+=['posts'=>[$this->b('mode1',$p,'mode1',$id)],'stories'=>[$this->b('mode2',$p,'mode2',$id)],'both'=>[$this->b('mode3',$p,'mode3',$id)]]; $layout='checker_new'; }
-            else { $slots+=['check'=>[$this->b(isset($data['check'])?'checking':'check',$p,'check',$id)],'toggle'=>[$this->b((int)$sub['paused']?'resume':'pause',$p,'pause',$id)],'mode'=>[$this->b('change_mode',$p,'mode',$id)],'delete'=>[$this->b('delete',$p,'delete',$id)]]; $layout='checker_manage'; }
+            else { $slots+=['check'=>[$this->b(isset($data['check'])?'checking':'check',$p,'check',$id)],'rename'=>[$this->b('rename',$p,'rename',$id)],'toggle'=>[$this->b((int)$sub['paused']?'resume':'pause',$p,'pause',$id)],'mode'=>[$this->b('change_mode',$p,'mode',$id)],'delete'=>[$this->b('delete',$p,'delete',$id)]]; $layout='checker_manage'; }
             $rows=$ui->layout('instagram',$layout,$slots,UiRegistry::rows('instagram',$layout));
         } elseif($view==='settings') {
             if($chat!==$owner||!$this->bot->admin($owner)) return;
@@ -87,11 +124,23 @@ final class InstagramCheckerPanel
         if($text==='') return;
         if($notice!=='') $text=$notice."\n\n".$text;
         $sent=$this->bot->send($chat,$text,$rows,(int)$p['message_id'],(int)$p['thread_id']);
-        $this->bot->store->query('UPDATE ig_check_panels SET message_id=?,view=?,data=?,expires=? WHERE token=?',[$sent,$view,json_encode($data,JSON_THROW_ON_ERROR),time()+3600,$p['token']]);
+        if(!$passive) $this->forgetReply($p);
+        $params=[$sent,$view,json_encode($data,JSON_THROW_ON_ERROR),time()+3600,$p['token']];
+        $guard=''; if($passive) { $guard=' AND view=? AND data=? AND message_id=?'; array_push($params,$p['view'],$p['data'],$p['message_id']); }
+        $this->bot->store->query('UPDATE ig_check_panels SET message_id=?,view=?,data=?,expires=? WHERE token=?'.$guard,$params);
     }
     public function message(array $update,int $owner,int $chat,int $thread): bool
     {
         $message=$update['message']??[]; $text=trim((string)($message['text']??'')); $command=self::command($text);
+        $reply=$message['reply_to_message']??[]; $replyId=(int)($reply['message_id']??0);
+        $replyPanel=$replyId>0?$this->bot->store->query("SELECT * FROM ig_check_panels WHERE chat_id=? AND CAST(json_extract(data,'$.input_message') AS INTEGER)=CAST(? AS INTEGER)",[$chat,$replyId])->fetch():false;
+        if($replyPanel) {
+            $botId=(int)$this->bot->store->get('bot_id','0');
+            if((int)$replyPanel['owner']!==$owner||empty($reply['from']['is_bot'])||($botId>0&&(int)($reply['from']['id']??0)!==$botId)
+                ||(array_key_exists('message_thread_id',$message)&&(int)$replyPanel['thread_id']!==$thread)
+                ||(array_key_exists('message_thread_id',$reply)&&(int)$replyPanel['thread_id']!==(int)$reply['message_thread_id'])) return true;
+            $thread=(int)$replyPanel['thread_id'];
+        }
         if($command!==null||$text===$this->bot->label('instagram_checker')) {
             if($command!==null&&$command['bot']!==''&&strcasecmp($command['bot'],$this->bot->store->get('bot_username'))!==0) return true;
             $name=$command!==null&&$command['argument']!==''?instagramUsername($command['argument']):null;
@@ -99,17 +148,30 @@ final class InstagramCheckerPanel
             $this->open($owner,$chat,$thread,0,$name===null?'home':'new',$name===null?[]:['username'=>strtolower($name)]); return true;
         }
         $state=$this->bot->store->query('SELECT key FROM states WHERE user_id=? AND expires>?',[$owner,time()])->fetchColumn();
-        if(!is_string($state)||!preg_match('/^ic:([a-f0-9]{16})$/D',$state,$match)) return false;
+        if(!is_string($state)||!preg_match('/^ic:([a-f0-9]{16})$/D',$state,$match)) return (bool)$replyPanel;
         $p=$this->bot->store->query('SELECT * FROM ig_check_panels WHERE token=? AND owner=? AND chat_id=? AND thread_id=? AND expires>?',[$match[1],$owner,$chat,$chat<0?$thread:0,time()])->fetch();
-        if(!$p) return false;
+        if(!$p) return $replyId>0||(bool)$replyPanel;
         if(str_starts_with($text,'/')&&$text!=='/cancel') { $this->clearInput($owner); return false; }
         if($text==='/cancel') { $this->clearInput($owner); $this->show($p,'home'); return true; }
         if(!$this->permitted($owner,$chat,$chat===$owner&&$this->bot->admin($owner))) { $this->bot->send($chat,$this->bot->text($this->denial($owner,$chat)),[],0,$thread); return true; }
         $data=json_decode($p['data'],true);
-        if($p['view']==='add') {
+        if(in_array($p['view'],['add','rename'],true)) {
+            if(!$replyPanel||$replyPanel['token']!==$p['token']||$replyId!==(int)($data['input_message']??0)) return true;
             $name=instagramUsername($text);
-            if($name===null) { $this->show($p,'add',[],$this->bot->text('instagram_checker_invalid')); return true; }
-            $this->clearInput($owner); $this->show($p,'new',['username'=>strtolower($name)]); return true;
+            if($name===null) { $this->beginReply($p,$p['view'],$data,$this->bot->text('instagram_checker_invalid')); return true; }
+            if($p['view']==='add') { $this->show($p,'new',['username'=>strtolower($name)]); return true; }
+            $sub=$this->item($p,(int)($data['id']??0));
+            if(!$sub) { $this->show($p,'home',[],$this->bot->text('instagram_checker_expired')); return true; }
+            try {
+                $id=$this->checker->rename((int)$sub['id'],$owner,(int)$sub['chat_id'],(int)$sub['thread_id'],$name,(int)($data['generation']??0));
+            } catch(\RuntimeException $e) {
+                $error=$e->getMessage();
+                if(!in_array($error,['checker_duplicate','checker_limit_reached','checker_denied','checker_expired'],true)) throw $e;
+                if(in_array($error,['checker_duplicate','checker_limit_reached'],true)) $this->beginReply($p,'rename',$data,$this->bot->text('instagram_'.$error));
+                else $this->show($p,'home',[],$this->bot->text($error==='checker_denied'?'instagram_checker_denied':'instagram_checker_expired'));
+                return true;
+            }
+            $this->show($p,'item',['id'=>$id],$this->bot->text('instagram_checker_renamed')); return true;
         }
         if($chat!==$owner||!$this->bot->admin($owner)) return true;
         $text=strtr($text,array_combine(preg_split('//u','۰۱۲۳۴۵۶۷۸۹',-1,PREG_SPLIT_NO_EMPTY),range(0,9)));
@@ -136,15 +198,22 @@ final class InstagramCheckerPanel
         $settings=$chat===$owner&&$this->bot->admin($owner);
         if(!$this->permitted($owner,$chat,$settings)) { $answer($this->denial($owner,$chat),true); return; }
         $answer();
-        if($op==='close') { $this->clearInput($owner); $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$p['message_id']]); $this->bot->store->query('DELETE FROM ig_check_panels WHERE token=?',[$p['token']]); return; }
-        if(in_array($op,['home','page'],true)) { $this->clearInput($owner); $this->show($p,'home',['page'=>$op==='page'?$id:0]); return; }
-        if($op==='add') { $this->show($p,'add'); $this->input($owner,$p['token']); return; }
+        if($op==='close') { $this->clearInput($owner,$p['token']); $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$p['message_id']]); $this->bot->store->query('DELETE FROM ig_check_panels WHERE token=?',[$p['token']]); return; }
+        if(in_array($op,['home','page'],true)) { $this->clearInput($owner,$p['token']); $this->show($p,'home',['page'=>$op==='page'?$id:0]); return; }
+        if($op==='add') { $this->beginReply($p,'add'); return; }
         if($op==='save'&&$p['view']==='new'&&isset($data['username'])&&in_array($id,[1,2,3],true)) {
             try { $new=$this->checker->add($owner,$chat,$thread,$data['username'],$id); $this->show($p,'item',['id'=>$new],$this->bot->text('instagram_checker_added')); }
             catch(\RuntimeException $e) { $key=in_array($e->getMessage(),['checker_duplicate','checker_limit_reached','checker_denied'],true)?'instagram_'.$e->getMessage():'instagram_checker_invalid'; $this->show($p,'new',$data,$this->bot->text($key)); }
             return;
         }
         if($op==='item') { $this->show($p,'item',['id'=>$id]); return; }
+        if($op==='rename') {
+            if($p['view']!=='item'||(int)($data['id']??0)!==$id) return;
+            $sub=$this->item($p,$id);
+            if(!$sub) { $this->show($p,'home',[],$this->bot->text('instagram_checker_expired')); return; }
+            if(!$this->checker->allowed($owner,(int)$sub['chat_id'])) { $this->show($p,'item',['id'=>$id],$this->bot->text('instagram_checker_denied')); return; }
+            $this->beginReply($p,'rename',['id'=>$id,'generation'=>(int)$sub['generation'],'username'=>$sub['username']]); return;
+        }
         if($op==='check') {
             if($p['view']!=='item'||(int)($data['id']??0)!==$id) return;
             $sub=$this->item($p,$id);
@@ -203,7 +272,7 @@ final class InstagramCheckerPanel
             $target=$store->query('SELECT * FROM ig_check_targets WHERE id=?',[$sub['target']])->fetch();
             $result=(int)$target['scan_version']<=(int)$check['version']?'timeout':($target['state']==='ok'?'ok':($target['state']==='blocked'?'blocked':'failed'));
             if(!$store->query("SELECT 1 FROM ig_check_panels WHERE token=? AND view='item' AND data=?",[$p['token'],$p['data']])->fetchColumn()) continue;
-            try { $this->show($p,'item',$data,$this->bot->text('instagram_checker_check_'.$result,['minutes'=>max(1,(int)ceil(((int)$target['next_check']-time())/60))])); }
+            try { $this->show($p,'item',$data,$this->bot->text('instagram_checker_check_'.$result,['minutes'=>max(1,(int)ceil(((int)$target['next_check']-time())/60))]),true); }
             catch(\Throwable) {
                 // A result is an edit of the requested message, never a new DM.
                 $tries=(int)($check['tries']??0)+1;
