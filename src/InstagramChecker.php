@@ -36,7 +36,11 @@ final class InstagramChecker
     public static function enabled(Store $s): bool { return $s->get('instagram.checker.enabled','1')==='1'; }
     public static function everyone(Store $s): bool { return $s->get('instagram.checker.public','0')==='1'; }
     public function interval(): int { return max(60,min(3600,(int)$this->store->get('instagram.checker.seconds','300'))); }
-    public function limit(int $owner): int { return max(0,min(100,(int)$this->store->get('instagram.checker.limit.'.$owner,$this->store->get('instagram.checker.limit','3')))); }
+    public function limit(int $owner): int
+    {
+        if(in_array($owner,$this->config->admins,true)) return 0;
+        return max(0,min(100,(int)$this->store->get('instagram.checker.limit.'.$owner,$this->store->get('instagram.checker.limit','3'))));
+    }
     public function used(int $owner): int { return (int)$this->store->query('SELECT COUNT(DISTINCT target) FROM ig_check_subs WHERE owner=? AND deleted=0',[$owner])->fetchColumn(); }
     public function allowed(int $owner,int $chat,bool $groupCheck=true): bool
     {

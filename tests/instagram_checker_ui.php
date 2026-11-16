@@ -27,6 +27,7 @@ $tap($pause,7,42,0,(int)$panel['message_id']);uc((int)$s->query('SELECT paused F
 $tap($pause,42,42,0,(int)$panel['message_id']+1);uc((int)$s->query('SELECT paused FROM ig_check_subs WHERE id=?',[$id])->fetchColumn()===0,'callbacks are bound to the actual panel message');
 $tap($pause,42,42,0,(int)$panel['message_id']);uc((int)$s->query('SELECT paused FROM ig_check_subs WHERE id=?',[$id])->fetchColumn()===1,'the owner can pause from its own live message');
 $send('/insta_checker');$settings=$a->button('settings');$tap($settings);$tap($a->button('userlimit'));$send('@user7 5');uc($s->get('instagram.checker.limit.7')==='5','a known Telegram username can receive an individual quota');
+$tap($a->button('userlimit'));$send('42 1');uc($s->get('instagram.checker.limit.42')===''&&str_contains($a->last()['text'],'همیشه بدون سقف'),'the quota editor explains that configured root administrators remain unlimited');
 $tap($a->button('public'));uc(Zero\InstagramChecker::everyone($s),'the manager can enable public access');
 $menu=array_values(array_filter($a->calls,fn($call)=>$call[0]==='setMyCommands'));uc(in_array('insta_checker',array_column(end($menu)[1]['commands'],'command'),true),'the public command list refreshes when public access is enabled');
 $send('/insta_checker fixture',7,-100,17);uc(str_contains($a->last()['text'],'مدیران همان گروه'),'public group members cannot register checkers');

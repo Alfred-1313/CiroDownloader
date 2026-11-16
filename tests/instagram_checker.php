@@ -18,7 +18,7 @@ final class CheckerApi implements Zero\Api {
 }
 $root=sys_get_temp_dir().'/ciro-checker-'.bin2hex(random_bytes(5));
 try {
-    $c=new Zero\Config('123:fixture',[42,55],$root);$s=new Zero\Store($root);$api=new CheckerApi();$model=new Zero\InstagramChecker($c,$s,$api);
+    $c=new Zero\Config('123:fixture',[55],$root);$s=new Zero\Store($root);$s->addAdministrator(42,55,$c->admins);$api=new CheckerApi();$model=new Zero\InstagramChecker($c,$s,$api);
     ck(Zero\InstagramChecker::enabled($s)&&!Zero\InstagramChecker::everyone($s),'checker starts available to bot administrators and public access starts off');
     $denied=false;try{$model->add(7,7,0,'fixture',3);}catch(RuntimeException $e){$denied=$e->getMessage()==='checker_denied';}ck($denied,'ordinary users cannot register a default checker');
     $one=$model->add(42,42,0,'Fixture',3); $group=$model->add(42,-100,17,'@fixture',3);
@@ -33,6 +33,9 @@ try {
     $s->set('instagram.checker.public','1'); $api->admins[7]='member'; ck(!$model->allowed(7,-100),'public access never grants ordinary group members registration permission');
     $api->admins[7]='administrator';$s->query("DELETE FROM settings WHERE key='radio.admin.-100.7'"); ck($model->allowed(7,-100),'public registration is available to that group administrator');
     $s->set('instagram.checker.limit.7','1');$model->add(7,7,0,'fixture',3);$full=false;try{$model->add(7,7,0,'other_page',1);}catch(RuntimeException){$full=true;}ck($full,'an individual quota overrides the global default');
+    for($i=1;$i<=3;$i++)$model->add(8,8,0,'ordinary_page_'.$i,1);$full=false;try{$model->add(8,8,0,'ordinary_page_4',1);}catch(RuntimeException $e){$full=$e->getMessage()==='checker_limit_reached';}ck($full&&$model->limit(8)===3,'ordinary users keep the three-page default when public access is enabled');
+    $s->set('instagram.checker.limit.55','1');for($i=1;$i<=5;$i++)$model->add(55,55,0,'root_page_'.$i,1);ck($model->limit(55)===0&&$model->used(55)===5,'a configured root exceeds the ordinary quota even with an old individual cap');
+    ck($model->limit(42)===3,'an administrator added through the panel does not inherit the root quota exemption');
 
     $data=$root.'/state';$c=new Zero\Config('123:fixture',[42,55],$data);$s=new Zero\Store($data);$model=new Zero\InstagramChecker($c,$s,$api);$private=$model->add(42,42,0,'fixture',3);$group=$model->add(42,-100,17,'fixture',3);$other=$model->add(55,55,0,'fixture',1);
     $reads=0; $posts=[['id'=>'100','url'=>'https://www.instagram.com/p/ABC_def12/']];$stories=[['id'=>'200','url'=>'https://www.instagram.com/stories/fixture/200/']];

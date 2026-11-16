@@ -118,6 +118,7 @@ final class InstagramCheckerPanel
         elseif($p['view']==='userlimit'&&preg_match('/^(@[A-Za-z0-9_]{1,32}|[1-9][0-9]{0,14})\s+(0|[1-9][0-9]?|100)$/D',$text,$m)) {
             $user=$m[1][0]==='@'?(int)$this->bot->store->query('SELECT user_id FROM user_profiles WHERE username=?',[strtolower(substr($m[1],1))])->fetchColumn():(int)$m[1];
             if(!$user) { $this->show($p,'userlimit',$data,$this->bot->text('instagram_checker_user_unknown')); return true; }
+            if(in_array($user,$this->bot->config->admins,true)) { $this->clearInput($owner); $this->show($p,'settings',$data,$this->bot->text('instagram_checker_root_unlimited')); return true; }
             $this->bot->store->set('instagram.checker.limit.'.$user,$m[2]);
         } else { $this->show($p,$p['view'],$data,$this->bot->text('instagram_checker_input_invalid')); return true; }
         $this->clearInput($owner); $this->show($p,'settings',$data,$this->bot->text('instagram_checker_saved')); return true;
