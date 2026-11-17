@@ -78,8 +78,11 @@ try {
                             $checkBot=new Zero\Bot($config,$checkStore,$checkApi);
                             $checkPanel=$youtubeCheck?new Zero\YoutubeCheckerPanel($checkBot):new Zero\InstagramCheckerPanel($checkBot);
                             $checkPanel->refreshChecks();
+                            if($youtubeCheck) $checkPanel->refreshProfiles();
                             ($youtubeCheck?new Zero\YoutubeChecker($config,$checkStore,$checkApi):new Zero\InstagramChecker($config,$checkStore,$checkApi))->poll();
-                            $checkPanel->refreshChecks(); exit(0);
+                            $checkPanel->refreshChecks();
+                            if($youtubeCheck) $checkPanel->refreshProfiles();
+                            exit(0);
                         }
                         catch(Throwable) { exit(1); }
                     } elseif($pid>0) $checkerPid=$pid;

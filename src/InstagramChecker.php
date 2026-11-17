@@ -16,6 +16,7 @@ class InstagramChecker
     public function normalizeName(string $name): ?string { $name=instagramUsername($name); return $name===null?null:strtolower($name); }
     public function modeChoices(): array { return ['posts'=>1,'stories'=>2,'both'=>3]; }
     protected function deliveryPhase(array $row): string { return 'instagram'; }
+    protected function applyMetadata(array $target,array $snapshot): void {}
     public static function forJob(Config $config,Store $store,Api $api,array $job): ?self
     {
         if(!self::deliveryId($job)) return null;
@@ -308,6 +309,7 @@ class InstagramChecker
             foreach(static::BITS as $kind=>$bit) { $ready=static::READY[$kind]; $parts[]="$ready=CASE WHEN (mode&$bit)<>0 AND (?&$bit)<>0 THEN 1 ELSE $ready END"; $args[]=$mode; }
             $args[]=$target['id']; $this->query('UPDATE {checker}subs SET '.implode(',',$parts).' WHERE target=? AND paused=0 AND deleted=0',$args);
             $this->query("UPDATE {checker}targets SET account_id=?,next_check=?,lease='',lease_until=0,checked=?,failures=0,state='ok',scan_version=scan_version+1 WHERE id=?",[$account,time()+$this->interval(),time(),$target['id']]);
+            $this->applyMetadata($live,$snapshot);
             $s->db->exec('COMMIT');
         } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
     }

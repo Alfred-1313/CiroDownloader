@@ -11,6 +11,50 @@ final class YoutubeChecker extends InstagramChecker
     protected const BITS=['video'=>1,'short'=>2,'post'=>4];
     protected const READY=['video'=>'posts_ready','short'=>'stories_ready','post'=>'extra_ready'];
     protected const SENDABLE=['queued','offered'];
+    private static ?\WeakMap $profileSchemas=null;
+    public function __construct(Config $config,Store $store,Api $api)
+    {
+        parent::__construct($config,$store,$api);
+        self::$profileSchemas??=new \WeakMap();
+        if(isset(self::$profileSchemas[$store])) return;
+        if(in_array('avatar_version',array_column($this->query('PRAGMA table_info({checker}targets)')->fetchAll(),'name'),true)) { self::$profileSchemas[$store]=true; return; }
+        $store->db->exec('BEGIN IMMEDIATE');
+        try {
+            $columns=array_column($this->query('PRAGMA table_info({checker}targets)')->fetchAll(),'name');
+            foreach(['avatar'=>"TEXT NOT NULL DEFAULT ''",'avatar_file'=>"TEXT NOT NULL DEFAULT ''",'avatar_version'=>'INTEGER NOT NULL DEFAULT 0'] as $name=>$type)
+                if(!in_array($name,$columns,true)) $store->db->exec($this->sql("ALTER TABLE {checker}targets ADD COLUMN $name $type"));
+            $columns=array_column($this->query('PRAGMA table_info({checker}panels)')->fetchAll(),'name');
+            foreach(['photo','photo_source'] as $name) if(!in_array($name,$columns,true)) $store->db->exec($this->sql("ALTER TABLE {checker}panels ADD COLUMN $name TEXT NOT NULL DEFAULT ''"));
+            $store->db->exec('COMMIT');
+            self::$profileSchemas[$store]=true;
+        } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
+    }
+    public static function avatarUrl(mixed $url): bool
+    {
+        if(!is_string($url)||strlen($url)>2048||preg_match('/[\x00-\x20\x7f]/',$url)) return false;
+        $p=parse_url($url);
+        return $p&&($p['scheme']??'')==='https'&&in_array($p['host']??'',['yt3.ggpht.com','yt3.googleusercontent.com'],true)
+            &&!isset($p['user'])&&!isset($p['pass'])&&!isset($p['port']);
+    }
+    protected function applyMetadata(array $target,array $snapshot): void
+    {
+        if(!array_key_exists('avatar',$snapshot)) return;
+        $avatar=self::avatarUrl($snapshot['avatar'])?$snapshot['avatar']:'';
+        $this->query("UPDATE {checker}targets SET avatar=?,avatar_file=CASE WHEN avatar=? THEN avatar_file ELSE '' END,avatar_version=avatar_version+CASE WHEN avatar<>? OR avatar_version=0 THEN 1 ELSE 0 END WHERE id=?",[$avatar,$avatar,$avatar,$target['id']]);
+    }
+    public function profile(array $sub): array
+    {
+        $profile=$this->query('SELECT avatar,avatar_file,avatar_version FROM {checker}targets WHERE id=?',[$sub['target']])->fetch();
+        // Older registrations get a normal shared scan; never bypass a refusal's backoff or resume a paused checker.
+        if($profile&&(int)$profile['avatar_version']===0&&!(int)$sub['paused'])
+            $this->query('UPDATE {checker}targets SET next_check=0 WHERE id=? AND failures=0 AND lease_until<?',[$sub['target'],time()]);
+        return $profile?:['avatar'=>'','avatar_file'=>'','avatar_version'=>0];
+    }
+    public function profilePanels(): array
+    {
+        return $this->query("SELECT p.* FROM {checker}panels p JOIN {checker}subs s ON s.id=json_extract(p.data,'$.id') JOIN {checker}targets t ON t.id=s.target WHERE p.view='item' AND p.expires>? AND s.deleted=0 AND s.paused=0 AND s.generation=CAST(json_extract(p.data,'$.profile_generation') AS INTEGER) AND t.avatar_version>CAST(COALESCE(json_extract(p.data,'$.profile_version'),0) AS INTEGER) LIMIT 10",[time()])->fetchAll();
+    }
+    public function checksReady(): bool { return parent::checksReady()||(static::enabled($this->store)&&(bool)$this->profilePanels()); }
     public function normalizeName(string $name): ?string
     {
         $name=trim($name);

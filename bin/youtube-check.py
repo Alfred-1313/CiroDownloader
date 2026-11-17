@@ -45,6 +45,39 @@ def published(value):
     return max(0, int(time.time()) - int(match[1]) * seconds[match[2].lower()])
 
 
+def avatar(data):
+    """Only the verified channel's metadata/header avatar, never a video or banner."""
+    def at(value, *keys):
+        for key in keys:
+            if not isinstance(value, dict):
+                return {}
+            value = value.get(key, {})
+        return value
+
+    metadata = at(data, "metadata", "channelMetadataRenderer")
+    legacy = at(data, "header", "c4TabbedHeaderRenderer")
+    modern = at(data, "header", "pageHeaderRenderer", "content", "pageHeaderViewModel")
+    if not isinstance(metadata, dict):
+        return ""
+    if not isinstance(legacy, dict):
+        legacy = {}
+    sources = at(metadata, "avatar", "thumbnails")
+    if not sources and legacy.get("channelId", metadata.get("externalId")) == metadata.get("externalId"):
+        sources = at(legacy, "avatar", "thumbnails")
+    if not sources:
+        sources = at(modern, "image", "decoratedAvatarViewModel", "avatar", "avatarViewModel", "image", "sources")
+    valid = []
+    for item in sources[:20] if isinstance(sources, list) else []:
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url", "")
+        if not isinstance(url, str) or len(url) > 2048 or not posts.trusted(url, posts.IMAGE_HOSTS):
+            continue
+        width = item.get("width", 0)
+        valid.append((width if isinstance(width, int) else 0, url))
+    return max(valid, default=(0, ""))[1]
+
+
 def parse(data, kind, expected=""):
     metadata = data.get("metadata", {}).get("channelMetadataRenderer", {})
     account = metadata.get("externalId", "")
@@ -111,7 +144,7 @@ def scan(args):
                 jar.clear(cookie.domain, cookie.path, cookie.name)
         session.cookies.update(jar)
     account = args.channel if CHANNEL.fullmatch(args.channel) else ""
-    result = {"account_id": account, "mode": args.mode, "videos": [], "shorts": [], "posts": []}
+    result = {"account_id": account, "mode": args.mode, "videos": [], "shorts": [], "posts": [], "avatar": ""}
     for bucket, kind, bit, path in [("videos", "video", 1, "videos"), ("shorts", "short", 2, "shorts"), ("posts", "post", 4, "posts")]:
         if not args.mode & bit:
             continue
@@ -131,6 +164,8 @@ def scan(args):
         except ExtractorError:
             raise posts.PostError("format") from None
         account, result[bucket] = parse(data, kind, account)
+        if not result["avatar"]:
+            result["avatar"] = avatar(data)
         result["account_id"] = account
     return result
 

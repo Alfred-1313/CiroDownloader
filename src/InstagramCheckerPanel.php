@@ -3,12 +3,25 @@ declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/InstagramChecker.php';
 
+/** Telegram cannot turn a photo into text: confirm its replacement before retiring the old panel. */
+final class CheckerMessages
+{
+    public static function text(Bot $bot,array $p,string $text,array $rows): int
+    {
+        $photo=!empty($p['photo'])&&(int)$p['message_id']>0;
+        $sent=$bot->send((int)$p['chat_id'],$text,$rows,$photo?0:(int)$p['message_id'],(int)$p['thread_id']);
+        if($sent<1) throw new \RuntimeException('Missing checker panel confirmation');
+        if($photo) try { $bot->api->call('deleteMessage',['chat_id'=>(int)$p['chat_id'],'message_id'=>(int)$p['message_id']]); } catch(\Throwable) {}
+        return $sent;
+    }
+}
+
 /** Owner/chat/topic/message-bound checker controls; all visible copy uses Ui. */
 class InstagramCheckerPanel
 {
     protected const SERVICE='instagram', CALLBACK='ic', CHECKER=InstagramChecker::class;
-    private InstagramChecker $checker;
-    private function query(string $sql,array $args=[]): \PDOStatement { return $this->checker->query($sql,$args); }
+    protected InstagramChecker $checker;
+    protected function query(string $sql,array $args=[]): \PDOStatement { return $this->checker->query($sql,$args); }
     private function modeSlots(array $p,string $op,?int $id=null): array
     {
         $slots=[]; foreach($this->checker->modeChoices() as $slot=>$mode) $slots[$slot]=[$this->b('mode'.$mode,$p,$op==='save'?'save':'mode'.$mode,$op==='save'?$mode:$id)]; return $slots;
@@ -27,7 +40,7 @@ class InstagramCheckerPanel
     {
         return $this->bot->ui->button(static::SERVICE.'_checker_'.$key,static::CALLBACK.':'.$p['token'].':'.$op.($id===null?'':':'.$id),$vars);
     }
-    private function item(array $p,int $id): ?array { return (int)$p['chat_id']===(int)$p['owner']?$this->checker->owned($id,(int)$p['owner']):$this->checker->subscription($id,(int)$p['owner'],(int)$p['chat_id'],(int)$p['thread_id']); }
+    protected function item(array $p,int $id): ?array { return (int)$p['chat_id']===(int)$p['owner']?$this->checker->owned($id,(int)$p['owner']):$this->checker->subscription($id,(int)$p['owner'],(int)$p['chat_id'],(int)$p['thread_id']); }
     private function destination(array $sub): string { return (int)$sub['chat_id']>0?$this->bot->ui->plain(static::SERVICE.'_checker_destination_private'):$this->bot->ui->text(static::SERVICE.'_checker_destination_group',['id'=>$sub['chat_id'],'topic'=>$sub['thread_id']]); }
     private function forgetReply(array $p): void
     {
@@ -85,9 +98,13 @@ class InstagramCheckerPanel
         catch(\Throwable $e) { $this->query('DELETE FROM {checker}panels WHERE token=?',[$p['token']]); throw $e; }
         return true;
     }
-    private function show(array $p,string $view,array $data=[],string $notice='',bool $passive=false): void
+    protected function renderPanel(array $p,string $view,array &$data,string $text,array $rows,?array $sub): int
     {
-        $ui=$this->bot->ui; $owner=(int)$p['owner']; $chat=(int)$p['chat_id']; $rows=[]; $text='';
+        return $this->bot->send((int)$p['chat_id'],$text,$rows,(int)$p['message_id'],(int)$p['thread_id']);
+    }
+    protected function show(array $p,string $view,array $data=[],string $notice='',bool $passive=false): void
+    {
+        $ui=$this->bot->ui; $owner=(int)$p['owner']; $chat=(int)$p['chat_id']; $rows=[]; $text=''; $sub=null;
         $back=[$this->b('back',$p,'home'),$this->b('close',$p,'close')];
         if($view==='home') {
             $page=max(0,(int)($data['page']??0)); $subs=$this->checker->subscriptions($owner,$chat,(int)$p['thread_id'],$chat===$owner); $pages=max(1,(int)ceil(count($subs)/8)); $page=min($page,$pages-1); $data=['page'=>$page];
@@ -133,7 +150,7 @@ class InstagramCheckerPanel
         }
         if($text==='') return;
         if($notice!=='') $text=$notice."\n\n".$text;
-        $sent=$this->bot->send($chat,$text,$rows,(int)$p['message_id'],(int)$p['thread_id']);
+        $sent=$this->renderPanel($p,$view,$data,$text,$rows,in_array($view,['item','delete','mode'],true)?$sub:null);
         if(!$passive) $this->forgetReply($p);
         $params=[$sent,$view,json_encode($data,JSON_THROW_ON_ERROR),time()+3600,$p['token']];
         $guard=''; if($passive) { $guard=' AND view=? AND data=? AND message_id=?'; array_push($params,$p['view'],$p['data'],$p['message_id']); }

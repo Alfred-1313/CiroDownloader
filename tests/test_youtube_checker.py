@@ -65,7 +65,7 @@ class CheckerTests(unittest.TestCase):
         args = SimpleNamespace(channel='@youtube', mode=7, proxy=None, cookies=None)
         with patch.object(checker.posts, 'http_session', return_value=Session()):
             result = checker.scan(args)
-        self.assertEqual(result, {'account_id': ACCOUNT, 'mode': 7, 'videos': [], 'shorts': [], 'posts': []})
+        self.assertEqual(result, {'account_id': ACCOUNT, 'mode': 7, 'videos': [], 'shorts': [], 'posts': [], 'avatar': ''})
         self.assertEqual(len(seen), 3)
         self.assertIn('/channel/' + ACCOUNT + '/shorts', seen[1])
         seen.clear()
@@ -77,6 +77,46 @@ class CheckerTests(unittest.TestCase):
             with self.assertRaises(checker.posts.PostError) as error:
                 checker.scan(args)
         self.assertEqual(error.exception.reason, 'blocked')
+        self.assertEqual(len(seen), 1)
+
+    def test_channel_avatar_never_uses_banner_video_or_neighbour(self):
+        data = page('video')
+        small = 'https://yt3.ggpht.com/fixture-small'
+        large = 'https://yt3.googleusercontent.com/fixture-large'
+        data['metadata']['channelMetadataRenderer']['avatar'] = {'thumbnails': [
+            {'url': small, 'width': 88}, {'url': large, 'width': 900},
+            {'url': 'https://evil.test/foreign', 'width': 2000}]}
+        data['header'] = {'c4TabbedHeaderRenderer': {'banner': {'thumbnails': [{'url': 'https://yt3.ggpht.com/BANNER', 'width': 3000}]}}}
+        data['unrelated']['avatar'] = {'thumbnails': [{'url': 'https://yt3.ggpht.com/NEIGHBOUR', 'width': 4000}]}
+        self.assertEqual(checker.avatar(data), large)
+        del data['metadata']['channelMetadataRenderer']['avatar']
+        self.assertEqual(checker.avatar(data), '')
+        data['header']['c4TabbedHeaderRenderer'].update(channelId='UC' + 'B' * 22, avatar={'thumbnails': [{'url': small}]})
+        self.assertEqual(checker.avatar(data), '')
+        data['header']['c4TabbedHeaderRenderer']['channelId'] = ACCOUNT
+        self.assertEqual(checker.avatar(data), small)
+        for url in ['http://yt3.ggpht.com/x', 'https://yt3.ggpht.com.evil.test/x', 'https://user@yt3.ggpht.com/x', 'https://yt3.ggpht.com:443/x']:
+            data['metadata']['channelMetadataRenderer']['avatar'] = {'thumbnails': [{'url': url}]}
+            self.assertEqual(checker.avatar(data), '')
+        data['metadata']['channelMetadataRenderer']['avatar'] = None
+        self.assertEqual(checker.avatar(data), small)
+        data['header'] = {'pageHeaderRenderer': {'content': {'pageHeaderViewModel': {'image': {
+            'decoratedAvatarViewModel': {'avatar': {'avatarViewModel': {'image': {'sources': [{'url': small, 'width': 160}]}}}}
+        }}}}}
+        self.assertEqual(checker.avatar(data), small)
+
+    def test_scan_carries_avatar_without_an_extra_request(self):
+        seen = []
+        image = 'https://yt3.ggpht.com/fixture-profile'
+        class Session:
+            def get(self, url, **kwargs):
+                seen.append(url)
+                data = page('video')
+                data['metadata']['channelMetadataRenderer']['avatar'] = {'thumbnails': [{'url': image, 'width': 800}]}
+                return Response(data)
+        with patch.object(checker.posts, 'http_session', return_value=Session()):
+            result = checker.scan(SimpleNamespace(channel='@youtube', mode=1, proxy=None, cookies=None))
+        self.assertEqual(result['avatar'], image)
         self.assertEqual(len(seen), 1)
 
 
