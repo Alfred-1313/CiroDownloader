@@ -230,6 +230,7 @@ final class MusicMenu
             return;
         }
         $data=json_decode($menu['data'],true); $view=json_decode($menu['view'],true);
+        if(!in_array($op,['x','r'],true)&&!$this->bot->membership()->guard($this->bot,$user,$chat,$thread,$cb)) return;
         if(($data['batch']['state']??'')==='done'&&!in_array($op,['r','x','n'],true)) { $this->answer($cb); return; }
         try {
             if($op==='n') { $this->answer($cb); return; }

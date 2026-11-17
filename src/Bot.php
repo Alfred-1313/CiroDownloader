@@ -34,6 +34,7 @@ require_once __DIR__.'/YoutubeCheckerCookies.php';
 require_once __DIR__.'/CheckerMenu.php';
 require_once __DIR__.'/YoutubePosts.php';
 require_once __DIR__.'/DatabaseBackups.php';
+require_once __DIR__.'/ForceJoin.php';
 
 final class Bot
 {
@@ -46,6 +47,13 @@ final class Bot
     public function label(string $key): string { return $this->ui->label($key); }
     public function admin(int $id): bool { return $this->store->isAdmin($id,$this->config->admins); }
     public function allowed(int $id,?int $chat=null): bool { return !($chat<0&&!$this->store->groupsEnabled())&&($this->admin($id)||($this->store->enabled()&&$this->store->get('admins_only','0')!=='1')); }
+    public function membership(): ForceJoin { return new ForceJoin($this->config,$this->store,$this->api); }
+    public function canUse(int $user,int $chat): bool { return $this->allowed($user,$chat)&&$this->membership()->verdict($user,$chat)==='ok'; }
+    public function accessDenied(array $job): void
+    {
+        if($this->allowed((int)$job['user_id'],(int)$job['chat_id'])&&($v=$this->membership()->verdict((int)$job['user_id'],(int)$job['chat_id']))!=='ok') $this->membership()->prompt($this,(int)$job['user_id'],(int)$job['chat_id'],(int)($job['thread_id']??0),$v,$job);
+        else $this->jobMessage($job,$this->denial((int)$job['chat_id']));
+    }
     /**
      * Adult-site links: off unless the administrator turns them on, and by default only for administrators. They work in a
      * private chat with the bot and in groups (when group use is on); the video is deleted again a few seconds after it
@@ -223,6 +231,7 @@ final class Bot
             [$this->replyButton('customize'),$this->replyButton('health')],
             [$this->replyButton('cookies'),$this->replyButton('cookie_settings')],
             [$this->replyButton('database_backups'),$this->replyButton('database_backup_import')],
+            [$this->replyButton('membership_settings')],
             [$this->replyButton('update'),$this->replyButton('add_admin')],
             [$this->replyButton('instagram_checker'),$this->replyButton('youtube_checker')],
             [$this->replyButton($on?'off':'on')],
@@ -306,6 +315,7 @@ final class Bot
         if($saved&&((int)$saved['user_id']!==$user||(int)$saved['chat_id']!==$chat)) $notice='callback_owner';
         elseif($saved&&(((int)$saved['message_id']>0&&(int)($message['message_id']??0)!==(int)$saved['message_id'])||($chat<0&&array_key_exists('message_thread_id',$message)&&(int)$saved['thread_id']!==(int)$message['message_thread_id']))) $notice='callback_stale';
         if($notice!=='') { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice),'show_alert'=>true,'cache_time'=>0]); return; }
+        if($saved&&$parts[2]!=='cancel'&&!$this->membership()->guard($this,$user,$chat,(int)$saved['thread_id'],$cb)) return;
         $checker=$saved?InstagramChecker::forJob($this->config,$this->store,$this->api,$saved):null;
         if($checker&&!$checker->canDeliver($saved)) {
             $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('quality_expired'),'show_alert'=>true,'cache_time'=>0]); return;
@@ -415,6 +425,7 @@ final class Bot
     {
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return 'denied'; }
+        if(!$this->membership()->guard($this,$user,$chat,$thread)) return 'denied';
         if(instagramStoryUrl($url)!==null&&!InstagramStories::enabled($this->store)) { $this->send($chat,$this->text('instagram_story_disabled'),[],0,$thread); return 'denied'; }
         if(youtubePostUrl($url)!==null&&!YoutubePosts::enabled($this->store)) { $this->send($chat,$this->text('youtube_post_disabled'),[],0,$thread); return 'denied'; }
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
@@ -482,6 +493,13 @@ final class Bot
         }
         $this->store->observeUser($cb['from']??$message['from']);
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
+        if(!$cb&&!$this->admin($user)) {
+            $text=trim((string)($message['text']??''));
+            $command=preg_match('~^/(start|help|music|spotify|insta|checker|insta_checker|youtube_checker|yt_checker|radio)(?:@([A-Za-z0-9_]+))?(?:\s|$)~i',$text,$cmd);
+            $addressed=!$command||empty($cmd[2])||strcasecmp($cmd[2],$this->store->get('bot_username'))===0;
+            $wanted=(!$group&&$addressed)||($addressed&&($command||mediaUrl($text)!==null||collectionUrl($text)!==null||adultService($text)!==null));
+            if($wanted&&$this->allowed($user,$chat)&&!$this->membership()->guard($this,$user,$chat,$thread)) return;
+        }
         if(!$cb&&(new InstagramCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
         if(!$cb&&(new YoutubeCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
         if(!$cb&&(new CheckerMenu($this))->message($message,$user,$chat,$thread)) return;
@@ -489,6 +507,7 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
+            if(str_starts_with($action,'fj:')) { $this->membership()->callback($this,$cb,$user,$chat,array_key_exists('message_thread_id',$message)?$thread:($group?null:0)); return; }
             if(str_starts_with($action,'dbb:')) { (new DatabaseBackups($this))->callback($cb,$user,$chat); return; }
             // Old downloader controls remain inert after the feature is removed.
             if(str_starts_with($action,'gp:')||in_array($action,['custom:play','custom:playsource'],true)) {
@@ -604,6 +623,7 @@ final class Bot
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
             if($reply==='add_admin') { (new Administrators($this))->begin($chat,$user); return; }
+            if($reply==='membership_settings') { $this->membership()->admin($this,$user); return; }
             if(in_array($reply,['database_backups','database_backup_import'],true)) { (new DatabaseBackups($this))->open($user,$chat,$reply==='database_backup_import'); return; }
             if($text==='/health'||$reply==='health') { $this->health($chat); return; }
             if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
@@ -625,6 +645,7 @@ final class Bot
         if($text==='/help'||$reply==='help') { (new GroupSupport($this))->help($chat); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
+        if(is_string($state)&&str_starts_with($state,'membership.add:')) { $this->membership()->receive($this,$user,$message,$state); return; }
         if(is_string($state)&&str_starts_with($state,'database.')) { (new DatabaseBackups($this))->receive($user,$chat,$message,$state); return; }
         if($this->admin($user)&&is_string($state)&&(str_starts_with($state,'handoff.token:')||str_starts_with($state,'handoff.ttl:'))) {
             $custom->receiveHandoff($chat,$user,$message,$state); return;

@@ -89,7 +89,7 @@ def sanitize(path, current, job):
         # Telegram can choose a new update-ID sequence after a long idle period.
         # Preserve the live cursor exactly; an old backup must neither rewind nor jump it forward.
         current['offset'] = str(int(current.get('offset', offset[0] if offset else 0)))
-        for table in ('states', 'jobs', 'help_messages', 'music_menus', 'timed_deletes', 'shares',
+        for table in ('membership_cache', 'membership_panels', 'states', 'jobs', 'help_messages', 'music_menus', 'timed_deletes', 'shares',
                       'ig_check_panels', 'yt_check_panels', 'checker_menus', 'radio_panels', 'radio_sessions',
                       'radio_queue', 'radio_picks', 'update_requests', 'database_restore_files'):
             if table in tables:

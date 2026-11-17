@@ -92,6 +92,7 @@ class InstagramCheckerPanel
     public function open(int $owner,int $chat,int $thread=0,int $message=0,string $view='home',array $data=[]): bool
     {
         if(!$this->permitted($owner,$chat,$this->bot->admin($owner)&&$chat===$owner)) { $this->bot->send($chat,$this->bot->text($this->denial($owner,$chat)),[],0,$thread); return false; }
+        if(!$this->bot->membership()->guard($this->bot,$owner,$chat,$thread)) return false;
         $this->clearInput($owner);
         $s=$this->bot->store; $this->query('DELETE FROM {checker}panels WHERE expires<?',[time()]);
         $p=['token'=>bin2hex(random_bytes(8)),'owner'=>$owner,'chat_id'=>$chat,'thread_id'=>$chat<0?$thread:0,'message_id'=>$message];
@@ -225,6 +226,7 @@ class InstagramCheckerPanel
         $op=$m[2]; $id=(int)($m[3]??0); $data=json_decode($p['data'],true);
         $settings=$chat===$owner&&$this->bot->admin($owner);
         if(!$this->permitted($owner,$chat,$settings)) { $answer($this->denial($owner,$chat),true); return; }
+        if(!in_array($op,['close','pause','remove','delete','home','hub'],true)&&!$this->bot->membership()->guard($this->bot,$owner,$chat,$thread,$cb)) return;
         $answer();
         if($op==='close') { $this->clearInput($owner,$p['token']); $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$p['message_id']]); $this->query('DELETE FROM {checker}panels WHERE token=?',[$p['token']]); return; }
         if($op==='hub') {

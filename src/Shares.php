@@ -63,13 +63,18 @@ final class Shares
     /** An inline query "s:TOKEN" from anyone: the stored track, ready to send into the chat they picked. */
     public function answer(array $query): void
     {
+        $user=(int)($query['from']['id']??0);
+        if($user>0&&$this->bot->membership()->verdict($user,$user)!=='ok') {
+            try { $this->bot->api->call('answerInlineQuery',['inline_query_id'=>(string)$query['id'],'results'=>[],'cache_time'=>0,'is_personal'=>true,'button'=>['text'=>$this->bot->ui->plain('membership_needed'),'start_parameter'=>'join']]); } catch(\Throwable) {}
+            return;
+        }
         $results=[]; $text=(string)($query['query']??'');
         if($this->bot->store->enabled()&&preg_match('/^s:([A-Za-z0-9_-]{16})$/D',trim($text),$match)) {
             self::table($this->bot->store);
             $row=$this->bot->store->query('SELECT * FROM shares WHERE token=? AND created>=?',[$match[1],time()-self::KEEP_DAYS*86400])->fetch();
             if($row&&$row['file_id']!=='') $results[]=['type'=>'audio','id'=>$match[1],'audio_file_id'=>$row['file_id']]+($row['caption']!==''?['caption'=>$row['caption'],'parse_mode'=>'HTML']:[]);
         }
-        try { $this->bot->api->call('answerInlineQuery',['inline_query_id'=>(string)$query['id'],'results'=>$results,'cache_time'=>$results?300:5,'is_personal'=>false]); }
+        try { $this->bot->api->call('answerInlineQuery',['inline_query_id'=>(string)$query['id'],'results'=>$results,'cache_time'=>$this->bot->membership()->active()?0:($results?300:5),'is_personal'=>$this->bot->membership()->active()]); }
         catch(\Throwable) { /* An old query cannot be answered any more. */ }
     }
 }

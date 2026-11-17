@@ -232,7 +232,7 @@ final class Telegram implements FileApi
 {
     /** @var array<int,\CurlHandle> one connection per process, reused so each call skips a new TCP and TLS handshake */
     private static array $handles = [];
-    public function __construct(private Config $config) {}
+    public function __construct(private Config $config,private ?int $quickTimeout=null) {}
     private static function handle(): \CurlHandle
     {
         // A forked job must not share its parent's socket.
@@ -277,8 +277,8 @@ final class Telegram implements FileApi
             curl_setopt_array($ch, [CURLOPT_URL => $this->config->api . '/bot' . $this->config->token . '/' . $method, CURLOPT_POST => true, CURLOPT_POSTFIELDS => $params,
                 // A file upload must not wait for "100 Continue", and a larger buffer keeps a fast uplink busy.
                 CURLOPT_HTTPHEADER => ['Expect:'], CURLOPT_UPLOAD_BUFFERSIZE => 1048576, CURLOPT_TCP_NODELAY => true, CURLOPT_TCP_KEEPALIVE => 1,
-                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $method==='setMessageReaction'?2:15,
-                CURLOPT_TIMEOUT => $method==='setMessageReaction'?3:($upload ? 3600 : 45)]);
+                CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => $this->quickTimeout??($method==='setMessageReaction'?2:15),
+                CURLOPT_TIMEOUT => $this->quickTimeout??($method==='setMessageReaction'?3:($upload ? 3600 : 45))]);
             $body = curl_exec($ch);
             $errno = curl_errno($ch);
             if ($body === false) { self::$handles = []; throw new \RuntimeException('Telegram transport error ' . $errno); }
@@ -286,7 +286,7 @@ final class Telegram implements FileApi
             // Telegram's flood control ("Too Many Requests: retry after N"): wait as asked and send the same request again,
             // so a long run of messages (a whole album) slows down instead of stopping halfway.
             $wait = (int)($result['parameters']['retry_after'] ?? 0);
-            if (!($result['ok'] ?? false) && (int)($result['error_code'] ?? 0) === 429 && $method !== 'setMessageReaction'
+            if ($this->quickTimeout===null && !($result['ok'] ?? false) && (int)($result['error_code'] ?? 0) === 429 && $method !== 'setMessageReaction'
                 && $wait > 0 && $wait <= ($upload || str_starts_with($method, 'send') ? 90 : 20) && $attempt < 4) {
                 sleep($wait + 1); continue;
             }

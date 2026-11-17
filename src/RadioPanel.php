@@ -56,6 +56,7 @@ final class RadioPanel
         if(!Radio::enabled($this->bot->store)) return 'radio_disabled';
         if($station===null) return 'radio_no_station';
         if(!$this->radio->mayControl($this->bot->api,(int)$station['chat_id'],$user,$this->bot->admin($user))) return $this->refusal();
+        if(!$this->bot->membership()->guard($this->bot,$user,$chat)) return 'membership_needed';
         $added=0;
         foreach($sources as $song) {
             $result=$this->radio->enqueue((int)$station['chat_id'],$user,$song['source'],(string)$song['title'],(string)$song['artists'],(int)$song['duration']);
@@ -100,6 +101,7 @@ final class RadioPanel
             if($chat<0&&$target!==$chat) { $this->answer($cb,$this->refusal(),[],true); return; }
             if(($match[3]??'0')!==$this->radio->session($target)) { $this->answer($cb,'radio_player_expired',[],true); return; }
             if(in_array($op,['l','d','D'],true)&&!$this->mayManage($target,$user)) { $this->answer($cb,'radio_not_admin',[],true); return; }
+            if(!in_array($op,['s','x','z'],true)&&!$this->bot->membership()->guard($this->bot,$user,$chat,$thread,$cb)) return;
             if($op==='r'&&$chat>0) { $this->answer($cb); $this->panel($chat,$user,$message); return; }
             switch($op) {
                 case 't': $this->radio->togglePause($target); $this->answer($cb,'radio_done'); break;
@@ -138,6 +140,7 @@ final class RadioPanel
         if(!$this->radio->mayControl($this->bot->api,(int)$station['chat_id'],$user,$this->bot->admin($user))) { $this->answer($cb,$this->refusal(),[],true); return; }
         $song=$this->radio->picked($token);
         if($song===null) { $this->answer($cb,'radio_expired',[],true); return; }
+        if(!$this->bot->membership()->guard($this->bot,$user,$chat,$thread,$cb)) return;
         $result=$this->radio->enqueue((int)$station['chat_id'],$user,$song['source'],$song['title'],$song['artists'],$song['duration']);
         if(is_string($result)&&$result!=='queued') { $this->answer($cb,match($result) {'long'=>'radio_long','full'=>'radio_full',default=>'radio_expired'},[],true); return; }
         if($result==='queued') $this->answer($cb,'radio_already');

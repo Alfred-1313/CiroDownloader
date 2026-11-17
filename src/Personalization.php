@@ -145,7 +145,7 @@ final class Personalization
     private function adultReturn(int $chat,int $message,string $site): void { if(!$this->menus()->settingsReturn($chat,$message,$site)) $this->adultPage($chat,$message); }
     private function resetAll(int $chat,int $message): void
     {
-        $ui=$this->bot->ui; $store=$this->bot->store; $names=['cover.parts','media.video.parts','media.audio.parts','cover.order'];
+        $ui=$this->bot->ui; $store=$this->bot->store; $names=['membership.sticker','cover.parts','media.video.parts','media.audio.parts','cover.order'];
         foreach(['text','button'] as $kind) foreach(Ui::definitions()[$kind==='button'?'buttons':'texts'] as $key=>$item) {
             if(!$ui->customizable($kind,$key)) continue;
             if($kind==='text') { $names[]='text.'.$key; if($ui->supportsReaction($key)) $names[]='reaction.'.$key; }
@@ -181,6 +181,7 @@ final class Personalization
     }
     public function sectionCustomized(string $section): bool
     {
+        if($section==='membership'&&$this->bot->store->get('membership.sticker')!=='') return true;
         foreach($this->sectionItems($section) as [$kind,$key]) if($this->bot->ui->customized($kind,$key)) return true;
         return false;
     }
@@ -279,6 +280,7 @@ final class Personalization
     private function sectionItems(string $section): array
     {
         $screens=[
+            'membership'=>[['text','membership_prompt'],['text','membership_group_prompt'],['text','membership_unavailable'],['text','membership_success'],['text','membership_needed'],['text','membership_wait'],['button','membership_channel'],['button','membership_check']],
             'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
@@ -339,6 +341,10 @@ final class Personalization
     public function settingsRows(string $section): array
     {
         $ui=$this->bot->ui; $rows=[];
+        if($section==='membership') {
+            $rows[]=[$ui->button('membership_settings','custom:membershipsettings')];
+            $rows[]=[$ui->button('membership_sticker_edit','custom:membershipsticker'),$ui->button('membership_sticker_reset','custom:membershipstickerreset')];
+        }
         if($section==='youtube') {
             $rows[]=[$this->heading($ui->label('sec_settings'),'sec_settings')];
             $rows[]=[$ui->button('youtube_checker_settings','youtube_checker:settings')];
@@ -714,6 +720,15 @@ final class Personalization
     public function receive(int $chat,int $user,array $message,array $state): void
     {
         $ui=$this->bot->ui; ['kind'=>$kind,'key'=>$key,'message'=>$menu]=$state;
+        if($kind==='membership_sticker') {
+            $file=(string)($message['sticker']['file_id']??'');
+            try {
+                if($file===''||strlen($file)>512) throw new \RuntimeException('Sticker required');
+                $confirmed=$this->bot->api->call('sendSticker',['chat_id'=>$chat,'sticker'=>$file]);
+                if(!is_array($confirmed)||empty($confirmed['message_id'])) throw new \RuntimeException('Sticker preview unconfirmed');
+            } catch(\Throwable) { $this->send($chat,$ui->text('membership_sticker_invalid'),[[$ui->button('back','custom:section:membership')]],(int)$menu); return; }
+            $this->bot->store->set('membership.sticker',$file);$this->bot->store->query('DELETE FROM states WHERE user_id=?',[$user]);$this->section($chat,'membership',(int)$menu); return;
+        }
         $key=UiRegistry::legacy(in_array($kind,['icon','emoji'],true)?'button':$kind,$key);
         if($kind==='reaction'&&($key==='link'||$ui->supportsReaction($key))) {
             $custom=array_filter($message['entities']??[],fn($entity)=>($entity['type']??'')==='custom_emoji');
@@ -793,6 +808,12 @@ final class Personalization
         $ui=$this->bot->ui; $parts=explode(':',$action);
         if(($parts[0]??'')!=='custom') return false;
         $op=$parts[1]??''; $kind=$parts[2]??''; $key=$parts[3]??'';
+        if($op==='membershipsettings') { $this->bot->membership()->admin($this->bot,$user,$message); return true; }
+        if($op==='membershipstickerreset') { $this->bot->store->set('membership.sticker','');$this->section($chat,'membership',$message);return true; }
+        if($op==='membershipsticker') {
+            $id=$this->send($chat,$ui->text('membership_sticker_prompt'),[[$ui->button('back','custom:section:membership')]],$message);
+            $this->bot->store->query('INSERT OR REPLACE INTO states VALUES(?,?,?)',[$user,'ui:'.json_encode(['kind'=>'membership_sticker','key'=>'','message'=>$id],JSON_THROW_ON_ERROR),time()+600]);return true;
+        }
         if($this->menus()->handle($chat,$user,$action,$message)) return true;
         if($op==='source') {
             $source=UiRegistry::legacy('text',$kind);

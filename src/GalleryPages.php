@@ -43,6 +43,11 @@ class GalleryPages
     }
     public function queue(int $id,int $user,int $chat,int $message,?int $thread,int $page,?int $revision=null): string
     {
+        $existing=$this->store->query('SELECT * FROM jobs WHERE id=?',[$id])->fetch(); $preview=$existing?$this->state($existing):null;
+        if($existing&&$preview&&(int)$existing['user_id']===$user&&(int)$existing['chat_id']===$chat&&(int)$preview['message']===$message&&(int)$preview['expires']>time()&&($thread===null||(int)$existing['thread_id']===$thread)) {
+            $bot=new Bot($this->config,$this->store,$this->api);
+            if(!$bot->membership()->guard($bot,$user,$chat,(int)$existing['thread_id'])) return 'membership_needed';
+        }
         $this->store->db->exec('BEGIN IMMEDIATE');
         try {
             $job=$this->store->query("SELECT * FROM jobs WHERE id=? AND phase='{$this->service}_page'",[$id])->fetch();

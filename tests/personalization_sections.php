@@ -30,7 +30,7 @@ try {
     foreach(['stories','checker'] as $kind) $screens[]='custom:items:instagram:'.$kind.':0';
     $screens[]='custom:items:youtube:posts:0';
     $screens[]='custom:items:youtube:checker:0';
-    foreach(['menu','batch','search','radio','radio_player','help','inputs','checkers','group','access','admin_replies','errors'] as $section) $screens[]='custom:section:'.$section;
+    foreach(['menu','batch','search','radio','radio_player','help','inputs','checkers','membership','group','access','admin_replies','errors'] as $section) $screens[]='custom:section:'.$section;
     foreach($screens as $screen) {
         $queue=[$screen]; $visited=[];
         while($queue) {

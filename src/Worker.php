@@ -75,10 +75,10 @@ final class Worker
                 $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);
                 $checker->cancel($job); return;
             }
-            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
+            if(!$bot->canUse((int)$job['user_id'],(int)$job['chat_id'])) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
-                $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
+                $bot->accessDenied($job); return;
             }
             if($service==='youtube'&&!$checker&&!YoutubePosts::enabled($store)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
@@ -148,7 +148,7 @@ final class Worker
                 }
                 if(!$checker&&!$instagramStory&&$service!=='youtube'&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
                     $bot->jobMessage($job,$bot->text($service.'_article_building'));
-                    $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->allowed((int)$job['user_id'],(int)$job['chat_id']));
+                    $url=($this->articles??new Articles($config))->publish($media,$job['url'],$bot->ui,fn()=>$bot->canUse((int)$job['user_id'],(int)$job['chat_id']));
                     Download::clean($folder);
                     $button=$bot->ui->button('open_'.$service.'_article'); $button['url']=$url;
                     $bot->jobMessage($job,$bot->text($service.'_article_ready',['count'=>count($media),'page_url'=>$url,'url'=>$job['url']]),$bot->ui->layout($service,'article',['article'=>[$button]],[['article']]));
@@ -187,9 +187,10 @@ final class Worker
                 $inspectionStarted=hrtime(true);
                 $info=$downloader->inspect($job['url'],$folder);
                 $timings['inspect_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
-                if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
+                if(!$bot->canUse((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
                     $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                    $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id']));
+                    if($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite)) $bot->jobMessage($job,$bot->text('invalid'));
+                    else $bot->accessDenied($job);
                 } else {
                     if($checker) $checker->beginSend($job);
                     elseif(!$adult) $store->set('youtube_probe_url',$job['url']);
@@ -205,10 +206,12 @@ final class Worker
             $media=$audio?$downloader->fetchAudio($job['url'],$folder,$options['audio']??[]):
                 $downloader->fetch($job['url'],$folder,$quality,$quality!==null?($options[$quality]??[]):[]);
             $timings['prepare_ms']=(int)round((hrtime(true)-$preparationStarted)/1e6);
-            if(($checker&&!$checker->canDeliver($job))||!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
+            if(($checker&&!$checker->canDeliver($job))||!$bot->canUse((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
                 if($checker) { $checker->cancel($job); $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]); return; }
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id'])); return;
+                if($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite)) $bot->jobMessage($job,$bot->text('invalid'));
+                else $bot->accessDenied($job);
+                return;
             }
             $stage='upload';
             if($config->api==='http://ciro-telegram-api:8081'&&!$config->localApiSharedStorage) {
@@ -396,9 +399,9 @@ final class Worker
         $started=hrtime(true);
         $media=$this->prepareTrack($service,$track!==null?['m'=>$track]:['u'=>$job['url']],$folder);
         $timings['prepare_ms']=(int)round((hrtime(true)-$started)/1e6);
-        if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) {
+        if(!$bot->canUse((int)$job['user_id'],(int)$job['chat_id'])) {
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-            $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
+            $bot->accessDenied($job); return;
         }
         $stage='upload';
         $bot->jobMessage($job,$bot->text($service.'_uploading'));
@@ -533,7 +536,7 @@ final class Worker
         };
         $gate=function() use($store,$job,$bot,&$stopped,&$denied): bool {
             if($store->get('batch.stop.'.(int)$job['id'])==='1') { $stopped=true; return false; }
-            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) { $denied=true; return false; }
+            if(!$bot->canUse((int)$job['user_id'],(int)$job['chat_id'])) { $denied=true; return false; }
             return true;
         };
         $prepare=function(array $todo) use($tracks,$service,$dir,$gate,$progress,&$checked): void {
@@ -565,7 +568,7 @@ final class Worker
         if($denied) {
             Download::clean($dir);
             $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-            $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
+            $bot->accessDenied($job); return;
         }
         $store->query('DELETE FROM settings WHERE key=?',['batch.stop.'.(int)$job['id']]);
         $good=array_values(array_filter(array_keys($tracks),fn($i)=>is_file($dir.'/'.$i.'.json')));
@@ -808,7 +811,7 @@ final class Worker
     private function galleryDelivery(array $job,array $media,Bot $bot,string $service): void
     {
         if(count($media)!==1) throw new MediaFailure('format','Expected one gallery media file');
-        if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
+        if(!$bot->canUse((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
         $story=instagramStoryUrl($job['url'])!==null;
         $checker=InstagramChecker::forJob($this->config,$this->store,$this->api,$job);
         if($service==='youtube'&&!$checker&&!YoutubePosts::enabled($this->store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
