@@ -11,6 +11,7 @@ $lock=Zero\lockProcess($config->storage.'/worker.lock');
 new Zero\Radio($config,$store);
 $processor=new Zero\Worker($config,$store,new Zero\Telegram($config));
 $checkerProcessor=new Zero\InstagramChecker($config,$store,new Zero\Telegram($config));
+$youtubeCheckerProcessor=new Zero\YoutubeChecker($config,$store,new Zero\Telegram($config));
 $downloads=$config->storage.'/downloads';
 if(!is_dir($downloads)) mkdir($downloads,0700,true);
 // The supervisor lock is inherited by its children. A replacement supervisor
@@ -66,16 +67,18 @@ try {
             if(isset($checkerPid)&&pcntl_waitpid($checkerPid,$checkerStatus,WNOHANG)!==0) unset($checkerPid);
             if(!isset($checkerPid)&&time()-($lastCheckerTick??0)>=5) {
                 $lastCheckerTick=time();
-                if($checkerProcessor->due()&&$store->get('update_in_progress','0')!=='1') {
+                if(($checkerProcessor->due()||$youtubeCheckerProcessor->due())&&$store->get('update_in_progress','0')!=='1') {
+                    $youtubeCheck=$youtubeCheckerProcessor->due()&&(!$checkerProcessor->due()||!($lastCheckerWasYoutube??false)); $lastCheckerWasYoutube=$youtubeCheck;
                     $pid=pcntl_fork();
                     if($pid===0) {
                         pcntl_signal(SIGTERM,static function(): void { throw new Zero\WorkerStopped('Checker stopped'); });
                         pcntl_signal(SIGINT,static function(): void { throw new Zero\WorkerStopped('Checker stopped'); });
                         try {
                             $checkStore=new Zero\Store($config->storage); $checkApi=new Zero\Telegram($config);
-                            $checkPanel=new Zero\InstagramCheckerPanel(new Zero\Bot($config,$checkStore,$checkApi));
+                            $checkBot=new Zero\Bot($config,$checkStore,$checkApi);
+                            $checkPanel=$youtubeCheck?new Zero\YoutubeCheckerPanel($checkBot):new Zero\InstagramCheckerPanel($checkBot);
                             $checkPanel->refreshChecks();
-                            (new Zero\InstagramChecker($config,$checkStore,$checkApi))->poll();
+                            ($youtubeCheck?new Zero\YoutubeChecker($config,$checkStore,$checkApi):new Zero\InstagramChecker($config,$checkStore,$checkApi))->poll();
                             $checkPanel->refreshChecks(); exit(0);
                         }
                         catch(Throwable) { exit(1); }
@@ -85,7 +88,7 @@ try {
             if(time()-$lastHeartbeat>=10) {
                 if(!isset($lastPageCleanup)||time()-$lastPageCleanup>=60) {
                     Zero\MusicMenu::purge($config,$store);
-                    $checkerProcessor->prune();
+                    $checkerProcessor->prune(); $youtubeCheckerProcessor->prune();
                     foreach(Zero\galleryServices() as $service) (new Zero\GalleryPages($config,$store,new Zero\Telegram($config),$service))->prune(); $lastPageCleanup=time();
                 }
                 $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();

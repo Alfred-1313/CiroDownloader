@@ -234,7 +234,13 @@ class MaintenanceTests(unittest.TestCase):
                 CREATE TABLE ig_check_deliveries(status TEXT);
                 INSERT INTO ig_check_subs VALUES(1,1,4);
                 INSERT INTO ig_check_targets VALUES('old-token',9999999999,9999999999);
-                INSERT INTO ig_check_deliveries VALUES('queued'),('sending'),('sent');''')
+                INSERT INTO ig_check_deliveries VALUES('queued'),('sending'),('sent');
+                CREATE TABLE yt_check_subs(posts_ready INTEGER,stories_ready INTEGER,extra_ready INTEGER,generation INTEGER);
+                CREATE TABLE yt_check_targets(lease TEXT,lease_until INTEGER,next_check INTEGER);
+                CREATE TABLE yt_check_deliveries(status TEXT);
+                INSERT INTO yt_check_subs VALUES(1,1,1,9);
+                INSERT INTO yt_check_targets VALUES('old',9999999999,9999999999);
+                INSERT INTO yt_check_deliveries VALUES('queued'),('sending'),('sent');''')
         self.app.data = data_archive(database.read_bytes())
         backup = self.app.backup()
         with tempfile.TemporaryDirectory(dir=self.root) as folder:
@@ -243,6 +249,9 @@ class MaintenanceTests(unittest.TestCase):
                 self.assertEqual(restored.execute('SELECT * FROM ig_check_subs').fetchone(), (0, 0, 5))
                 self.assertEqual(restored.execute('SELECT * FROM ig_check_targets').fetchone(), ('', 0, 0))
                 self.assertEqual(restored.execute('SELECT status FROM ig_check_deliveries').fetchall(), [('cancelled',), ('uncertain',), ('sent',)])
+                self.assertEqual(restored.execute('SELECT * FROM yt_check_subs').fetchone(), (0, 0, 0, 10))
+                self.assertEqual(restored.execute('SELECT * FROM yt_check_targets').fetchone(), ('', 0, 0))
+                self.assertEqual(restored.execute('SELECT status FROM yt_check_deliveries').fetchall(), [('cancelled',), ('uncertain',), ('sent',)])
 
     def test_restoring_a_backup_does_not_replay_old_downloads_or_updates(self):
         database = self.root / 'pending.sqlite'

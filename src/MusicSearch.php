@@ -49,6 +49,7 @@ final class MusicSearch
     {
         $names=self::PUBLIC_MENU;
         if(InstagramChecker::enabled($store)&&InstagramChecker::everyone($store)) array_push($names,'checker','insta_checker');
+        if(YoutubeChecker::enabled($store)&&YoutubeChecker::everyone($store)) $names[]='youtube_checker';
         $menu=self::commands($ui,$names); $hash=hash('sha256',json_encode($menu,JSON_UNESCAPED_UNICODE));
         if($store->get('commands.public')===$hash||($store->get('commands.public_attempt')===$hash&&time()-(int)$store->get('commands.public_tried','0')<3600)) return;
         $store->set('commands.public_attempt',$hash);

@@ -28,9 +28,9 @@ $temp=sys_get_temp_dir().'/ciro-admin-keyboard-'.bin2hex(random_bytes(6)); mkdir
 try {
     $store=new Zero\Store($temp); $api=new AdminKeyboardApi(); $bot=new Zero\Bot(new Zero\Config('123:fake',[42],$temp),$store,$api);
     $bot->handle(adminMessage('/start'));
-    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('instagram_checker'),$bot->label('admin')],'the main keyboard contains Help, the checker and the administrator entrance');
+    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('instagram_checker'),$bot->label('youtube_checker'),$bot->label('admin')],'the main keyboard contains Help, the checker and the administrator entrance');
     $bot->handle(adminMessage($bot->label('admin')));
-    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','cookie_settings','update','add_admin','instagram_checker','off','back_home']);
+    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','cookie_settings','update','add_admin','instagram_checker','youtube_checker','off','back_home']);
     adminCheck(adminLabels($api)===$expected&&!isset(end($api->calls)[1]['reply_markup']['inline_keyboard']),'entering administration replaces the main reply keyboard with the administration tools');
     adminCheck(end($api->calls)[1]['reply_markup']['resize_keyboard']&&end($api->calls)[1]['reply_markup']['is_persistent']===false&&end($api->calls)[1]['reply_markup']['one_time_keyboard']===false,'the keyboard supports Telegram manual hide/show and remains reusable after choosing a control');
     foreach(['customize','health','cookies','cookie_settings','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);
@@ -62,7 +62,7 @@ try {
     adminCheck($store->enabled()&&adminLabels($api)===$expected,'activation works while the public bot is stopped');
     $bot->handle(adminMessage($bot->label('cookies')));
     $bot->handle(adminMessage($bot->label('back_home')));
-    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('instagram_checker'),$bot->label('admin')]&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back to main replaces the administration keyboard and clears the current input flow');
+    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('instagram_checker'),$bot->label('youtube_checker'),$bot->label('admin')]&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back to main replaces the administration keyboard and clears the current input flow');
     $bot->handle(adminMessage('/admin'));
     adminCheck(adminLabels($api)===$expected,'the administrator command opens the same reply panel');
     $api->failDelete=true; $before=count($api->calls);

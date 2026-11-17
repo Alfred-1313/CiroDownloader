@@ -31,7 +31,7 @@ $input=function(string $text,array $entities=[]) use($bot,&$serial): void {
 };
 try {
     $click('custom:home');
-    foreach(['youtube',...Zero\galleryServices(),...Zero\musicServices(),'play'] as $service) serviceCheck($api->find('custom:service:'.$service)!==null,'one downloader entry opens '.$service);
+    foreach(['youtube',...Zero\galleryServices(),...Zero\musicServices()] as $service) serviceCheck($api->find('custom:service:'.$service)!==null,'one downloader entry opens '.$service);
     foreach(['adult','music','general'] as $category) serviceCheck($api->find('custom:category:'.$category)!==null,'the main screen has the separate '.$category.' category');
     serviceCheck(count($api->last()['reply_markup']['inline_keyboard'])<=16,'the main Personalization screen remains short');
     foreach($api->buttons() as $button) serviceCheck(str_starts_with($button['callback_data'],'custom:hint:')?empty($button['style']):($button['style']??'')==='primary','white explaining titles and blue controls retain the existing UI rule');

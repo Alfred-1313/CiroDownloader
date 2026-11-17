@@ -92,10 +92,10 @@ final class ServiceCustomization
         if(!in_array($service,UiRegistry::services(),true)) { $this->home($chat,$message); return; }
         $ui=$this->bot->ui; $rows=[];
         if(in_array($service,['youtube',...adultServices()],true)) { $rows[]=$this->heading('hub_cover'); $rows[]=[$this->navigation('hub_edit_cover','custom:coverhub:'.$service,$this->changed($service,'cover')||$this->changed($service,'quality')||$this->layoutChanged($service,'quality'))]; }
-        foreach($service==='instagram'?['caption','button','text','stories','checker']:($service==='youtube'?['caption','button','text','posts']:['caption','button','text']) as $kind) {
+        foreach($service==='instagram'?['caption','button','text','stories','checker']:($service==='youtube'?['caption','button','text','posts','checker']:['caption','button','text']) as $kind) {
             if(!$this->items($service,$kind)) continue;
-            $rows[]=$this->heading('hub_'.$kind); $rows[]=[$this->navigation('hub_edit_'.$kind,'custom:items:'.$service.':'.$kind.':0',$this->changed($service,$kind))];
-            if($service==='instagram'&&$kind==='checker') $rows[]=[$ui->button('instagram_checker_settings','checker:settings:instagram')];
+            $rows[]=$this->heading($service==='youtube'&&$kind==='checker'?'hub_youtube_checker':'hub_'.$kind); $rows[]=[$this->navigation('hub_edit_'.$kind,'custom:items:'.$service.':'.$kind.':0',$this->changed($service,$kind))];
+            if(in_array($service,['instagram','youtube'],true)&&$kind==='checker') $rows[]=[$ui->button($service.'_checker_settings',$service==='instagram'?'checker:settings:instagram':'youtube_checker:settings')];
         }
         $rows[]=$this->heading('hub_layout'); $rows[]=[$this->navigation('hub_edit_layout','custom:layouts:'.$service,(bool)array_filter(array_keys(UiRegistry::layouts($service)),fn($id)=>$this->layoutChanged($service,$id)))];
         $rows[]=$this->heading('sec_settings'); $rows[]=[$ui->button('hub_settings','custom:settings:'.$service)];
@@ -170,6 +170,7 @@ final class ServiceCustomization
             $part='';
             if($instagram&&(str_starts_with($key,'instagram_checker_')||in_array($key,['instagram_checker','command_insta_checker','command_checker'],true))) $part='checker';
             elseif($instagram&&(str_starts_with($key,'instagram_story_')||in_array($key,['source_instagram_story','command_story_instagram'],true))) $part='stories';
+            elseif(($definition['group']??'')==='youtube'&&(str_starts_with($key,'youtube_checker')||$key==='command_youtube_checker')) $part='checker';
             elseif(($definition['group']??'')==='youtube'&&(str_starts_with($key,'youtube_post_')||$key==='source_youtube_post')) $part='posts';
             if(in_array($filter,['stories','posts','checker'],true)) return $part===$filter;
             if($part!=='') return false;

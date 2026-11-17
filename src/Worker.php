@@ -29,8 +29,8 @@ final class Worker
         $changed=$this->store->query("UPDATE jobs SET status='failed' WHERE id=? AND status='running' AND run_token=?",[$job['id'],(int)($job['run_token']??0)])->rowCount();
         if(!$changed&&(int)$this->store->query('SELECT run_token FROM jobs WHERE id=?',[$job['id']])->fetchColumn()!==(int)($job['run_token']??0)) return;
         if($changed&&InstagramChecker::deliveryId($job)>0) {
-            (new InstagramChecker($this->config,$this->store,$this->api))->failure($job);
-            (new GalleryPages($this->config,$this->store,$this->api,'instagram'))->clean($job);
+            InstagramChecker::forJob($this->config,$this->store,$this->api,$job)->failure($job);
+            if($service=galleryService($job['url'])) (new GalleryPages($this->config,$this->store,$this->api,$service))->clean($job);
         } elseif($changed) {
             $bot=new Bot($this->config,$this->store,$this->api);
             try { $bot->jobMessage($job,$bot->text('restarted')); } catch(Throwable) {}
@@ -46,7 +46,7 @@ final class Worker
             $store->query("UPDATE jobs SET status='cancelled',options='{}',expires=0 WHERE id=? AND phase='play'",[$job['id']]);
             return;
         }
-        $checker=InstagramChecker::deliveryId($job)>0?new InstagramChecker($config,$store,$api):null;
+        $checker=InstagramChecker::forJob($config,$store,$api,$job);
         $config->cookieFallback=$store->get('cookies.fallback','0')==='1';
         $config->musicCopy=$store->get('music.mp3','0')!=='1';
         $bot=new Bot($config,$store,$api); $downloader=new Download($config);
@@ -67,7 +67,7 @@ final class Worker
         $bot->ui=$bot->ui->forService($gallery?$service:($music??($adult?$adultSite:($collection===null&&$job['phase']!=='batch'?'youtube':''))));
         $started=hrtime(true); $timings=[];
         try {
-            if($checker&&!$checker->canDeliver($job,$job['phase']==='instagram_page')) {
+            if($checker&&!$checker->canDeliver($job,str_ends_with($job['phase'],'_page'))) {
                 $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);
                 $checker->cancel($job); return;
             }
@@ -76,7 +76,7 @@ final class Worker
                 if($gallery) (new GalleryPages($config,$store,$api,$service))->clean($job);
                 $bot->jobMessage($job,$bot->denial((int)$job['chat_id'])); return;
             }
-            if($service==='youtube'&&!YoutubePosts::enabled($store)) {
+            if($service==='youtube'&&!$checker&&!YoutubePosts::enabled($store)) {
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 (new GalleryPages($config,$store,$api,'youtube'))->clean($job);
                 $bot->jobMessage($job,$bot->text('youtube_post_disabled')); return;
@@ -95,6 +95,9 @@ final class Worker
                 $stage='inspect';
                 (new XnxxSearch($bot,$adultSite==='xvideos'?$this->xvideosSearchFetch:$this->xnxxSearchFetch,$adultSite))->open($job);
                 return;
+            }
+            if($job['phase']==='youtube_checker'&&$checker instanceof YoutubeChecker) {
+                $this->checkerVideo($job,$bot,$checker,$folder,$timings,$stage); return;
             }
             if($job['phase']==='batch') {
                 $this->musicBatch($job,$bot,$folder,$timings,$stage);
@@ -120,7 +123,7 @@ final class Worker
                 if(!$checker) $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_downloading'));
                 $inspectionStarted=hrtime(true);
                 $galleryMedia=GalleryMedia::forService($config,$service);
-                if($checker) $galleryMedia=$galleryMedia->usingCookiePool(InstagramCheckerMedia::pool($config));
+                if($checker&&!($checker instanceof YoutubeChecker)) $galleryMedia=$galleryMedia->usingCookiePool(InstagramCheckerMedia::pool($config));
                 $media=$galleryMedia->fetch($job['url'],$folder);
                 $timings['prepare_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
                 $stage='upload'; $uploadStarted=hrtime(true); $mediaBytes=self::bytesOf($media);
@@ -130,10 +133,13 @@ final class Worker
                     $bot->jobMessage($job,$bot->text('instagram_story_empty',['username'=>instagramStoryUsername($job['url'])])); return;
                 }
                 if($instagramStory&&!$checker&&!InstagramStories::enabled($store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
-                if($service==='youtube'&&!YoutubePosts::enabled($store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
+                if($service==='youtube'&&!$checker&&!YoutubePosts::enabled($store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
                 if($service==='youtube'&&count($media)===1&&($media[0]['type']??'')==='text') {
                     $description=mb_substr($media[0]['description'],0,3000);
-                    $bot->jobMessage($job,$bot->text('youtube_post_text',['description'=>$description,'author'=>$media[0]['author'],'url'=>$job['url']]),$bot->ui->gallerySourceRows('youtube',$job['url']));
+                    if($checker) $checker->beginSend($job);
+                    $text=$checker?$bot->text('youtube_checker_post_text',['description'=>$description,'username'=>$checker->context($job)['username'],'author'=>$media[0]['author'],'url'=>$job['url']]):$bot->text('youtube_post_text',['description'=>$description,'author'=>$media[0]['author'],'url'=>$job['url']]);
+                    $bot->jobMessage($job,$text,$checker?$bot->ui->checkerSourceRows($job['url'],$checker::prefix($job)):$bot->ui->gallerySourceRows('youtube',$job['url']));
+                    if($checker) { $message=(int)$store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn(); if($message<1) throw new MediaFailure('upload','Missing checker text confirmation'); $checker->confirmed($job,$message); }
                     $store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]); return;
                 }
                 if(!$checker&&!$instagramStory&&$service!=='youtube'&&count($media)>1&&$store->get($service.'.carousel_mode','pages')==='article') {
@@ -742,6 +748,30 @@ final class Worker
         }
     }
 
+    /** Checker videos bypass interactive quality menus and keep uncertain sends terminal. */
+    private function checkerVideo(array $job,Bot $bot,YoutubeChecker $checker,string $folder,array &$timings,string &$stage): void
+    {
+        $downloader=new Download($this->config); $start=hrtime(true); $info=$downloader->inspect($job['url'],$folder);
+        $qualities=array_filter(array_keys($info['options']),fn($q)=>is_numeric($q)&&(int)$q<=$checker->quality()); rsort($qualities,SORT_NUMERIC);
+        if(!$qualities) throw new MediaFailure('format','No checker quality within the selected limit');
+        $quality=(int)$qualities[0]; $media=$downloader->fetch($job['url'],$folder,$quality,$info['options'][$quality]);
+        $timings['prepare_ms']=(int)round((hrtime(true)-$start)/1e6);
+        if(!$checker->canDeliver($job)) throw new MediaFailure('restricted','Checker delivery no longer allowed');
+        $stage='upload'; $context=$checker->context($job); $bytes=(int)filesize($media['path']);
+        $caption=Ui::fitCaption($bot->text($checker::prefix($job).'_caption',['username'=>$context['username'],
+            'title'=>mb_substr($media['title'],0,180),'quality'=>$media['quality']??($quality.'p'),'duration'=>Ui::duration((int)$media['duration']),'url'=>$job['url']]));
+        $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
+            'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height'],'video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
+            'reply_markup'=>['inline_keyboard'=>$bot->ui->checkerSourceRows($job['url'],$checker::prefix($job))]];
+        if((int)$job['chat_id']<0&&(int)$job['thread_id']>0) $params['message_thread_id']=(int)$job['thread_id'];
+        if(!empty($media['thumbnail'])) $params['thumbnail']=new \CURLFile($media['thumbnail'],'image/jpeg','thumbnail.jpg');
+        $checker->beginSend($job); $start=hrtime(true); $sent=$this->api->call('sendVideo',$params);
+        if(!is_array($sent)||empty($sent['message_id'])) throw new MediaFailure('upload','Missing checker video confirmation');
+        $checker->confirmed($job,(int)$sent['message_id']); Download::clean($folder);
+        $timings['upload_ms']=(int)round((hrtime(true)-$start)/1e6); $this->noteSpeed('youtube',$bytes,$timings);
+        $this->store->query("UPDATE jobs SET status='done' WHERE id=?",[$job['id']]);
+    }
+
     /** One delivered file for the speed report; a failure to note it never touches the delivery itself. */
     private function noteSpeed(string $service,int $uploadBytes,array $timings,?int $downloadBytes=null,?int $uploadMs=null): void
     {
@@ -758,8 +788,8 @@ final class Worker
         if(count($media)!==1) throw new MediaFailure('format','Expected one gallery media file');
         if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])) throw new MediaFailure('restricted','Gallery delivery no longer authorized');
         $story=instagramStoryUrl($job['url'])!==null;
-        $checker=InstagramChecker::deliveryId($job)>0?new InstagramChecker($this->config,$this->store,$this->api):null;
-        if($service==='youtube'&&!YoutubePosts::enabled($this->store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
+        $checker=InstagramChecker::forJob($this->config,$this->store,$this->api,$job);
+        if($service==='youtube'&&!$checker&&!YoutubePosts::enabled($this->store)) throw new MediaFailure('restricted','YouTube posts disabled before delivery');
         if($story&&!$checker&&!InstagramStories::enabled($this->store)) throw new MediaFailure('restricted','Instagram stories disabled before delivery');
         $item=$media[0];
         if(!$checker) $bot->jobMessage($job,$bot->text(galleryUiPrefix($service,$job['url']).'_uploading',['sent'=>0,'count'=>1]));
@@ -767,14 +797,14 @@ final class Worker
         // Match the carousel's description budget; Ui escapes upstream text before inserting it into HTML.
         $description=(string)($item['description']??'');
         while(TextFormat::length($description)>700) $description=mb_substr($description,0,max(0,mb_strlen($description)-50));
-        $prefix=$checker?InstagramChecker::prefix($job):galleryUiPrefix($service,$job['url']);
+        $prefix=$checker?$checker::prefix($job):galleryUiPrefix($service,$job['url']);
         $username=$checker?($checker->context($job)['username']??''):instagramStoryUsername($job['url']);
         $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$bot->ui->fitCaption($bot->text($prefix.'_caption',['index'=>1,'count'=>1,'url'=>$job['url'],'description'=>$description,'username'=>$username,'author'=>$item['author']??''])),'parse_mode'=>'HTML'];
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         if($item['type']==='video') $params+=['width'=>$item['width'],'height'=>$item['height'],'duration'=>$item['duration'],'supports_streaming'=>true];
         $file=new \CURLFile($item['path'],$item['type']==='photo'?'image/jpeg':'video/mp4',$item['type']==='photo'?'photo.jpg':'video.mp4');
         if($checker) $checker->beginSend($job);
-        $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+[$item['type']=>$file,'reply_markup'=>['inline_keyboard'=>$checker?$bot->ui->checkerSourceRows($job['url']):($story?$bot->ui->instagramStorySourceRows($job['url']):$bot->ui->gallerySourceRows($service,$job['url']))]]);
+        $result=$this->api->call($item['type']==='photo'?'sendPhoto':'sendVideo',$params+[$item['type']=>$file,'reply_markup'=>['inline_keyboard'=>$checker?$bot->ui->checkerSourceRows($job['url'],$checker::prefix($job)):($story?$bot->ui->instagramStorySourceRows($job['url']):$bot->ui->gallerySourceRows($service,$job['url']))]]);
         if(!is_array($result)||empty($result['message_id'])) throw new MediaFailure('upload','Missing gallery delivery confirmation');
         if($checker) $checker->confirmed($job,(int)$result['message_id']);
     }

@@ -29,6 +29,7 @@ try {
     foreach(Zero\UiRegistry::services() as $service) foreach(['caption','button','text','cover','quality'] as $kind) $screens[]='custom:items:'.$service.':'.$kind.':0';
     foreach(['stories','checker'] as $kind) $screens[]='custom:items:instagram:'.$kind.':0';
     $screens[]='custom:items:youtube:posts:0';
+    $screens[]='custom:items:youtube:checker:0';
     foreach(['menu','batch','search','radio','radio_player','help','inputs','group','access','admin_replies','errors'] as $section) $screens[]='custom:section:'.$section;
     foreach($screens as $screen) {
         $queue=[$screen]; $visited=[];
@@ -43,7 +44,7 @@ try {
                     ||(str_starts_with($screen,'custom:section:')&&preg_match('/^'.preg_quote($screen,'/').':\d+$/D',$action))) $queue[]=$action;
             }
         }
-        sectionCheck(count($visited)>=1&&count($visited)<=($screen==='custom:items:instagram:checker:0'?10:5),'screen is paged into a few short pages: '.$screen);
+        sectionCheck(count($visited)>=1&&count($visited)<=(str_ends_with($screen,':checker:0')?10:5),'screen is paged into a few short pages: '.$screen);
     }
     foreach(['text','button'] as $kind) foreach($bot->catalog($kind) as $key=>$definition) sectionCheck(isset($seen[$kind][$key]),'user-facing field belongs to a screen: '.$kind.'.'.$key);
     foreach(['cover'=>['quality_prompt','cover_title','cover_instruction','cover_limit'],

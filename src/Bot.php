@@ -28,6 +28,7 @@ require_once __DIR__.'/XnxxSearch.php';
 require_once __DIR__.'/InstagramStories.php';
 require_once __DIR__.'/InstagramStoryCookies.php';
 require_once __DIR__.'/InstagramCheckerPanel.php';
+require_once __DIR__.'/YoutubeCheckerPanel.php';
 require_once __DIR__.'/InstagramCheckerCookies.php';
 require_once __DIR__.'/YoutubePosts.php';
 
@@ -200,6 +201,7 @@ final class Bot
     {
         $rows=[[$this->replyButton('help')]];
         if($this->admin($user)||(InstagramChecker::enabled($this->store)&&InstagramChecker::everyone($this->store))) $rows[]=[$this->replyButton('instagram_checker')];
+        if($this->admin($user)||(YoutubeChecker::enabled($this->store)&&YoutubeChecker::everyone($this->store))) $rows[]=[$this->replyButton('youtube_checker')];
         if($this->admin($user)) $rows[]=[$this->replyButton('admin')];
         $this->sendKeyboard($chat,$this->text('welcome'),$rows);
     }
@@ -219,7 +221,7 @@ final class Bot
             [$this->replyButton('customize'),$this->replyButton('health')],
             [$this->replyButton('cookies'),$this->replyButton('cookie_settings')],
             [$this->replyButton('update'),$this->replyButton('add_admin')],
-            [$this->replyButton('instagram_checker')],
+            [$this->replyButton('instagram_checker'),$this->replyButton('youtube_checker')],
             [$this->replyButton($on?'off':'on')],
             [$this->replyButton('back_home')],
         ]);
@@ -463,6 +465,7 @@ final class Bot
         $this->store->observeUser($cb['from']??$message['from']);
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$cb&&(new InstagramCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
+        if(!$cb&&(new YoutubeCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
         if(!$cb&&(new Administrators($this))->replyCommand($message,$user,$chat,$thread)) return;
         $custom=new Personalization($this);
         if($cb) {
@@ -479,7 +482,7 @@ final class Bot
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
             $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|s|b|[up]:\d{1,2})$/D',$action)===1;
-            $isChecker=preg_match('/^ic:[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
+            $isChecker=preg_match('/^(?:ic|yc):[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
             if($isUpdate) {
                 $updater=new Updates($this->config,$this->store,$this->api,$thread); $menu=(int)($message['message_id']??0);
                 $notice=$updater->callbackNotice($chat,$user,$menu,array_key_exists('message_thread_id',$message)?$thread:null); $owns=$notice==='';
@@ -502,7 +505,8 @@ final class Bot
             if(!$this->allowed($user,$chat)) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('callback_access'),'show_alert'=>true,'cache_time'=>0]); return;
             }
-            if($isChecker) { (new InstagramCheckerPanel($this))->callback($cb,$user,$chat,$thread); return; }
+            if($isChecker) { $panel=str_starts_with($action,'yc:')?new YoutubeCheckerPanel($this):new InstagramCheckerPanel($this); $panel->callback($cb,$user,$chat,$thread); return; }
+            if($action==='youtube_checker:settings') { (new YoutubeCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>'service']); return; }
             if(in_array($action,['checker:settings','checker:settings:instagram'],true)) { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>$action==='checker:settings:instagram'?'service':true]); return; }
             if($isMenu&&str_starts_with($action,'mb:')) { MusicMenu::stop($this,$cb,$chat,$user,(int)substr($action,3)); return; }
             if($isMenu) { (new MusicMenu($this,$this->musicCatalog,$this->musicSoundCloud))->callback($update,$chat,$user,$thread,(int)($message['message_id']??0)); return; }
@@ -516,7 +520,7 @@ final class Bot
                 $pageService=galleryFromPrefix(substr(strstr($action,':',true),0,-4));
                 $notice=(new GalleryPages($this->config,$this->store,$this->api,$pageService))->queue((int)$page[1],$user,$chat,(int)($message['message_id']??0),$topic,(int)$page[2],isset($page[3])?(int)$page[3]:null);
                 $pageJob=$this->store->query('SELECT * FROM jobs WHERE id=?',[(int)$page[1]])->fetch();
-                $pagePrefix=$pageJob&&InstagramChecker::deliveryId($pageJob)>0?InstagramChecker::prefix($pageJob):galleryUiPrefix($pageService,(string)($pageJob['url']??''));
+                $pagePrefix=$pageJob&&InstagramChecker::deliveryId($pageJob)>0?(InstagramChecker::forJob($this->config,$this->store,$this->api,$pageJob))::prefix($pageJob):galleryUiPrefix($pageService,(string)($pageJob['url']??''));
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice===''?$pagePrefix.'_page_loading':$notice),'show_alert'=>$notice!=='','cache_time'=>0]);
                 return;
             }

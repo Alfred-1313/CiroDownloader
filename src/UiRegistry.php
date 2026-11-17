@@ -67,6 +67,11 @@ final class UiRegistry
                 'post_slides'=>['prev'=>'youtube_post_prev','next'=>'youtube_post_next','source'=>'source_youtube_post'],
                 'post_delivery'=>['source'=>'source_youtube_post']];
             else $result+=['handoff'=>['open'=>'handoff_open']];
+            if($service==='youtube') {
+                foreach(self::layouts('instagram') as $id=>$slots) if(str_starts_with($id,'checker_')&&!str_contains($id,'_story_')) $result[$id]=array_map(fn($key)=>str_replace('instagram_checker','youtube_checker',$key),$slots);
+                $result['checker_new']=['videos'=>'youtube_checker_mode1','shorts'=>'youtube_checker_mode2','posts'=>'youtube_checker_mode4','videos_shorts'=>'youtube_checker_mode3','videos_posts'=>'youtube_checker_mode5','shorts_posts'=>'youtube_checker_mode6','all'=>'youtube_checker_mode7','back'=>'youtube_checker_back','close'=>'youtube_checker_close'];
+                foreach(['video','short'] as $kind) $result['checker_'.$kind.'_delivery']=['source'=>'youtube_checker_'.$kind.'_source'];
+            }
             return $result;
         }
         if(in_array($service,galleryServices(),true)) return ['slides'=>['prev'=>$service.'_prev','next'=>$service.'_next','source'=>'source_'.$service],
@@ -89,7 +94,7 @@ final class UiRegistry
         return match($layout) {
             'checker_home'=>[['add'],...array_map(fn($n)=>['entry'.$n],range(1,8)),['prev','next'],['close']],
             'checker_manage'=>[['check','rename'],['toggle'],['mode','delete'],['back','close']],
-            'checker_new'=>[['posts'],['stories'],['both'],['back','close']],
+            'checker_new'=>$service==='youtube'?[['videos','shorts'],['posts'],['videos_shorts'],['videos_posts','shorts_posts'],['all'],['back','close']]:[['posts'],['stories'],['both'],['back','close']],
             'checker_delete'=>[['yes'],['back','close']],
             'quality'=>array_merge(array_chunk(array_values(array_filter(array_map('strval',array_keys(self::layouts($service)[$layout])),fn($id)=>$id!=='audio')),2),[['audio']]),
             'slides'=>[['prev','next'],['source']],

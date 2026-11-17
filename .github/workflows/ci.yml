@@ -36,6 +36,7 @@ jobs:
           php tests/cookie_manager.php
           php tests/instagram.php
           php tests/instagram_story_cookies.php
+          php tests/youtube_checker.php
           php tests/instagram_checker.php
           php tests/instagram_checker_ui.php
           php tests/instagram_checker_replies.php
@@ -82,6 +83,7 @@ jobs:
           /tmp/ciro-gallery-tests/bin/python -B tests/instagram_checker_scan.py
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/youtube_posts.php
           /tmp/ciro-gallery-tests/bin/python -B tests/test_youtube_post_parser.py
+          /tmp/ciro-gallery-tests/bin/python -B tests/test_youtube_checker.py
           GALLERY_DL_PYTHON=/tmp/ciro-gallery-tests/bin/python php tests/pinterest_media.php
           /tmp/ciro-gallery-tests/bin/python -B tests/pinterest_redirects.py
           /tmp/ciro-gallery-tests/bin/python -B tests/social_links.py
