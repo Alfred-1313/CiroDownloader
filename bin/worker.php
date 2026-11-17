@@ -78,11 +78,11 @@ try {
                             $checkBot=new Zero\Bot($config,$checkStore,$checkApi);
                             $checkPanel=$youtubeCheck?new Zero\YoutubeCheckerPanel($checkBot):new Zero\InstagramCheckerPanel($checkBot);
                             $checkPanel->refreshChecks();
-                            if($youtubeCheck) $checkPanel->refreshProfiles();
+                            $checkPanel->refreshProfiles();
                             $checkModel=$youtubeCheck?new Zero\YoutubeChecker($config,$checkStore,$checkApi):new Zero\InstagramChecker($config,$checkStore,$checkApi);
-                            if(!$youtubeCheck||!$checkModel->pollProfile()) $checkModel->poll();
+                            if(!$checkModel->pollProfile()) $checkModel->poll();
                             $checkPanel->refreshChecks();
-                            if($youtubeCheck) $checkPanel->refreshProfiles();
+                            $checkPanel->refreshProfiles();
                             exit(0);
                         }
                         catch(Throwable) { exit(1); }

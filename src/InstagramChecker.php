@@ -2,10 +2,12 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/InstagramCheckerMedia.php';
+require_once __DIR__.'/CheckerProfiles.php';
 
 /** Persistent subscriptions and delivery cursors, never a diagnostic/error log. */
 class InstagramChecker
 {
+    use CheckerProfiles;
     protected const SERVICE='instagram', TABLE='ig_check_', DEFAULT_ENABLED='1', ALL=3, UPDATE_BASE=4000000000000000;
     protected const BITS=['post'=>1,'story'=>2];
     protected const READY=['post'=>'posts_ready','story'=>'stories_ready'];
@@ -15,8 +17,19 @@ class InstagramChecker
     public function query(string $sql,array $args=[]): \PDOStatement { return $this->store->query($this->sql($sql),$args); }
     public function normalizeName(string $name): ?string { $name=instagramUsername($name); return $name===null?null:strtolower($name); }
     public function modeChoices(): array { return ['posts'=>1,'stories'=>2,'both'=>3]; }
+    public static function avatarUrl(mixed $url): bool
+    {
+        if(!is_string($url)||strlen($url)>4096||preg_match('/[\x00-\x20\x7f]/',$url)) return false;
+        $p=parse_url($url); $host=strtolower($p['host']??'');
+        return $p&&($p['scheme']??'')==='https'&&!isset($p['user'])&&!isset($p['pass'])&&!isset($p['port'])
+            &&(str_ends_with($host,'.cdninstagram.com')||str_ends_with($host,'.fbcdn.net'));
+    }
+    protected function validateProfileIdentity(array $target,mixed $account): void
+    {
+        if(!is_string($account)||!preg_match('/^[0-9]{1,24}$/D',$account)||($target['account_id']!==''&&$target['account_id']!==$account)) throw new MediaFailure('format','Invalid checker profile identity');
+    }
+    protected function readProfile(array $target): array { return $this->readInstagram($target,null); }
     protected function deliveryPhase(array $row): string { return 'instagram'; }
-    protected function applyMetadata(array $target,array $snapshot): void {}
     public static function forJob(Config $config,Store $store,Api $api,array $job): ?self
     {
         if(!self::deliveryId($job)) return null;
@@ -27,7 +40,7 @@ class InstagramChecker
     public function __construct(public Config $config,public Store $store,public Api $api)
     {
         self::$schemas??=new \WeakMap();
-        if(isset((self::$schemas[$store]??[])[static::SERVICE])) return;
+        if(isset((self::$schemas[$store]??[])[static::SERVICE])) { $this->initCheckerProfiles(); return; }
         $store->db->exec($this->sql("CREATE TABLE IF NOT EXISTS {checker}targets(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,account_id TEXT NOT NULL DEFAULT '',next_check INTEGER NOT NULL DEFAULT 0,lease TEXT NOT NULL DEFAULT '',lease_until INTEGER NOT NULL DEFAULT 0,checked INTEGER NOT NULL DEFAULT 0,failures INTEGER NOT NULL DEFAULT 0,state TEXT NOT NULL DEFAULT 'waiting');
             CREATE TABLE IF NOT EXISTS {checker}subs(id INTEGER PRIMARY KEY,owner INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL DEFAULT 0,target INTEGER NOT NULL,mode INTEGER NOT NULL DEFAULT 3,paused INTEGER NOT NULL DEFAULT 0,deleted INTEGER NOT NULL DEFAULT 0,posts_ready INTEGER NOT NULL DEFAULT 0,stories_ready INTEGER NOT NULL DEFAULT 0,extra_ready INTEGER NOT NULL DEFAULT 0,generation INTEGER NOT NULL DEFAULT 1,created INTEGER NOT NULL,UNIQUE(owner,chat_id,thread_id,target));
             CREATE INDEX IF NOT EXISTS {checker}owner ON {checker}subs(owner,deleted,target);
@@ -55,6 +68,7 @@ class InstagramChecker
             } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }
         }
         $schemas=self::$schemas[$store]??[]; $schemas[static::SERVICE]=true; self::$schemas[$store]=$schemas;
+        $this->initCheckerProfiles();
     }
     public static function prefix(array $job): string { return instagramStoryUrl($job['url'])!==null?'instagram_checker_story':'instagram_checker_post'; }
     public static function enabled(Store $s): bool { return $s->get(static::SERVICE.'.checker.enabled',static::DEFAULT_ENABLED)==='1'; }
@@ -251,7 +265,7 @@ class InstagramChecker
         if(!static::enabled($this->store)) return false;
         return (bool)$this->query("SELECT 1 FROM {checker}deliveries WHERE status IN ('pending','retry') AND due<=? UNION ALL SELECT 1 FROM {checker}targets t WHERE next_check<=? AND lease_until<? AND EXISTS(SELECT 1 FROM {checker}subs s WHERE s.target=t.id AND s.paused=0 AND s.deleted=0) LIMIT 1",[time(),time(),time()])->fetchColumn();
     }
-    public function checksReady(): bool
+    protected function verificationReady(): bool
     {
         return (bool)$this->query("SELECT 1 FROM {checker}panels p JOIN {checker}subs s ON s.id=json_extract(p.data,'$.id') JOIN {checker}targets t ON t.id=s.target WHERE p.view='item' AND p.expires>? AND json_type(p.data,'$.check')='object' AND CAST(COALESCE(json_extract(p.data,'$.check.retry_after'),0) AS INTEGER)<=? AND (t.scan_version>json_extract(p.data,'$.check.version') OR CAST(json_extract(p.data,'$.check.requested') AS INTEGER)<?) LIMIT 1",[time(),time(),time()-180])->fetchColumn();
     }
@@ -341,14 +355,19 @@ class InstagramChecker
     }
     protected function scan(array $target,int $mode): array
     {
+        return $this->readInstagram($target,$mode);
+    }
+    private function readInstagram(array $target,?int $mode): array
+    {
         $jars=InstagramCheckerMedia::pool($this->config)->order(1);
         if(!$jars) throw new MediaFailure('cookies','Checker session unavailable');
         $folder=$this->config->storage.'/downloads/checker-'.bin2hex(random_bytes(6));
         if(!is_dir(dirname($folder))) mkdir(dirname($folder),0700,true); mkdir($folder,0700);
         try {
             $content=(string)file_get_contents($jars[0]['path']); InstagramCheckerMedia::validateCookies($content);
-            $path=$folder.'/session.txt'; file_put_contents($path,$content); chmod($path,0600);
-            $command=[dirname($this->config->galleryDl).'/python',dirname(__DIR__).'/bin/instagram-check.py','--username',$target['username'],'--cookies',$path,'--mode',(string)$mode];
+            $path=$folder.'/session.txt';
+            if(file_put_contents($path,$content)!==strlen($content)||!chmod($path,0600)) throw new MediaFailure('cookies','Cannot prepare checker session');
+            $command=[dirname($this->config->galleryDl).'/python',dirname(__DIR__).'/bin/instagram-check.py','--username',$target['username'],'--cookies',$path,...($mode===null?['--profile-only']:['--mode',(string)$mode])];
             if($target['account_id']!=='') array_push($command,'--account-id',$target['account_id']);
             if($this->config->galleryProxy!=='') array_push($command,'--proxy',$this->config->galleryProxy);
             try { $out=(new Download($this->config))->run($command,$folder,90); }

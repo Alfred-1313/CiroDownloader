@@ -12,8 +12,8 @@ final class CheckerMenu
     ];
     public function __construct(private Bot $bot)
     {
-        // A surviving pre-upgrade Instagram callback may return here before any new YouTube command.
-        new YoutubeChecker($bot->config,$bot->store,$bot->api);
+        // A surviving callback may return here before the other checker has been opened after an upgrade.
+        foreach(self::SERVICES as $entry) { $class=$entry['checker']; new $class($bot->config,$bot->store,$bot->api); }
         self::$schemas??=new \WeakMap();
         if(isset(self::$schemas[$bot->store])) return;
         $bot->store->db->exec('CREATE TABLE IF NOT EXISTS checker_menus(token TEXT PRIMARY KEY,owner INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL,message_id INTEGER NOT NULL DEFAULT 0,expires INTEGER NOT NULL)');
@@ -32,7 +32,12 @@ final class CheckerMenu
         $s=$this->bot->store; $s->query('DELETE FROM checker_menus WHERE expires<?',[time()]);
         $token=bin2hex(random_bytes(8)); $slots=[];
         foreach(self::SERVICES as $service=>$entry) $slots[$service]=[$this->bot->ui->button('checker_menu_'.$service,'ch:'.$token.':'.$service)];
-        $photo=$message>0?$s->query('SELECT photo FROM yt_check_panels WHERE owner=? AND chat_id=? AND message_id=?',[$owner,$chat,$message])->fetchColumn():'';
+        $photo='';
+        if($message>0) foreach(self::SERVICES as $entry) {
+            $class=$entry['checker']; $model=new $class($this->bot->config,$s,$this->bot->api);
+            $photo=$model->query('SELECT photo FROM {checker}panels WHERE owner=? AND chat_id=? AND message_id=?',[$owner,$chat,$message])->fetchColumn();
+            if($photo) break;
+        }
         $id=CheckerMessages::text($this->bot,['chat_id'=>$chat,'message_id'=>$message,'thread_id'=>$thread,'photo'=>$photo],$this->bot->text('checker_menu'),array_values($slots));
         $s->query('DELETE FROM checker_menus WHERE owner=? AND chat_id=? AND message_id=?',[$owner,$chat,$id]);
         $s->query('INSERT INTO checker_menus(token,owner,chat_id,thread_id,message_id,expires) VALUES(?,?,?,?,?,?)',[$token,$owner,$chat,$chat<0?$thread:0,$id,time()+3600]);

@@ -100,6 +100,46 @@ class CheckerScanTests(unittest.TestCase):
             with patch.object(InstagramAPI,'_webpage',refuse),patch.object(sys,'argv',['instagram-check.py','--username','fixture','--cookies',str(self.cookie),'--mode','3']),contextlib.redirect_stderr(io.StringIO())as out:
                 self.assertEqual(scan.main(),1)
             self.assertEqual(out.getvalue().strip(),'CHECKER_ERROR '+reason)
+    def test_profile_only_reads_one_verified_page_and_no_content_api(self):
+        image='https://scontent.cdninstagram.com/avatar.jpg?x=1&y=2'
+        def webpage(api,path):
+            self.webpages+=1
+            self.assertEqual(path,'/fixture')
+            return '<link rel="canonical" href="https://www.instagram.com/fixture/">"profile_id":"7"<meta property="og:image" content="'+image.replace('&','&amp;')+'">'
+        with patch.object(InstagramAPI,'_webpage',webpage): result=scan.profile(self.args())
+        self.assertEqual(result,{'account_id':'7','avatar':image})
+        self.assertEqual(self.webpages,1);self.assertEqual(self.operations,[])
+    def test_profile_image_from_embedded_json_requires_exact_owner(self):
+        import json
+        good='https://scontent.cdninstagram.com/own.jpg'
+        other='https://scontent.cdninstagram.com/neighbour.jpg'
+        content='<script type="application/json">'+json.dumps({'users':[dict(self.user,pk='8',id='8',profile_pic_url_hd=other),dict(self.user,profile_pic_url_hd=good)]})+'</script>'
+        self.assertEqual(scan.page_avatar(content,'7','fixture'),good)
+        self.assertEqual(scan.page_avatar(content,'9','fixture'),'')
+        self.assertEqual(scan.page_avatar(content,'7','another'),'')
+    def test_profile_requires_the_target_page_and_persistent_identity(self):
+        def foreign(api,path):return '<link rel="canonical" href="https://www.instagram.com/another/">"profile_id":"7"'
+        with patch.object(InstagramAPI,'_webpage',foreign),self.assertRaises(exception.ExtractionError):scan.profile(self.args())
+        args=self.args();args.account_id='8'
+        with self.assertRaises(scan.InvalidSnapshot):scan.profile(args)
+        self.assertEqual(self.operations,[])
+    def test_profile_cli_stops_at_429_and_never_tries_a_full_profile_api(self):
+        import sys
+        response=Response();response.status_code=429;response._content=b'';response._content_consumed=True
+        def refuse(api,path):
+            self.webpages+=1;raise exception.HttpError('Fixture refusal',response)
+        with patch.object(InstagramAPI,'_webpage',refuse),patch.object(sys,'argv',['instagram-check.py','--username','fixture','--cookies',str(self.cookie),'--profile-only']),contextlib.redirect_stderr(io.StringIO())as out:
+            self.assertEqual(scan.main(),1)
+        self.assertEqual(out.getvalue().strip(),'CHECKER_ERROR blocked');self.assertEqual(self.webpages,1);self.assertEqual(self.operations,[])
+    def test_scan_reuses_own_post_avatar_without_a_new_page_lookup(self):
+        image='https://scontent.cdninstagram.com/post-owner.jpg'
+        self.posts[0]['user']['profile_pic_url']=image
+        args=self.args();args.account_id='7';result=scan.snapshot(args)
+        self.assertEqual(result['avatar'],image);self.assertEqual(self.webpages,0)
+    def test_untrusted_avatar_urls_and_conflicting_open_graph_are_absent(self):
+        for url in ['http://scontent.cdninstagram.com/a','https://evil.test/a','https://scontent.cdninstagram.com.evil.test/a','https://user@scontent.cdninstagram.com/a','https://scontent.cdninstagram.com:443/a']:
+            self.assertFalse(scan.avatar_url(url))
+        self.assertEqual(scan.page_avatar('<meta property="og:image" content="https://scontent.cdninstagram.com/a"><meta property="og:image" content="https://scontent.cdninstagram.com/b">','7','fixture'),'')
 
 
 if __name__=='__main__':unittest.main()

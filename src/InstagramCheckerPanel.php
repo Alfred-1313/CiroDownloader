@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/InstagramChecker.php';
+require_once __DIR__.'/CheckerProfilePanel.php';
 
 /** Telegram cannot turn a photo into text: confirm its replacement before retiring the old panel. */
 final class CheckerMessages
@@ -19,6 +20,7 @@ final class CheckerMessages
 /** Owner/chat/topic/message-bound checker controls; all visible copy uses Ui. */
 class InstagramCheckerPanel
 {
+    use CheckerProfilePanel;
     protected const SERVICE='instagram', CALLBACK='ic', CHECKER=InstagramChecker::class;
     protected InstagramChecker $checker;
     protected function query(string $sql,array $args=[]): \PDOStatement { return $this->checker->query($sql,$args); }
@@ -97,10 +99,6 @@ class InstagramCheckerPanel
         try { $this->show($p,$view,$data); }
         catch(\Throwable $e) { $this->query('DELETE FROM {checker}panels WHERE token=?',[$p['token']]); throw $e; }
         return true;
-    }
-    protected function renderPanel(array $p,string $view,array &$data,string $text,array $rows,?array $sub): int
-    {
-        return $this->bot->send((int)$p['chat_id'],$text,$rows,(int)$p['message_id'],(int)$p['thread_id']);
     }
     protected function show(array $p,string $view,array $data=[],string $notice='',bool $passive=false): void
     {

@@ -77,7 +77,7 @@ try {
     $tap('close');$before=count($a->calls);$panel->refreshProfiles();ypCheck(count($a->calls)===$before,'closing the panel prevents later profile edits');
     // Optional images cannot corrupt checker state or cross service boundaries.
     foreach(['https://evil.test/a','http://yt3.ggpht.com/a','https://user@yt3.ggpht.com/a','https://yt3.ggpht.com:443/a']as$url)ypCheck(!Zero\YoutubeChecker::avatarUrl($url),'untrusted avatar address is rejected');
-    ypCheck(!in_array('avatar',array_column($s->query('PRAGMA table_info(ig_check_targets)')->fetchAll(),'name'),true),'Instagram checker schema and pictures remain independent');
+    ypCheck((int)$s->query("SELECT COUNT(*) FROM ig_check_targets WHERE avatar<>''")->fetchColumn()===0,'Instagram checker pictures remain independent');
     $sub=$m->owned($id,42);$generation=(int)$sub['generation'];
     $s->query("UPDATE yt_check_targets SET avatar_version=0,failures=1,state='blocked',next_check=? WHERE id=?",[time()+900,$sub['target']]);$next=(int)$s->query('SELECT next_check FROM yt_check_targets WHERE id=?',[$sub['target']])->fetchColumn();$m->profile($sub);
     ypCheck((int)$s->query('SELECT next_check FROM yt_check_targets WHERE id=?',[$sub['target']])->fetchColumn()===$next,'opening details for an uncached avatar cannot bypass a rate-limit backoff');

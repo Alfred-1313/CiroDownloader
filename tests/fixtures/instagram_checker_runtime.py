@@ -21,7 +21,13 @@ user = {'pk':'7','id':'7','username':'fixture'}
 
 
 def webpage(self, path):
-    return '<link rel="canonical" href="https://www.instagram.com/fixture/">"profile_id":"7"'
+    with (root/'profile-requests.jsonl').open('a') as output:output.write(json.dumps({'operation':'profile_page','path':path})+'\n')
+    if mode.get('profile_http'):
+        r=Response();r.status_code=int(mode['profile_http']);r._content=b'';r._content_consumed=True
+        raise exception.HttpError('Fixture profile refusal',r)
+    name=mode.get('username','fixture');uid=str(mode.get('account_id','7'))
+    image='<meta property="og:image" content="'+mode['profile_image']+'">' if mode.get('profile_image') else ''
+    return '<link rel="canonical" href="https://www.instagram.com/'+name+'/">"profile_id":"'+uid+'"'+image
 
 
 def media_item(pk, video=False):
