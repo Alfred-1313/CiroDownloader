@@ -236,11 +236,31 @@ class Restore:
                 stopped = True
                 self.stop()
                 backup = self.backups / ('database-before-' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S') + '-' + token + '.sqlite')
-                with self.agent.db() as db:
-                    with closing(sqlite3.connect(backup)) as destination:
-                        db.backup(destination)
-                    current = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('offset','bot_id','bot_username','update_installed_revision','update_new_changes','update_previous_version','last_update_at','database.backup.enabled','database.backup.chat','database.backup.minutes','database.backup.next')"))
-                os.chmod(backup, 0o600)
+                # agent.db() temporarily uses the container UID, which cannot traverse the
+                # root-only backups directory. Snapshot in the private volume first, then
+                # copy into the host recovery directory after privileges are restored.
+                snapshot = folder / ('recovery-' + token + '.sqlite')
+                if snapshot.is_symlink():
+                    raise ValueError('Invalid recovery snapshot')
+                snapshot.unlink(missing_ok=True)  # A pre-journal interruption left only a disposable snapshot.
+                created_backup = False
+                try:
+                    with self.agent.db() as db:
+                        with closing(sqlite3.connect(snapshot)) as destination:
+                            db.backup(destination)
+                        current = dict(db.execute("SELECT key,value FROM settings WHERE key IN ('offset','bot_id','bot_username','update_installed_revision','update_new_changes','update_previous_version','last_update_at','database.backup.enabled','database.backup.chat','database.backup.minutes','database.backup.next')"))
+                    with snapshot.open('rb') as src, backup.open('xb') as dst:
+                        created_backup = True
+                        os.chmod(backup, 0o600)
+                        shutil.copyfileobj(src, dst, 1024 * 1024)
+                        dst.flush()
+                        os.fsync(dst.fileno())
+                except BaseException:
+                    if created_backup:
+                        backup.unlink(missing_ok=True)
+                    raise
+                finally:
+                    snapshot.unlink(missing_ok=True)
                 record = {'job': job, 'backup': backup.name, 'services': services, 'token': token, 'phase': 'prepared'}
                 write_json(self.journal, record)
                 sanitize(source, current, job)

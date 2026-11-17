@@ -292,6 +292,34 @@ class RestoreTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT value FROM settings WHERE key='offset'").fetchone()[0], '1000')
             self.assertEqual(db.execute("SELECT value FROM settings WHERE key='database.restore.active'").fetchone()[0], '1')
 
+    @unittest.skipUnless(os.geteuid() == 0, 'Requires root to reproduce the host-to-container UID transition')
+    def test_real_runtime_uid_can_snapshot_before_writing_root_only_recovery(self):
+        runtime_uid = 10001
+        os.chmod(self.root, 0o711)
+        os.chmod(self.backups, 0o700)
+        for path in [self.data, *self.data.rglob('*')]:
+            os.chown(path, runtime_uid, -1)
+        self.agent.uid = runtime_uid
+        @contextlib.contextmanager
+        def runtime_db():
+            os.seteuid(runtime_uid)
+            db = None
+            try:
+                db = sqlite3.connect(self.data / 'zero.sqlite')
+                db.row_factory = sqlite3.Row
+                yield db
+                db.commit()
+            finally:
+                if db is not None:
+                    db.close()
+                os.seteuid(0)
+        self.agent.db = runtime_db
+        self.runner.run()
+        self.assertEqual(self.setting('fixture'), 'imported')
+        self.assertEqual(self.setting('database.restore.active'), '0')
+        self.assertEqual(len(list(self.backups.glob('database-before-*.sqlite'))), 1)
+        self.assertFalse(list((self.data / 'database-backups').glob('recovery-*.sqlite')))
+
 
 if __name__ == '__main__':
     unittest.main()

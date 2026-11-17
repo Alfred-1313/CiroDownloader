@@ -14,7 +14,7 @@
     "database_restore_queued":{"audience":"admin","group":"admin","label":"درخواست بازیابی ثبت شد","value":"<b>⏳ فایل بکاپ دریافت شد</b>\n\nسلامت دیتابیس بررسی و سپس بازیابی انجام می‌شود؛ نتیجه در همین پیام می‌آید."},
     "database_restore_working":{"audience":"admin","group":"admin","label":"بازیابی دیتابیس","value":"<b>⏳ در حال بازیابی دیتابیس</b>\n\nنسخهٔ برگشت تهیه می‌شود و ربات پس از جایگزینی دوباره راه‌اندازی خواهد شد."},
     "database_restore_done":{"audience":"admin","group":"admin","label":"بازیابی موفق","value":"<blockquote><b>✅ دیتابیس با موفقیت بازیابی شد</b></blockquote>\n\nربات دوباره آماده است. اطلاعات و تنظیمات بکاپ اعمال شدند و نسخهٔ برگشت از دیتابیس قبلی روی سرور نگه داشته شد. چکرها محتوای قدیمی را دوباره ارسال نمی‌کنند."},
-    "database_restore_failed":{"audience":"admin","group":"admin","label":"بازیابی ناموفق","value":"⚠️ بازیابی انجام نشد؛ اطلاعات قبلی حفظ شده‌اند. فایل بکاپ را بررسی کن و دوباره تلاش کن."},
+    "database_restore_failed":{"audience":"admin","group":"admin","label":"بازیابی ناموفق","value":"⚠️ بازیابی انجام نشد؛ اطلاعات قبلی حفظ شده‌اند. کمی بعد دوباره تلاش کن."},
     "database_restore_recovered":{"audience":"admin","group":"admin","label":"برگشت پس از بازیابی ناموفق","value":"⚠️ بازیابی بکاپ کامل نشد؛ دیتابیس قبلی برگردانده شد و ربات دوباره آماده است."},
     "database_restore_recovery_pending":{"audience":"admin","group":"admin","label":"ادامهٔ بازیابی خودکار","value":"⚠️ بازیابی کامل نشده است؛ نسخهٔ برگشت محفوظ است و سرویس مدیریت بازیابی آن را ادامه می‌دهد."},
     "checker_menu":{"audience":"user","group":"checkers","label":"پیام انتخاب چکر","value":"<b>👁 منوی چکرها</b>\n\n<blockquote>چکر موردنظرت را انتخاب کن تا منوی مدیریت آن باز شود.</blockquote>"},

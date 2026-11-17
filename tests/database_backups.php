@@ -60,4 +60,11 @@ try {
     $tap('interval');$send('/cancel');dbCheck(!$s->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'cancel clears a pending minute or import flow');
     foreach(['database_backups','database_backup_import','database_backup_toggle','database_backup_interval','database_backup_now'] as $key) dbCheck(!$b->ui->customizable('button',$key),'backup management stays outside public Personalization: '.$key);
     $pending=$root.'/database-backups/import-'.$source['token'].'.zip';touch($pending,time()-7200);$s->query("UPDATE update_requests SET status='running'");Zero\DatabaseBackups::prune($c,$s);dbCheck(is_file($pending),'cleanup preserves a pending replacement upload');$s->query("UPDATE update_requests SET status='denied'");Zero\DatabaseBackups::prune($c,$s);dbCheck(!is_file($pending),'cleanup removes an abandoned or denied private upload');
+    // The host updater may have created this table before the bot, without a status default.
+    $legacy=$root.'/legacy';mkdir($legacy,0700);$old=new PDO('sqlite:'.$legacy.'/zero.sqlite');
+    $old->exec("CREATE TABLE update_requests(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,chat_id INTEGER NOT NULL,message_id INTEGER NOT NULL DEFAULT 0,action TEXT NOT NULL,status TEXT NOT NULL,created INTEGER NOT NULL)");unset($old);
+    $legacyStore=new Zero\Store($legacy);$legacyApi=new DatabaseBackupApi();$legacyApi->file=(string)file_get_contents($zipfile);$legacyBot=new Zero\Bot(new Zero\Config('123:fixture',[42],$legacy),$legacyStore,$legacyApi);$legacyStore->set('updater_heartbeat',(string)time());
+    $legacyBot->handle(['update_id'=>100001,'message'=>['from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'text'=>$legacyBot->label('database_backup_import')]]);
+    $legacyBot->handle(['update_id'=>100002,'message'=>['from'=>['id'=>42],'chat'=>['id'=>42,'type'=>'private'],'document'=>['file_id'=>'fixture','file_name'=>'backup.zip','file_size'=>strlen($legacyApi->file)]]]);
+    dbCheck($legacyStore->query('SELECT status FROM update_requests')->fetchColumn()==='queued','import works when the existing updater table has a mandatory status without a default');
 } finally { Zero\Download::clean($root); }

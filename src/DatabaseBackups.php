@@ -104,7 +104,7 @@ final class DatabaseBackups
             $s->db->exec('BEGIN IMMEDIATE');
             try {
                 if($s->query("SELECT 1 FROM update_requests WHERE status IN ('queued','running')")->fetchColumn()) throw new \LogicException('Busy');
-                $s->query("INSERT INTO update_requests(user_id,chat_id,message_id,action,created) VALUES(?,?,?,'database_restore',?)",[$user,$chat,$status,time()]);
+                $s->query("INSERT INTO update_requests(user_id,chat_id,message_id,action,status,created,thread_id) VALUES(?,?,?,'database_restore','queued',?,0)",[$user,$chat,$status,time()]);
                 $s->query('INSERT INTO database_restore_files(request_id,token,sha256) VALUES(?,?,?)',[(int)$s->db->lastInsertId(),$token,hash_file('sha256',$path)]);
                 $s->query('DELETE FROM states WHERE user_id=?',[$user]); $s->db->exec('COMMIT'); $path='';
             } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); $this->bot->send($chat,$this->bot->text($e instanceof \LogicException?'database_restore_busy':'database_restore_failed'),[],$status); return; }
@@ -167,6 +167,10 @@ final class DatabaseBackups
         foreach(glob($dir.'/*')?:[] as $path) {
             if(is_link($path)||!is_file($path)||filemtime($path)>=time()-3600) continue;
             if(preg_match('/^export-[a-f0-9]{24}\.(?:sqlite|zip)$/D',basename($path))) unlink($path);
+            elseif(preg_match('/^recovery-([a-f0-9]{32})\.sqlite(?:-wal|-shm)?$/D',basename($path),$m)) {
+                $exists=$s->query("SELECT 1 FROM sqlite_master WHERE name='database_restore_files' AND type='table'")->fetchColumn();
+                if(!$exists||!$s->query("SELECT 1 FROM database_restore_files f JOIN update_requests r ON r.id=f.request_id WHERE f.token=? AND r.status IN ('queued','running')",[$m[1]])->fetchColumn()) unlink($path);
+            }
             elseif(preg_match('/^import-([a-f0-9]{32})\.zip$/D',basename($path),$m)) {
                 $exists=$s->query("SELECT 1 FROM sqlite_master WHERE name='database_restore_files' AND type='table'")->fetchColumn();
                 if(!$exists||!$s->query("SELECT 1 FROM database_restore_files f JOIN update_requests r ON r.id=f.request_id WHERE f.token=? AND r.status IN ('queued','running')",[$m[1]])->fetchColumn()) unlink($path);
