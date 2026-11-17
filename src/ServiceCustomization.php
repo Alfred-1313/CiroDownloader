@@ -66,7 +66,7 @@ final class ServiceCustomization
         $ui=$this->bot->ui; $rows=[$this->heading('hub_downloaders')];
         foreach(array_unique(['youtube',...galleryServices(),...musicServices()]) as $service) $rows[]=[$this->navigation('section_'.$service,'custom:service:'.$service,$this->changed($service))];
         foreach(['adult','music','general'] as $category) {
-            $changed=$category==='adult'?(bool)array_filter(adultServices(),fn($service)=>$this->changed($service)):$this->groupChanged($category==='music'?['menu','batch','search','radio','radio_player']:['help','inputs','group','access','admin_replies','errors']);
+            $changed=$category==='adult'?(bool)array_filter(adultServices(),fn($service)=>$this->changed($service)):$this->groupChanged($category==='music'?['menu','batch','search','radio','radio_player']:['help','inputs','checkers','group','access','admin_replies','errors']);
             $rows[]=$this->heading('hub_'.$category); $rows[]=[$this->navigation('hub_open_'.$category,'custom:category:'.$category,$changed)];
         }
         $rows[]=[$ui->button('reset_all','custom:resetall'),$ui->button('close','custom:close')];
@@ -80,7 +80,7 @@ final class ServiceCustomization
             $rows[]=[$ui->button('hub_shared_adult','custom:adultpage')];
             foreach(adultServices() as $site) $rows[]=[$this->navigation('section_'.$site,'custom:service:'.$site,$this->changed($site))];
         } else {
-            foreach($category==='music'?['menu','batch','search','radio','radio_player']:['help','inputs','group','access','admin_replies','errors'] as $section)
+            foreach($category==='music'?['menu','batch','search','radio','radio_player']:['help','inputs','checkers','group','access','admin_replies','errors'] as $section)
                 $rows[]=[$this->navigation('section_'.$section,'custom:section:'.$section,$this->groupChanged([$section]))];
             if($category==='general') $rows[]=[$ui->button('features_hub','custom:features')];
         }

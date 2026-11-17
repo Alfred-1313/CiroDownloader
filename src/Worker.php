@@ -47,6 +47,10 @@ final class Worker
             return;
         }
         $checker=InstagramChecker::forJob($config,$store,$api,$job);
+        if($checker instanceof YoutubeChecker) $config=YoutubeCheckerMedia::config($config);
+        if($checker instanceof YoutubeChecker&&$job['phase']==='youtube_checker'&&($checker->context($job)['kind']??null)==='video') {
+            $job['phase']='inspect'; $store->query("UPDATE jobs SET phase='inspect' WHERE id=?",[$job['id']]);
+        }
         $config->cookieFallback=$store->get('cookies.fallback','0')==='1';
         $config->musicCopy=$store->get('music.mp3','0')!=='1';
         $bot=new Bot($config,$store,$api); $downloader=new Download($config);
@@ -179,7 +183,7 @@ final class Worker
             }
             if($job['phase']==='inspect') {
                 $stage='inspect';
-                $bot->jobMessage($job,$bot->text('inspecting'));
+                if(!$checker) $bot->jobMessage($job,$bot->text('inspecting'));
                 $inspectionStarted=hrtime(true);
                 $info=$downloader->inspect($job['url'],$folder);
                 $timings['inspect_ms']=(int)round((hrtime(true)-$inspectionStarted)/1e6);
@@ -187,7 +191,8 @@ final class Worker
                     $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                     $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id']));
                 } else {
-                    if(!$adult) $store->set('youtube_probe_url',$job['url']);
+                    if($checker) $checker->beginSend($job);
+                    elseif(!$adult) $store->set('youtube_probe_url',$job['url']);
                     $bot->qualityMenu($job,$info);
                 }
                 return;
@@ -200,7 +205,8 @@ final class Worker
             $media=$audio?$downloader->fetchAudio($job['url'],$folder,$options['audio']??[]):
                 $downloader->fetch($job['url'],$folder,$quality,$quality!==null?($options[$quality]??[]):[]);
             $timings['prepare_ms']=(int)round((hrtime(true)-$preparationStarted)/1e6);
-            if(!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
+            if(($checker&&!$checker->canDeliver($job))||!$bot->allowed((int)$job['user_id'],(int)$job['chat_id'])||($adult&&!$bot->adultAllowed((int)$job['user_id'],(int)$job['chat_id'],$adultSite))) {
+                if($checker) { $checker->cancel($job); $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]); return; }
                 $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
                 $bot->jobMessage($job,$adult?$bot->text('invalid'):$bot->denial((int)$job['chat_id'])); return;
             }
@@ -217,6 +223,13 @@ final class Worker
                 $caption=$this->adultCaption($bot,$media,is_array($options['meta']??null)?$options['meta']:[],$audio,$deleteAfter,$adultSite);
                 $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration']];
                 if(!$audio&&$bot->adultSpoiler($adultSite,'video')) $params['has_spoiler']=true;
+            } elseif($checker instanceof YoutubeChecker) {
+                $context=$checker->context($job);
+                $caption=Ui::fitCaption($bot->text($audio?'youtube_checker_audio_caption':'youtube_checker_video_caption',[
+                    'username'=>$context['username'],'title'=>mb_substr($media['title'],0,180),'quality'=>$media['quality']??'',
+                    'format'=>$media['format']??'','duration'=>Ui::duration((int)$media['duration']),'url'=>$job['url']]));
+                $params=['chat_id'=>(int)$job['chat_id'],'caption'=>$caption,'parse_mode'=>'HTML','duration'=>$media['duration'],
+                    'reply_markup'=>['inline_keyboard'=>$bot->ui->checkerSourceRows($job['url'],$checker::prefix($job))]];
             } else {
                 $caption=$bot->ui->mediaCaption($audio?'audio':'video',['title'=>mb_substr($media['title'],0,100),
                     'quality'=>$media['quality']??'','format'=>$media['format']??'','duration'=>Ui::duration($media['duration']),'url'=>$job['url']]);
@@ -244,10 +257,15 @@ final class Worker
                 if(in_array($adultSite,['xvideos','tikporn','youporn','eporner'],true)) $params['cover']=new \CURLFile($media['thumbnail'],'image/jpeg','cover.jpg');
             }
             $uploadStarted=hrtime(true); $uploadBytes=(int)filesize($media['path']);
+            if($checker) $checker->beginSend($job);
             if($audio) $sent=$api->call('sendAudio',$params+['audio'=>new \CURLFile($media['path'],'audio/mpeg','audio.mp3'),
                 'title'=>mb_substr($media['title'],0,100)]);
             else $sent=$api->call('sendVideo',$params+['video'=>new \CURLFile($media['path'],'video/mp4','video.mp4'),
                 'supports_streaming'=>true,'width'=>$media['width'],'height'=>$media['height']]);
+            if($checker) {
+                if(!is_array($sent)||empty($sent['message_id'])) throw new MediaFailure('upload','Missing checker media confirmation');
+                $checker->confirmed($job,(int)$sent['message_id']);
+            }
             if(is_array($sent)&&!empty($sent['message_id'])) Download::clean($folder);
             // The filter for this kind of chat: the video is deleted again after a few seconds (kept in the database,
             // so a restart in between does not leave it in the chat).
@@ -266,6 +284,10 @@ final class Worker
                 if($instagramStory&&$e instanceof MediaFailure&&in_array($e->reason,['not_found','restricted'],true)) {
                     $checker->cancel($job); $store->query("UPDATE jobs SET status='cancelled' WHERE id=?",[$job['id']]);
                 } else { $checker->failure($job); $store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); }
+                if($checker instanceof YoutubeChecker&&in_array($job['phase'],['download','audio'],true)) {
+                    $key=$e instanceof MediaFailure?'error_'.$e->reason:'failed';
+                    try { $bot->jobMessage($job,$bot->text($bot->ui->definition('text',$key)?$key:'failed')); } catch(Throwable) {}
+                }
                 return;
             }
             // A missing account is a normal result, not a broken session. Keep
@@ -748,10 +770,10 @@ final class Worker
         }
     }
 
-    /** Checker videos bypass interactive quality menus and keep uncertain sends terminal. */
+    /** Only Shorts bypass quality selection; uncertain automatic sends stay terminal. */
     private function checkerVideo(array $job,Bot $bot,YoutubeChecker $checker,string $folder,array &$timings,string &$stage): void
     {
-        $downloader=new Download($this->config); $start=hrtime(true); $info=$downloader->inspect($job['url'],$folder);
+        $downloader=new Download($bot->config); $start=hrtime(true); $info=$downloader->inspect($job['url'],$folder);
         $qualities=array_filter(array_keys($info['options']),fn($q)=>is_numeric($q)&&(int)$q<=$checker->quality()); rsort($qualities,SORT_NUMERIC);
         if(!$qualities) throw new MediaFailure('format','No checker quality within the selected limit');
         $quality=(int)$qualities[0]; $media=$downloader->fetch($job['url'],$folder,$quality,$info['options'][$quality]);

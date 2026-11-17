@@ -28,7 +28,7 @@ $temp=sys_get_temp_dir().'/ciro-admin-keyboard-'.bin2hex(random_bytes(6)); mkdir
 try {
     $store=new Zero\Store($temp); $api=new AdminKeyboardApi(); $bot=new Zero\Bot(new Zero\Config('123:fake',[42],$temp),$store,$api);
     $bot->handle(adminMessage('/start'));
-    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('instagram_checker'),$bot->label('youtube_checker'),$bot->label('admin')],'the main keyboard contains Help, the checker and the administrator entrance');
+    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('checker'),$bot->label('admin')],'the main keyboard contains Help, the checker and the administrator entrance');
     $bot->handle(adminMessage($bot->label('admin')));
     $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','cookie_settings','update','add_admin','instagram_checker','youtube_checker','off','back_home']);
     adminCheck(adminLabels($api)===$expected&&!isset(end($api->calls)[1]['reply_markup']['inline_keyboard']),'entering administration replaces the main reply keyboard with the administration tools');
@@ -42,7 +42,7 @@ try {
     $bot->handle(adminMessage($bot->label('health')));
     adminCheck(str_contains(end($api->calls)[1]['text'],'کاربران ثبت‌شده'),'the status reply control opens the private statistics');
     $bot->handle(adminMessage($bot->label('cookies')));
-    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_instagram_stories'),$bot->label('cookie_instagram_checker'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
+    adminCheck(adminLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_youtube_checker'),$bot->label('cookie_instagram'),$bot->label('cookie_instagram_stories'),$bot->label('cookie_instagram_checker'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'the cookie control opens the independent service reply keyboards');
     $bot->handle(adminMessage($bot->label('cookie_youtube')));
     adminCheck(in_array($bot->label('cookie_view'),adminLabels($api),true)&&in_array($bot->label('cookie_remove'),adminLabels($api),true),'the YouTube service exposes separate import, view and delete controls');
     $bot->handle(adminMessage($bot->label('cookie_upload')));
@@ -62,7 +62,7 @@ try {
     adminCheck($store->enabled()&&adminLabels($api)===$expected,'activation works while the public bot is stopped');
     $bot->handle(adminMessage($bot->label('cookies')));
     $bot->handle(adminMessage($bot->label('back_home')));
-    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('instagram_checker'),$bot->label('youtube_checker'),$bot->label('admin')]&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back to main replaces the administration keyboard and clears the current input flow');
+    adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('checker'),$bot->label('admin')]&&!$store->query('SELECT 1 FROM states WHERE user_id=42')->fetchColumn(),'Back to main replaces the administration keyboard and clears the current input flow');
     $bot->handle(adminMessage('/admin'));
     adminCheck(adminLabels($api)===$expected,'the administrator command opens the same reply panel');
     $api->failDelete=true; $before=count($api->calls);

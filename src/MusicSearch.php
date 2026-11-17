@@ -48,7 +48,8 @@ final class MusicSearch
     public static function register(Api $api,Store $store,Ui $ui): void
     {
         $names=self::PUBLIC_MENU;
-        if(InstagramChecker::enabled($store)&&InstagramChecker::everyone($store)) array_push($names,'checker','insta_checker');
+        foreach(CheckerMenu::SERVICES as $entry) if($entry['checker']::enabled($store)&&$entry['checker']::everyone($store)) { $names[]='checker'; break; }
+        if(InstagramChecker::enabled($store)&&InstagramChecker::everyone($store)) $names[]='insta_checker';
         if(YoutubeChecker::enabled($store)&&YoutubeChecker::everyone($store)) $names[]='youtube_checker';
         $menu=self::commands($ui,$names); $hash=hash('sha256',json_encode($menu,JSON_UNESCAPED_UNICODE));
         if($store->get('commands.public')===$hash||($store->get('commands.public_attempt')===$hash&&time()-(int)$store->get('commands.public_tried','0')<3600)) return;

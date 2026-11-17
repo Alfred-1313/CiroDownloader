@@ -283,6 +283,7 @@ final class Personalization
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],
             'help'=>[['text','welcome'],['text','help'],['text','prompt'],['text','your_id'],['button','help']],
+            'checkers'=>[['text','checker_menu'],['text','command_checker'],['button','checker'],['button','checker_menu_youtube'],['button','checker_menu_instagram'],['button','checker_menu_back']],
             'inputs'=>[['text','unknown_message'],['text','invalid']],
             'group'=>[['text','group_help'],['text','help_groups_hint'],['text','groups_disabled'],['button','add_to_group']],
             'access'=>[['text','offline'],['text','admin_only_notice'],['text','callback_owner'],['text','callback_access'],['text','callback_stale']],

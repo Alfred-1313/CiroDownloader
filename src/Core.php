@@ -501,6 +501,14 @@ final class Store
                 if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query("DELETE FROM settings WHERE key='text.instagram_story_usage'");
                 $this->set('ui_instagram_story_usage_v2','1');
             }
+            if($this->get('ui_youtube_checker_choices_v1','0')!=='1') {
+                foreach(['youtube_checker_video_caption','youtube_checker_short_caption','youtube_checker_post_caption','youtube_checker_post_page_caption','youtube_checker_post_text'] as $key) {
+                    $legacy=Ui::definitions()['texts'][$key]['legacy_values']??[];
+                    $saved=$this->query('SELECT value FROM settings WHERE key=?',['text.'.$key])->fetchColumn();
+                    if($saved!==false&&in_array($saved,array_merge($legacy,array_map([Ui::class,'escape'],$legacy)),true)) $this->query('DELETE FROM settings WHERE key=?',['text.'.$key]);
+                }
+                $this->set('ui_youtube_checker_choices_v1','1');
+            }
             if($this->get('ui_checker_reply_v1','0')!=='1') {
                 $legacy=Ui::definitions()['texts']['instagram_checker_add_prompt']['legacy_values']??[];
                 $saved=$this->query("SELECT value FROM settings WHERE key='text.instagram_checker_add_prompt'")->fetchColumn();

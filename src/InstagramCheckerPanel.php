@@ -20,7 +20,7 @@ class InstagramCheckerPanel
     }
     public static function command(string $text): ?array
     {
-        if(!preg_match('~^/(?:insta_checker|checker)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
+        if(!preg_match('~^/insta_checker(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
         return ['bot'=>$m[1]??'','argument'=>trim($m[2]??'')];
     }
     private function b(string $key,array $p,string $op,?int $id=null,array $vars=[]): array
@@ -74,15 +74,16 @@ class InstagramCheckerPanel
         if($this->checker::everyone($this->bot->store)&&$chat<0&&$this->bot->allowed($owner,$chat)) return static::SERVICE.'_checker_group_admin';
         return static::SERVICE.'_checker_denied';
     }
-    public function open(int $owner,int $chat,int $thread=0,int $message=0,string $view='home',array $data=[]): void
+    public function open(int $owner,int $chat,int $thread=0,int $message=0,string $view='home',array $data=[]): bool
     {
-        if(!$this->permitted($owner,$chat,$this->bot->admin($owner)&&$chat===$owner)) { $this->bot->send($chat,$this->bot->text($this->denial($owner,$chat)),[],0,$thread); return; }
+        if(!$this->permitted($owner,$chat,$this->bot->admin($owner)&&$chat===$owner)) { $this->bot->send($chat,$this->bot->text($this->denial($owner,$chat)),[],0,$thread); return false; }
         $this->clearInput($owner);
         $s=$this->bot->store; $this->query('DELETE FROM {checker}panels WHERE expires<?',[time()]);
         $p=['token'=>bin2hex(random_bytes(8)),'owner'=>$owner,'chat_id'=>$chat,'thread_id'=>$chat<0?$thread:0,'message_id'=>$message];
         $this->query('INSERT INTO {checker}panels(token,owner,chat_id,thread_id,message_id,expires) VALUES(?,?,?,?,?,?)',[$p['token'],$owner,$chat,$p['thread_id'],$message,time()+3600]);
         try { $this->show($p,$view,$data); }
         catch(\Throwable $e) { $this->query('DELETE FROM {checker}panels WHERE token=?',[$p['token']]); throw $e; }
+        return true;
     }
     private function show(array $p,string $view,array $data=[],string $notice='',bool $passive=false): void
     {
@@ -96,6 +97,7 @@ class InstagramCheckerPanel
             foreach(array_slice($subs,$page*8,8) as $n=>$sub) $slots['entry'.($n+1)]=[$this->b('entry',$p,'item',(int)$sub['id'],['username'=>$sub['username'],'state'=>$ui->plain((int)$sub['paused']?static::SERVICE.'_checker_paused':static::SERVICE.'_checker_active'),'destination'=>$this->destination($sub)])];
             if(!$subs) $text.="\n\n".$ui->text(static::SERVICE.'_checker_empty');
             if($page>0) $slots['prev']=[$this->b('previous',$p,'page',$page-1)]; if($page+1<$pages) $slots['next']=[$this->b('next',$p,'page',$page+1)];
+            $slots['hub']=[$ui->button('checker_menu_back',static::CALLBACK.':'.$p['token'].':hub')];
             $rows=$ui->layout(static::SERVICE,'checker_home',$slots,UiRegistry::rows(static::SERVICE,'checker_home'));
             if($chat===$owner&&$this->bot->admin($owner)) array_splice($rows,max(0,count($rows)-1),0,[[$this->b('settings',$p,'settings')]]);
         } elseif(in_array($view,['new','add'],true)) {
@@ -207,6 +209,11 @@ class InstagramCheckerPanel
         if(!$this->permitted($owner,$chat,$settings)) { $answer($this->denial($owner,$chat),true); return; }
         $answer();
         if($op==='close') { $this->clearInput($owner,$p['token']); $this->bot->api->call('deleteMessage',['chat_id'=>$chat,'message_id'=>(int)$p['message_id']]); $this->query('DELETE FROM {checker}panels WHERE token=?',[$p['token']]); return; }
+        if($op==='hub') {
+            $this->clearInput($owner,$p['token']);
+            (new CheckerMenu($this->bot))->open($owner,$chat,$thread,(int)$p['message_id']);
+            $this->query('DELETE FROM {checker}panels WHERE token=?',[$p['token']]); return;
+        }
         if(in_array($op,['home','page'],true)) { $this->clearInput($owner,$p['token']); $this->show($p,'home',['page'=>$op==='page'?$id:0]); return; }
         if($op==='add') { $this->beginReply($p,'add'); return; }
         if($op==='save'&&$p['view']==='new'&&isset($data['username'])&&in_array($id,array_values($this->checker->modeChoices()),true)) {
@@ -254,7 +261,7 @@ class InstagramCheckerPanel
                     $current=$store->get($key,$op==='enabled'?($this->checker::enabled($store)?'1':'0'):'0'); $store->set($key,$current==='1'?'0':'1');
                     if($op==='enabled') {
                         $this->query('UPDATE {checker}subs SET posts_ready=0,stories_ready=0,extra_ready=0,generation=generation+1');
-                        $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE status IN ('pending','queued','retry')");
+                        $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE status IN ('pending','queued','retry','offered')");
                     }
                     $store->db->exec('COMMIT');
                 } catch(\Throwable $e) { $store->db->exec('ROLLBACK'); throw $e; }

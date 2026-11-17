@@ -9,6 +9,7 @@ class InstagramChecker
     protected const SERVICE='instagram', TABLE='ig_check_', DEFAULT_ENABLED='1', ALL=3, UPDATE_BASE=4000000000000000;
     protected const BITS=['post'=>1,'story'=>2];
     protected const READY=['post'=>'posts_ready','story'=>'stories_ready'];
+    protected const SENDABLE=['queued'];
     private static ?\WeakMap $schemas=null;
     public function sql(string $sql): string { return str_replace('{checker}',static::TABLE,$sql); }
     public function query(string $sql,array $args=[]): \PDOStatement { return $this->store->query($this->sql($sql),$args); }
@@ -152,7 +153,7 @@ class InstagramChecker
             $used=(int)$this->query('SELECT COUNT(DISTINCT target) FROM {checker}subs WHERE owner=? AND deleted=0 AND id<>?',[$owner,$id])->fetchColumn(); $limit=$this->limit($owner);
             if(!$owned&&$limit>0&&$used>=$limit) throw new \RuntimeException('checker_limit_reached');
             if(!$target) { $this->query('INSERT INTO {checker}targets(username) VALUES(?)',[$name]); $target=(int)$s->db->lastInsertId(); }
-            $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE subscription=? AND status IN ('pending','queued','retry')",[$id]);
+            $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE subscription=? AND status IN ('pending','queued','retry','offered')",[$id]);
             if($existing) {
                 $this->query('UPDATE {checker}subs SET deleted=1,generation=generation+1 WHERE id=?',[$id]);
                 $this->query('UPDATE {checker}subs SET mode=?,paused=?,deleted=0,posts_ready=0,stories_ready=0,extra_ready=0,generation=generation+1,created=? WHERE id=?',[$sub['mode'],$sub['paused'],time(),$existing['id']]); $id=(int)$existing['id'];
@@ -172,7 +173,7 @@ class InstagramChecker
             elseif($op==='pause') $this->query('UPDATE {checker}subs SET paused=1-paused,posts_ready=0,stories_ready=0,extra_ready=0,generation=generation+1 WHERE id=?',[$id]);
             elseif(preg_match('/^mode([1-7])$/D',$op,$m)&&(int)$m[1]<=static::ALL) $this->query('UPDATE {checker}subs SET mode=?,posts_ready=0,stories_ready=0,extra_ready=0,generation=generation+1 WHERE id=?',[(int)$m[1],$id]);
             else { $s->db->exec('ROLLBACK'); return false; }
-            $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE subscription=? AND status IN ('pending','queued','retry')",[$id]);
+            $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE subscription=? AND status IN ('pending','queued','retry','offered')",[$id]);
             $s->db->exec('COMMIT'); return true;
         } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
     }
@@ -192,7 +193,7 @@ class InstagramChecker
         $r=$this->context($job);
         if(!$r||!$this->allowed((int)$r['owner'],(int)$r['chat_id'])) return false;
         if($navigation) return $r['status']==='sent';
-        return $r['status']==='queued'&&!(int)$r['paused']&&!(int)$r['deleted']&&(int)$r['generation']===(int)$r['current_generation']&&((int)$r['mode']&(static::BITS[$r['kind']]??0));
+        return in_array($r['status'],static::SENDABLE,true)&&!(int)$r['paused']&&!(int)$r['deleted']&&(int)$r['generation']===(int)$r['current_generation']&&((int)$r['mode']&(static::BITS[$r['kind']]??0));
     }
     public function beginSend(array $job): void
     {
@@ -200,7 +201,8 @@ class InstagramChecker
         $s=$this->store; $s->db->exec('BEGIN IMMEDIATE');
         try {
             if(!$this->allowed((int)$job['user_id'],(int)$job['chat_id'],false)) throw new MediaFailure('restricted','Checker delivery no longer allowed');
-            $changed=$this->query("UPDATE {checker}deliveries SET status='sending' WHERE id=? AND job_id=? AND status='queued' AND EXISTS(SELECT 1 FROM {checker}subs s WHERE s.id={checker}deliveries.subscription AND s.generation={checker}deliveries.generation AND s.paused=0 AND s.deleted=0)",[self::deliveryId($job),$job['id']])->rowCount();
+            $states=implode(',',array_fill(0,count(static::SENDABLE),'?'));
+            $changed=$this->query("UPDATE {checker}deliveries SET status='sending' WHERE id=? AND job_id=? AND status IN ($states) AND EXISTS(SELECT 1 FROM {checker}subs s WHERE s.id={checker}deliveries.subscription AND s.generation={checker}deliveries.generation AND s.paused=0 AND s.deleted=0)",[self::deliveryId($job),$job['id'],...static::SENDABLE])->rowCount();
             if($changed!==1) throw new MediaFailure('restricted','Checker delivery already claimed');
             $s->db->exec('COMMIT');
         } catch(\Throwable $e) { $s->db->exec('ROLLBACK'); throw $e; }
@@ -211,13 +213,14 @@ class InstagramChecker
     }
     public function cancel(array $job): void
     {
-        if($this->context($job)) $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE id=? AND job_id=? AND status IN ('queued','retry')",[self::deliveryId($job),$job['id']]);
+        if($this->context($job)) $this->query("UPDATE {checker}deliveries SET status='cancelled' WHERE id=? AND job_id=? AND status IN ('queued','retry','offered')",[self::deliveryId($job),$job['id']]);
     }
     public function failure(array $job): void
     {
         $r=$this->context($job); if(!$r) return;
         if($r['status']==='sending') $this->query("UPDATE {checker}deliveries SET status='uncertain' WHERE id=?",[$r['id']]);
         elseif($r['status']==='queued') $this->query("UPDATE {checker}deliveries SET status=?,due=? WHERE id=?",[(int)$r['attempts']<3?'retry':'failed',time()+300,$r['id']]);
+        elseif($r['status']==='offered') $this->query("UPDATE {checker}deliveries SET status='failed' WHERE id=?",[$r['id']]);
     }
     public function queuePending(): void
     {

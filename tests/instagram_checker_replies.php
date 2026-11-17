@@ -44,14 +44,14 @@ try {
             'data'=>'ic:'.$p['token'].':'.$op.($id===null?'':':'.$id)]]);
     };
     $pending=fn(int $owner)=>$store->query('SELECT key FROM states WHERE user_id=?',[$owner])->fetchColumn();
-    $send('/checker',42,42); $admin=$panel(42,42); $tap($admin,'add'); $adminPrompt=$prompt($admin);
+    $send('/insta_checker',42,42); $admin=$panel(42,42); $tap($admin,'add'); $adminPrompt=$prompt($admin);
     replyCheck($adminPrompt>0&&$api->messages[$adminPrompt]['reply_markup']['force_reply']===true,'administrator Add opens an actual ForceReply prompt');
     $send('@admin_page',42,42,0,$adminPrompt); $tap($admin,'save',3);
     replyCheck($model->used(42)===1,'an administrator adds a page by replying with just its username');
     $store->set('instagram.checker.public','1');
-    $send('/checker',7,-100,17); $p=$panel(7,-100); $tap($p,'add'); $first=$prompt($p);
+    $send('/insta_checker',7,-100,17); $p=$panel(7,-100); $tap($p,'add'); $first=$prompt($p);
     replyCheck($api->messages[$first]['reply_markup']['selective']===true&&(int)$api->messages[$first]['message_thread_id']===17&&str_contains($api->messages[$first]['text'],'tg://user?id=7'),'a selective owner mention and original forum topic accompany the reply prompt');
-    $send('/checker',8,-100,17); $other=$panel(8,-100); $tap($other,'add'); $otherPrompt=$prompt($other); $before=count($api->calls); $ownState=$pending(8);
+    $send('/insta_checker',8,-100,17); $other=$panel(8,-100); $tap($other,'add'); $otherPrompt=$prompt($other); $before=count($api->calls); $ownState=$pending(8);
     $send('hijacked_page',8,-100,17,$first); $send('/checker injected_page',8,-100,17,$first); $send('root_hijack',42,-100,17,$first); $send('/add_admin',42,-100,17,$first);
     replyCheck(count($api->calls)===$before&&$pending(7)==='ic:'.$p['token']&&$pending(8)===$ownState&&$model->used(7)===0,'another user or administrator replying to this prompt is silently ignored, including commands, without consuming either input state');
     $send('raw_page',7,-100,17); $send('wrong_topic',7,-100,18,$first); $send('wrong_bot',7,-100,17,$first,999); $send('human_reply',7,-100,17,$first,123,false);
@@ -95,7 +95,7 @@ try {
     replyCheck($model->owned($id,7)['username']==='new_page'&&(int)$model->owned($id,7)['mode']===1&&!$pending(7),'a concurrently changed checker rejects the stale rename generation');
     $tap($p,'add'); $expired=$prompt($p); $store->query('UPDATE states SET expires=? WHERE user_id=7',[time()-1]); $before=count($api->calls); $send('expired_page',7,-100,17,$expired);
     replyCheck(count($api->calls)===$before&&!$store->query("SELECT 1 FROM ig_check_targets WHERE username='expired_page'")->fetchColumn(),'expired reply state cannot register a page');
-    $store->set('instagram.checker.limit.7','3'); $send('/checker',7,7); $private=$panel(7,7); $tap($private,'add'); $privateReply=$prompt($private); $send('private_page',7,7,0,$privateReply); $tap($private,'save',2);
+    $store->set('instagram.checker.limit.7','3'); $send('/insta_checker',7,7); $private=$panel(7,7); $tap($private,'add'); $privateReply=$prompt($private); $send('private_page',7,7,0,$privateReply); $tap($private,'save',2);
     replyCheck($model->subscription((int)$data($private)['id'],7,7,0)!==null,'public users also add a private story checker without a command argument');
     $privateId=(int)$data($private)['id']; $tap($private,'item',$id); $tap($private,'rename',$id); $protected=$prompt($private);
     $api->admins[7]='member'; $store->query("DELETE FROM settings WHERE key='radio.admin.-100.7'"); $send('demoted_change',7,7,0,$protected);

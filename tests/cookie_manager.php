@@ -26,7 +26,7 @@ try {
     $new=str_replace('FAKE_SESSION_A','FAKE_SESSION_B',$old); Zero\saveYouTubeCookies($config,$old);
     $click=function(string $key) use($bot): void { $bot->handle(cookieMessage($bot->label($key))); };
     $bot->handle(cookieMessage('/cookies'));
-    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_instagram'),$bot->label('cookie_instagram_stories'),$bot->label('cookie_instagram_checker'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and no settings switches');
+    managerCookieCheck(cookieLabels($api)===[$bot->label('cookie_youtube'),$bot->label('cookie_youtube_checker'),$bot->label('cookie_instagram'),$bot->label('cookie_instagram_stories'),$bot->label('cookie_instagram_checker'),$bot->label('cookie_pinterest'),$bot->label('cookie_tiktok'),$bot->label('cookie_twitter'),$bot->label('cookie_guide'),$bot->label('cookie_back_admin')],'cookie import opens independent service selectors with YouTube first and no settings switches');
     $import=(string)end($api->calls)[1]['text'];
     managerCookieCheck(str_contains($import,'<b>🍪 ایمپورت کوکی</b>')&&str_contains($import,$bot->label('cookie_settings'))&&!str_contains($import,'نگه‌دارنده روشن'),'the import screen only points to the separate settings screen');
     $click('cookie_settings');

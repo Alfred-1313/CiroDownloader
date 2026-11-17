@@ -11,5 +11,5 @@ final class YoutubeCheckerPanel extends InstagramCheckerPanel
         if(!preg_match('~^/(?:youtube_checker|yt_checker)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~sD',trim($text),$m)) return null;
         return ['bot'=>$m[1]??'','argument'=>trim($m[2]??'')];
     }
-    protected function openCookies(int $chat,int $owner): void { (new Cookies($this->bot))->handle($chat,$owner,'cookie_youtube'); }
+    protected function openCookies(int $chat,int $owner): void { (new YoutubeCheckerCookies($this->bot))->handle($chat,$owner,'cookie_youtube_checker'); }
 }

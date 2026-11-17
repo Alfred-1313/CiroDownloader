@@ -240,7 +240,7 @@ class Maintenance:
             if {'yt_check_subs', 'yt_check_targets', 'yt_check_deliveries'}.issubset(tables):
                 connection.execute('UPDATE yt_check_subs SET posts_ready=0,stories_ready=0,extra_ready=0,generation=generation+1')
                 connection.execute("UPDATE yt_check_targets SET lease='',lease_until=0,next_check=0")
-                connection.execute("UPDATE yt_check_deliveries SET status=CASE WHEN status='sending' THEN 'uncertain' ELSE 'cancelled' END WHERE status IN ('pending','queued','retry','sending')")
+                connection.execute("UPDATE yt_check_deliveries SET status=CASE WHEN status='sending' THEN 'uncertain' ELSE 'cancelled' END WHERE status IN ('pending','queued','retry','sending','offered')")
             if 'update_requests' in tables:
                 connection.execute("UPDATE update_requests SET status='failed' WHERE status IN ('queued','running')")
             connection.commit()

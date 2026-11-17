@@ -78,7 +78,7 @@ final class UiRegistry
             'delivery'=>['source'=>'source_'.$service],'article'=>['article'=>'open_'.$service.'_article']]+($service==='instagram'?[
                 'story_slides'=>['prev'=>'instagram_story_prev','next'=>'instagram_story_next','source'=>'source_instagram_story'],
                 'story_delivery'=>['source'=>'source_instagram_story'],
-                'checker_home'=>['add'=>'instagram_checker_add',...array_fill_keys(array_map(fn($n)=>'entry'.$n,range(1,8)),'instagram_checker_entry'),'prev'=>'instagram_checker_previous','next'=>'instagram_checker_next','close'=>'instagram_checker_close'],
+                'checker_home'=>['add'=>'instagram_checker_add',...array_fill_keys(array_map(fn($n)=>'entry'.$n,range(1,8)),'instagram_checker_entry'),'prev'=>'instagram_checker_previous','next'=>'instagram_checker_next','hub'=>'checker_menu_back','close'=>'instagram_checker_close'],
                 'checker_manage'=>['check'=>'instagram_checker_check','rename'=>'instagram_checker_rename','toggle'=>'instagram_checker_pause','mode'=>'instagram_checker_change_mode','delete'=>'instagram_checker_delete','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
                 'checker_new'=>['posts'=>'instagram_checker_mode1','stories'=>'instagram_checker_mode2','both'=>'instagram_checker_mode3','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
                 'checker_delete'=>['yes'=>'instagram_checker_delete_yes','back'=>'instagram_checker_back','close'=>'instagram_checker_close'],
@@ -92,7 +92,7 @@ final class UiRegistry
     public static function rows(string $service,string $layout): array
     {
         return match($layout) {
-            'checker_home'=>[['add'],...array_map(fn($n)=>['entry'.$n],range(1,8)),['prev','next'],['close']],
+            'checker_home'=>[['add'],...array_map(fn($n)=>['entry'.$n],range(1,8)),['prev','next'],['hub'],['close']],
             'checker_manage'=>[['check','rename'],['toggle'],['mode','delete'],['back','close']],
             'checker_new'=>$service==='youtube'?[['videos','shorts'],['posts'],['videos_shorts'],['videos_posts','shorts_posts'],['all'],['back','close']]:[['posts'],['stories'],['both'],['back','close']],
             'checker_delete'=>[['yes'],['back','close']],

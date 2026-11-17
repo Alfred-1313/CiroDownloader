@@ -3,13 +3,15 @@ declare(strict_types=1);
 require dirname(__DIR__).'/src/Core.php';require dirname(__DIR__).'/src/Bot.php';require dirname(__DIR__).'/src/Download.php';require dirname(__DIR__).'/src/Worker.php';
 function ycCheck(bool $ok,string $label):void{if(!$ok)throw new RuntimeException($label);echo "PASS $label\n";}
 final class YoutubeCheckerApi implements Zero\Api {
-    public array $calls=[];public bool $uncertain=false;public int $next=500;public array $admins=[42];public array $videos=[];
+    public array $calls=[];public bool $uncertain=false;public bool $uncertainCover=false;public int $next=500;public array $admins=[42];public array $videos=[];public array $audios=[];
     public function call(string $method,array $p=[]):mixed{
         $this->calls[]=[$method,$p];if(isset($p['text'])&&$method!=='answerCallbackQuery')Zero\TextFormat::validate($p['text'],4096);if(isset($p['caption']))Zero\TextFormat::validate($p['caption'],1024);
         if($method==='editMessageMedia')return ['message_id'=>$p['message_id'],'photo'=>[['file_id'=>'fixture_photo']]];
         if($method==='getChatMember')return ['status'=>in_array($p['user_id'],$this->admins,true)?'administrator':'member'];
         if($method==='sendVideo'){$this->videos[]=['caption'=>$p['caption'],'topic'=>$p['message_thread_id']??0,'bytes'=>filesize($p['video']->getFilename())];if($this->uncertain)return true;}
-        return in_array($method,['sendMessage','sendVideo','sendPhoto','editMessageMedia'],true)?['message_id'=>++$this->next]:true;
+        if($method==='sendAudio')$this->audios[]=['caption'=>$p['caption'],'topic'=>$p['message_thread_id']??0,'bytes'=>filesize($p['audio']->getFilename())];
+        if($method==='sendPhoto'&&$this->uncertainCover)return true;
+        return in_array($method,['sendMessage','sendVideo','sendAudio','sendPhoto','editMessageMedia'],true)?['message_id'=>++$this->next]:true;
     }
     public function last():array{return end($this->calls)?:[];}
     public function action(string $needle):string{foreach(array_reverse($this->calls)as[$m,$p])foreach($p['reply_markup']['inline_keyboard']??[]as$row)foreach($row as$b)if(str_contains($b['callback_data']??'',$needle))return $b['callback_data'];throw new RuntimeException('Missing action '.$needle);}
@@ -39,12 +41,45 @@ try{
  mkdir($c->storage.'/downloads',0700);$runner=new Zero\Download($c);$source=$root.'/fixture.mp4';
  $runner->run(['ffmpeg','-hide_banner','-loglevel','error','-y','-f','lavfi','-i','color=c=blue:s=640x360:r=1:d=1','-f','lavfi','-i','anullsrc=r=8000:cl=mono','-shortest','-c:v','libx264','-threads','2','-c:a','aac',$source],$root,30);
  $info=['title'=>'<video> & title','formats'=>[['format_id'=>'18','width'=>640,'height'=>360,'vcodec'=>'avc1','acodec'=>'aac','abr'=>96]]];
- file_put_contents($c->ytDlp,"#!/usr/bin/env php\n<?php\n".'if(in_array("--dump-single-json",$argv,true)){echo '.var_export(json_encode($info),true).';exit;} $out=$argv[array_search("-o",$argv,true)+1];copy('.var_export($source,true).',str_replace("%(ext)s","mp4",$out));echo json_encode("<video> & title").PHP_EOL;');chmod($c->ytDlp,0700);
+ Zero\youtubeCookiePool($c)->add("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tMANUAL_FIXTURE\n");
+ Zero\YoutubeCheckerMedia::pool($c)->add("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tCHECKER_FIXTURE\n");
+ file_put_contents($c->ytDlp,"#!/usr/bin/env php\n<?php\n".'$i=array_search("--cookies",$argv,true);if($i===false||!str_contains(file_get_contents($argv[$i+1]),"CHECKER_FIXTURE")){exit(1);}if(in_array("--dump-single-json",$argv,true)){echo '.var_export(json_encode($info),true).';exit;} $out=$argv[array_search("-o",$argv,true)+1];copy('.var_export($source,true).',str_replace("%(ext)s","mp4",$out));echo json_encode("<video> & title").PHP_EOL;');chmod($c->ytDlp,0700);
  $s->query("UPDATE jobs SET status='running' WHERE id=?",[$job['id']]);(new Zero\Worker($c,$s,$a))->process($job);
  ycCheck($s->query('SELECT status FROM jobs WHERE id=?',[$job['id']])->fetchColumn()==='done'&&count($a->videos)===1&&$a->videos[0]['topic']===17&&str_contains($a->videos[0]['caption'],'&lt;video&gt; &amp; title'),'real worker selects an available quality and sends one escaped-caption video into the original topic');
  ycCheck(!glob($c->storage.'/downloads/job-*'),'confirmed automatic videos release local media immediately');
  $job=$s->query("SELECT * FROM jobs WHERE phase='youtube_checker' AND status='queued' ORDER BY id LIMIT 1")->fetch();$s->query("UPDATE jobs SET status='running' WHERE id=?",[$job['id']]);$a->uncertain=true;(new Zero\Worker($c,$s,$a))->process($job);$m->queuePending();
  ycCheck($m->context($job)['status']==='uncertain','an uncertain automatic send is never put back into the download queue');$a->uncertain=false;
+ // A regular upload offers the exact manual cover/quality flow, with a persistent checker binding.
+ $videoJob=$s->query("SELECT * FROM jobs WHERE phase='inspect' AND chat_id=-100 LIMIT 1")->fetch();$beforeVideos=count($a->videos);
+ $s->query("UPDATE jobs SET status='running' WHERE id=?",[$videoJob['id']]);(new Zero\Worker($c,$s,$a))->process($videoJob);
+ $videoJob=$s->query('SELECT * FROM jobs WHERE id=?',[$videoJob['id']])->fetch();$coverId=(int)$videoJob['message_id'];$qualityAction=$a->action('quality:'.$videoJob['id'].':360');
+ $cover=[];foreach(array_reverse($a->calls)as[$method,$params])if($method==='sendPhoto'){$cover=$params;break;}
+ ycCheck($videoJob['status']==='waiting_quality'&&$m->context($videoJob)['status']==='offered'&&count($a->videos)===$beforeVideos&&($cover['message_thread_id']??0)===17,'regular uploads send a cover in the original topic and wait for an explicit quality choice');
+ ycCheck(str_contains($cover['caption'],'<blockquote>کانال @testchannel پست جدید گذاشته است.</blockquote>')&&json_decode($videoJob['options'],true)['checker_service']==='youtube','the cover quotes the channel and preserves checker identity beside the offered formats');
+ $s->query('UPDATE yt_check_targets SET next_check=0');$m->poll(fn()=>$snapshot);$m->queuePending();
+ ycCheck($m->context($videoJob)['status']==='offered'&&(int)$s->query("SELECT COUNT(*) FROM jobs WHERE phase='inspect' AND chat_id=-100")->fetchColumn()===1,'fresh scans and queue recovery do not resend an offered cover');
+ $qualityTap=function(string $action,int $user=42,?int $mid=null,?int $topic=17)use($b,$coverId):void{
+     $message=['message_id'=>$mid??$coverId,'chat'=>['id'=>-100,'type'=>'supergroup']];if($topic!==null)$message['message_thread_id']=$topic;
+     $b->handle(['callback_query'=>['id'=>'quality-fixture','from'=>['id'=>$user],'message'=>$message,'data'=>$action]]);
+ };
+ $qualityTap($qualityAction,7);$qualityTap($qualityAction,42,$coverId+100);$qualityTap($qualityAction,42,null,18);$qualityTap('quality:'.$videoJob['id'].':1080');
+ ycCheck($s->query('SELECT status FROM jobs WHERE id=?',[$videoJob['id']])->fetchColumn()==='waiting_quality','another user, copied message/topic and unavailable quality cannot start the checker download');
+ $qualityTap($qualityAction,42,null,null);$qualityTap($qualityAction);
+ $videoJob=$s->query('SELECT * FROM jobs WHERE id=?',[$videoJob['id']])->fetch();
+ ycCheck($videoJob['status']==='queued'&&$videoJob['phase']==='download'&&(int)$videoJob['quality']===360,'the owner can choose one offered quality with absent topic metadata recovered from the stored job');
+ $s->query("UPDATE jobs SET status='running' WHERE id=?",[$videoJob['id']]);(new Zero\Worker($c,$s,$a))->process($videoJob);
+ ycCheck(count($a->videos)===$beforeVideos+1&&$m->context($videoJob)['status']==='sent'&&end($a->videos)['topic']===17,'only the selected regular video is delivered and confirmed once');
+ ycCheck(!glob($c->storage.'/downloads/job-*'),'interactive checker deliveries release their temporary files');
+ $snapshot['videos'][]=['id'=>'EEEEEEEEEEE','url'=>'https://www.youtube.com/watch?v=EEEEEEEEEEE','time'=>time()];$s->query('UPDATE yt_check_targets SET next_check=0');$m->poll(fn()=>$snapshot);
+ $audioJob=$s->query("SELECT * FROM jobs WHERE url='https://www.youtube.com/watch?v=EEEEEEEEEEE' AND chat_id=-100")->fetch();
+ $s->query("UPDATE jobs SET status='running' WHERE id=?",[$audioJob['id']]);(new Zero\Worker($c,$s,$a))->process($audioJob);$audioJob=$s->query('SELECT * FROM jobs WHERE id=?',[$audioJob['id']])->fetch();
+ $qualityTap('quality:'.$audioJob['id'].':audio',42,(int)$audioJob['message_id']);$audioJob=$s->query('SELECT * FROM jobs WHERE id=?',[$audioJob['id']])->fetch();
+ $s->query("UPDATE jobs SET status='running' WHERE id=?",[$audioJob['id']]);(new Zero\Worker($c,$s,$a))->process($audioJob);
+ ycCheck($audioJob['phase']==='audio'&&count($a->audios)===1&&$m->context($audioJob)['status']==='sent'&&$a->audios[0]['topic']===17&&str_contains($a->audios[0]['caption'],'کانال @testchannel'),'audio selection downloads with the checker session and delivers one quoted-caption MP3 in the original topic');
+ $snapshot['videos'][]=['id'=>'FFFFFFFFFFF','url'=>'https://www.youtube.com/watch?v=FFFFFFFFFFF','time'=>time()];$s->query('UPDATE yt_check_targets SET next_check=0');$m->poll(fn()=>$snapshot);
+ $coverJob=$s->query("SELECT * FROM jobs WHERE url='https://www.youtube.com/watch?v=FFFFFFFFFFF' AND chat_id=-100")->fetch();$a->uncertainCover=true;
+ $s->query("UPDATE jobs SET status='running' WHERE id=?",[$coverJob['id']]);(new Zero\Worker($c,$s,$a))->process($coverJob);$m->queuePending();$a->uncertainCover=false;
+ ycCheck($m->context($coverJob)['status']==='uncertain'&&(int)$m->context($coverJob)['attempts']===1,'an uncertain cover send stays terminal instead of duplicating the notification');
  // A text community post uses the real fetch/worker path while the manual-post feature remains off.
  file_put_contents($root.'/python',"#!/usr/bin/env php\n<?php echo json_encode(['description'=>'<post> & text','author'=>'channel','files'=>[]]);");chmod($root.'/python',0700);
  $textJob=$s->query("SELECT * FROM jobs WHERE phase='youtube' AND chat_id=42 LIMIT 1")->fetch();$s->query("UPDATE jobs SET status='running' WHERE id=?",[$textJob['id']]);(new Zero\Worker($c,$s,$a))->process($textJob);
@@ -64,6 +99,10 @@ try{
  $send('/customize');$tap('custom:service:youtube');$settings=$a->action('youtube_checker:settings');$tap($settings);$quality=$a->action(':quality');$tap($quality);ycCheck($s->get('youtube.checker.quality')==='1080','YouTube Personalization opens checker settings and changes automatic quality');
  foreach(Zero\UiRegistry::items('youtube',Zero\Ui::definitions())as[$kind,$key])if(str_starts_with($key,'youtube_checker'))ycCheck($b->ui->customizable($kind,$key),'YouTube checker public field is editable: '.$key);
  $s->query('UPDATE yt_check_targets SET next_check=0');$m->poll(function(){throw new Zero\MediaFailure('blocked','fixture');});(new Zero\YoutubeCheckerPanel($b))->refreshChecks();ycCheck($s->query('SELECT state FROM yt_check_targets')->fetchColumn()==='blocked'&&!$m->due(),'rate refusals preserve backoff instead of trying more endpoints');
- $queuedJob=$s->query("SELECT * FROM jobs WHERE phase='youtube_checker' AND chat_id=42 AND status='queued' LIMIT 1")->fetch();ycCheck($m->canDeliver($queuedJob),'a remaining Short is deliverable before pause');
+ $queuedJob=$s->query("SELECT * FROM jobs WHERE phase='inspect' AND chat_id=42 AND status='queued' LIMIT 1")->fetch();
+ $s->query("UPDATE jobs SET status='running' WHERE id=?",[$queuedJob['id']]);(new Zero\Worker($c,$s,$a))->process($queuedJob);$queuedJob=$s->query('SELECT * FROM jobs WHERE id=?',[$queuedJob['id']])->fetch();
+ ycCheck($queuedJob['status']==='waiting_quality'&&$m->canDeliver($queuedJob),'an offered private video remains selectable before pause');
  ycCheck($m->change($id,42,42,0,'pause')&&!$m->canDeliver($queuedJob),'pause invalidates unsent checker work');
+ $b->handle(['callback_query'=>['id'=>'paused-quality','from'=>['id'=>42],'message'=>['message_id'=>$queuedJob['message_id'],'chat'=>['id'=>42,'type'=>'private']],'data'=>'quality:'.$queuedJob['id'].':360']]);
+ ycCheck($a->last()[0]==='answerCallbackQuery'&&$a->last()[1]['show_alert']&&$m->context($queuedJob)['status']==='cancelled','an offered cover cannot queue a file after its subscription is paused');
 }finally{Zero\Download::clean($root);}

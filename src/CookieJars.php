@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Zero;
 require_once __DIR__ . '/InstagramStories.php';
 require_once __DIR__ . '/InstagramCheckerMedia.php';
+require_once __DIR__ . '/YoutubeCheckerMedia.php';
 
 /**
  * Administrator-facing helpers shared by every cookie panel: importing one or
@@ -12,11 +13,12 @@ require_once __DIR__ . '/InstagramCheckerMedia.php';
  */
 final class CookieJars
 {
-    public const SERVICES=['yt'=>'youtube','ig'=>'instagram','igs'=>'instagram_stories','igc'=>'instagram_checker','pin'=>'pinterest','tt'=>'tiktok','x'=>'twitter'];
+    public const SERVICES=['yt'=>'youtube','ytc'=>'youtube_checker','ig'=>'instagram','igs'=>'instagram_stories','igc'=>'instagram_checker','pin'=>'pinterest','tt'=>'tiktok','x'=>'twitter'];
     public function __construct(private Bot $bot) {}
     public static function pool(Config $config,string $code): ?CookiePool
     {
         if($code==='yt') return youtubeCookiePool($config);
+        if($code==='ytc') return YoutubeCheckerMedia::pool($config);
         if($code==='igs') return InstagramStories::pool($config);
         if($code==='igc') return InstagramCheckerMedia::pool($config);
         $service=galleryFromPrefix($code);
@@ -183,19 +185,20 @@ final class CookieJars
         try {
             // A broken or expired file is the jar's fault; a local failure below is not.
             try {
-                if($code==='yt') validateYouTubeCookies($content);
+                if(in_array($code,['yt','ytc'],true)) validateYouTubeCookies($content);
                 elseif($code==='igs') InstagramStories::validateCookies($content);
                 elseif($code==='igc') InstagramCheckerMedia::validateCookies($content);
                 else GalleryMedia::validateFor((string)galleryFromPrefix($code),$content);
             } catch(\RuntimeException) { $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed'); }
-            if($code!=='yt') { $pool->markWorking($jar['id']); return $ui->text('cookie_test_structure_ok'); }
+            if(!in_array($code,['yt','ytc'],true)) { $pool->markWorking($jar['id']); return $ui->text('cookie_test_structure_ok'); }
             require_once __DIR__.'/Download.php';
             $folder=$this->bot->config->storage.'/.cookie-check-'.bin2hex(random_bytes(8));
             if(!mkdir($folder,0700)) throw new \RuntimeException('Cannot create cookie verification directory');
             try {
-                $fresh=(new Download($this->bot->config))->verifyCookies($content,$folder,$this->bot->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
+                $config=$code==='ytc'?YoutubeCheckerMedia::config($this->bot->config):$this->bot->config;
+                $fresh=(new Download($config))->verifyCookies($content,$folder,$this->bot->store->get('youtube_probe_url','https://www.youtube.com/watch?v=ybNMMK5Q318'));
                 // The test may rotate the cookies; keep the freshest copy of this jar only.
-                try { saveYouTubeCookies($this->bot->config,$fresh,$jar['hash'],$jar['path']); } catch(\Throwable) {}
+                try { saveYouTubeCookies($config,$fresh,$jar['hash'],$jar['path']); } catch(\Throwable) {}
             } finally { Download::clean($folder); }
         } catch(MediaFailure $e) {
             if($e->reason==='cookies') { $pool->markFailed($jar['id']); return $ui->text('cookie_test_failed'); }
@@ -208,7 +211,7 @@ final class CookieJars
     public function pendingLabel(int $user): ?string
     {
         $saved=$this->bot->store->get('cklabel.'.$user);
-        if(!preg_match('/^(yt|igs|igc|ig|pin|tt|x):([a-f0-9]{12}|main):(\d+)$/D',$saved,$match)||(int)$match[3]<time()) return null;
+        if(!preg_match('/^(yt|ytc|igs|igc|ig|pin|tt|x):([a-f0-9]{12}|main):(\d+)$/D',$saved,$match)||(int)$match[3]<time()) return null;
         return $match[1].':'.$match[2];
     }
     public function cancelLabel(int $user): void { $this->bot->store->query('DELETE FROM settings WHERE key=?',['cklabel.'.$user]); }
@@ -227,7 +230,7 @@ final class CookieJars
     public function callback(array $query,int $chat,int $user,int $message): void
     {
         $ui=$this->bot->ui; $answer=fn(string $text='',bool $alert=false)=>$this->bot->api->call('answerCallbackQuery',['callback_query_id'=>$query['id'],'text'=>$text,'show_alert'=>$alert,'cache_time'=>0]);
-        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^ck(rm|ex|ts|lb):(yt|igs|igc|ig|pin|tt|x):([a-f0-9]{12}|main):([a-f0-9]{8})$/D',(string)($query['data']??''),$match)) { $answer($ui->plain('denied'),true); return; }
+        if($chat!==$user||!$this->bot->admin($user)||!preg_match('/^ck(rm|ex|ts|lb):(yt|ytc|igs|igc|ig|pin|tt|x):([a-f0-9]{12}|main):([a-f0-9]{8})$/D',(string)($query['data']??''),$match)) { $answer($ui->plain('denied'),true); return; }
         [, $action,$code,$id,$prefix]=$match;
         $pool=self::pool($this->bot->config,$code); $jar=null;
         $position=0;

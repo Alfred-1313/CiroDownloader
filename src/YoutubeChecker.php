@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Zero;
 require_once __DIR__.'/InstagramChecker.php';
+require_once __DIR__.'/YoutubeCheckerMedia.php';
 
 /** YouTube adapter for the shared subscription, quota, baseline and delivery machinery. */
 final class YoutubeChecker extends InstagramChecker
@@ -9,6 +10,7 @@ final class YoutubeChecker extends InstagramChecker
     protected const SERVICE='youtube', TABLE='yt_check_', DEFAULT_ENABLED='0', ALL=7, UPDATE_BASE=5000000000000000;
     protected const BITS=['video'=>1,'short'=>2,'post'=>4];
     protected const READY=['video'=>'posts_ready','short'=>'stories_ready','post'=>'extra_ready'];
+    protected const SENDABLE=['queued','offered'];
     public function normalizeName(string $name): ?string
     {
         $name=trim($name);
@@ -31,7 +33,16 @@ final class YoutubeChecker extends InstagramChecker
         $kind=$o['checker_kind']??$o['pages']['checker_kind']??(youtubePostUrl($job['url'])!==null?'post':'video');
         return 'youtube_checker_'.(in_array($kind,['video','short','post'],true)?$kind:'video');
     }
-    protected function deliveryPhase(array $row): string { return $row['kind']==='post'?'youtube':'youtube_checker'; }
+    protected function deliveryPhase(array $row): string { return match($row['kind']) {'post'=>'youtube','video'=>'inspect',default=>'youtube_checker'}; }
+    public function offered(array $job,int $message): void
+    {
+        $this->store->db->exec('BEGIN IMMEDIATE');
+        try {
+            $this->query("UPDATE {checker}deliveries SET status='offered',message_id=? WHERE id=? AND job_id=? AND status='sending'",[$message,self::deliveryId($job),$job['id']]);
+            $this->store->query("UPDATE jobs SET status='waiting_quality' WHERE id=?",[$job['id']]);
+            $this->store->db->exec('COMMIT');
+        } catch(\Throwable $e) { $this->store->db->exec('ROLLBACK'); throw $e; }
+    }
     public function quality(): int { $q=(int)$this->store->get('youtube.checker.quality','720'); return in_array($q,[360,480,720,1080],true)?$q:720; }
     protected function snapshotItems(array $target,array $snapshot): array
     {
@@ -58,7 +69,7 @@ final class YoutubeChecker extends InstagramChecker
         try {
             $command=[dirname($this->config->ytDlp).'/python',dirname(__DIR__).'/bin/youtube-check.py','--channel',$target['account_id']?:$target['username'],'--mode',(string)$mode];
             if($this->config->youtubeProxy!=='') array_push($command,'--proxy',$this->config->youtubeProxy);
-            $jars=youtubeCookiePool($this->config)->order(1);
+            $jars=YoutubeCheckerMedia::pool($this->config)->order(1);
             if($jars) {
                 $content=(string)file_get_contents($jars[0]['path']); validateYouTubeCookies($content);$path=$folder.'/session.txt';
                 if(file_put_contents($path,$content)!==strlen($content)||!chmod($path,0600)) throw new MediaFailure('cookies','Cannot prepare checker session');

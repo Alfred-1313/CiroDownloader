@@ -13,7 +13,7 @@ final class Cookies
     /** The import screen: one entry per service, nothing else. */
     private function services(int $chat): void
     {
-        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['settings'=>$this->bot->ui->label('cookie_settings')]),$this->keyboard([['cookie_youtube'],['cookie_instagram'],['cookie_instagram_stories'],['cookie_instagram_checker'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_guide'],['cookie_back_admin']]));
+        $this->bot->sendKeyboard($chat,$this->bot->text('cookie_services',['settings'=>$this->bot->ui->label('cookie_settings')]),$this->keyboard([['cookie_youtube'],['cookie_youtube_checker'],['cookie_instagram'],['cookie_instagram_stories'],['cookie_instagram_checker'],['cookie_pinterest'],['cookie_tiktok'],['cookie_twitter'],['cookie_guide'],['cookie_back_admin']]));
     }
     /** One inline switch: green when on, red when off, with its state in the label. */
     private function switchButton(string $key,string $data,bool $on): array

@@ -30,6 +30,8 @@ require_once __DIR__.'/InstagramStoryCookies.php';
 require_once __DIR__.'/InstagramCheckerPanel.php';
 require_once __DIR__.'/YoutubeCheckerPanel.php';
 require_once __DIR__.'/InstagramCheckerCookies.php';
+require_once __DIR__.'/YoutubeCheckerCookies.php';
+require_once __DIR__.'/CheckerMenu.php';
 require_once __DIR__.'/YoutubePosts.php';
 
 final class Bot
@@ -200,8 +202,7 @@ final class Bot
     public function home(int $chat,int $user): void
     {
         $rows=[[$this->replyButton('help')]];
-        if($this->admin($user)||(InstagramChecker::enabled($this->store)&&InstagramChecker::everyone($this->store))) $rows[]=[$this->replyButton('instagram_checker')];
-        if($this->admin($user)||(YoutubeChecker::enabled($this->store)&&YoutubeChecker::everyone($this->store))) $rows[]=[$this->replyButton('youtube_checker')];
+        foreach(CheckerMenu::SERVICES as $entry) if($this->admin($user)||($entry['checker']::enabled($this->store)&&$entry['checker']::everyone($this->store))) { $rows[]=[$this->replyButton('checker')]; break; }
         if($this->admin($user)) $rows[]=[$this->replyButton('admin')];
         $this->sendKeyboard($chat,$this->text('welcome'),$rows);
     }
@@ -251,6 +252,11 @@ final class Bot
     public function qualityMenu(array $job,array $media): void
     {
         $service=adultService($job['url'])??'youtube'; $ui=$this->ui->forService($service);
+        $checker=InstagramChecker::forJob($this->config,$this->store,$this->api,$job);
+        if($checker instanceof YoutubeChecker) {
+            $saved=json_decode((string)$job['options'],true);
+            foreach(['checker','checker_service','checker_kind'] as $key) $media['options'][$key]=$saved[$key];
+        }
         $this->store->query("UPDATE jobs SET status='running',title=?,options=?,expires=0 WHERE id=?",
             [$media['title'],json_encode($media['options'],JSON_THROW_ON_ERROR),$job['id']]);
         $rows=[]; $row=[]; $slots=[]; $perRow=max(1,min(3,(int)$ui->setting('cover.per_row','2')));
@@ -281,10 +287,15 @@ final class Bot
         $rows=$ui->layout($service,'quality',$slots,$rows);
         if($rows&&!array_filter(array_merge(...$rows),fn($button)=>empty($button['_hidden']))) unset($rows[0][0]['_hidden']);
         $caption=$ui->coverCaption($media['title'],(string)round($this->config->maxBytes/1000000,1));
+        if($checker instanceof YoutubeChecker) $caption=Ui::fitCaption($ui->text('youtube_checker_video_notice',['username'=>$checker->context($job)['username']])."\n\n".$caption);
         if(!empty($media['poster_file'])) $this->jobPosterFile($job,(string)$media['poster_file'],$caption,$rows);
         elseif(!empty($media['poster'])) $this->jobPoster($job,$media['poster'],$caption,$rows);
         else $this->jobMessage($job,$caption,$rows);
-        $this->store->query("UPDATE jobs SET status='waiting_quality' WHERE id=?",[$job['id']]);
+        if($checker instanceof YoutubeChecker) {
+            $message=(int)$this->store->query('SELECT message_id FROM jobs WHERE id=?',[$job['id']])->fetchColumn();
+            if($message<1) throw new MediaFailure('upload','Missing checker cover confirmation');
+            $checker->offered($job,$message);
+        } else $this->store->query("UPDATE jobs SET status='waiting_quality' WHERE id=?",[$job['id']]);
     }
     private function qualityChoice(int $chat,int $user,array $cb,array $parts): void
     {
@@ -293,6 +304,10 @@ final class Bot
         if($saved&&((int)$saved['user_id']!==$user||(int)$saved['chat_id']!==$chat)) $notice='callback_owner';
         elseif($saved&&(((int)$saved['message_id']>0&&(int)($message['message_id']??0)!==(int)$saved['message_id'])||($chat<0&&array_key_exists('message_thread_id',$message)&&(int)$saved['thread_id']!==(int)$message['message_thread_id']))) $notice='callback_stale';
         if($notice!=='') { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain($notice),'show_alert'=>true,'cache_time'=>0]); return; }
+        $checker=$saved?InstagramChecker::forJob($this->config,$this->store,$this->api,$saved):null;
+        if($checker&&!$checker->canDeliver($saved)) {
+            $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('quality_expired'),'show_alert'=>true,'cache_time'=>0]); return;
+        }
         $quality=match($parts[2]) {'cancel'=>null,'audio'=>'audio',default=>(int)$parts[2]};
         $context=$this->store->query('SELECT url FROM jobs WHERE id=? AND user_id=? AND chat_id=?',[(int)$parts[1],$user,$chat])->fetchColumn();
         $ui=$this->ui->forService(is_string($context)?(adultService($context)??'youtube'):'');
@@ -301,6 +316,7 @@ final class Bot
         $notice=$waiting?($this->store->busy($user,$chat)?'quality_busy':($this->store->full()?'queue_full':'quality_expired')):'quality_expired';
         $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$job?'':$ui->plain($notice),'show_alert'=>!$job,'cache_time'=>0]);
         if(!$job) return;
+        if($quality===null&&$checker) $checker->cancel($job);
         try {
             $this->jobMessage($job,$this->ui->forService(adultService($job['url'])??'youtube')->text($quality===null?'cancelled':($quality==='audio'?'audio_downloading':'downloading')));
             if($quality!==null) $this->store->query("UPDATE jobs SET status='queued' WHERE id=? AND status='confirming'",[$job['id']]);
@@ -466,6 +482,7 @@ final class Bot
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$cb&&(new InstagramCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
         if(!$cb&&(new YoutubeCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
+        if(!$cb&&(new CheckerMenu($this))->message($message,$user,$chat,$thread)) return;
         if(!$cb&&(new Administrators($this))->replyCommand($message,$user,$chat,$thread)) return;
         $custom=new Personalization($this);
         if($cb) {
@@ -482,7 +499,8 @@ final class Bot
             $isRadio=$radioCallback;
             $isXnxxSearch=preg_match('/^(?:xs|vs):\d{1,12}:(?:[ip]:\d{1,3}|x)$/D',$action)===1;
             $isInstagramUser=preg_match('/^iu:\d{1,12}:\d{1,9}:(?:x|s|b|[up]:\d{1,2})$/D',$action)===1;
-            $isChecker=preg_match('/^(?:ic|yc):[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
+            $isCheckerMenu=preg_match('/^ch:[a-f0-9]{16}:[a-z_]+$/D',$action)===1;
+            $isChecker=$isCheckerMenu||preg_match('/^(?:ic|yc):[a-f0-9]{16}:[a-z_0-9]+(?::[0-9]{1,12})?$/D',$action)===1;
             if($isUpdate) {
                 $updater=new Updates($this->config,$this->store,$this->api,$thread); $menu=(int)($message['message_id']??0);
                 $notice=$updater->callbackNotice($chat,$user,$menu,array_key_exists('message_thread_id',$message)?$thread:null); $owns=$notice==='';
@@ -505,6 +523,7 @@ final class Bot
             if(!$this->allowed($user,$chat)) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('callback_access'),'show_alert'=>true,'cache_time'=>0]); return;
             }
+            if($isCheckerMenu) { (new CheckerMenu($this))->callback($cb,$user,$chat,$thread); return; }
             if($isChecker) { $panel=str_starts_with($action,'yc:')?new YoutubeCheckerPanel($this):new InstagramCheckerPanel($this); $panel->callback($cb,$user,$chat,$thread); return; }
             if($action==='youtube_checker:settings') { (new YoutubeCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>'service']); return; }
             if(in_array($action,['checker:settings','checker:settings:instagram'],true)) { (new InstagramCheckerPanel($this))->open($user,$chat,$thread,(int)$message['message_id'],'settings',['custom'=>$action==='checker:settings:instagram'?'service':true]); return; }
@@ -576,7 +595,7 @@ final class Bot
         if(preg_match('~^(/\w+)@[A-Za-z0-9_]+$~D',$text,$command)) $text=$command[1];
         $reply=$this->ui->replyAction($text);
         $commands=['/cancel','/start','/admin','/health','/cookies','/update','/customize','/help','/radio'];
-        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','igs_cookie_confirm','igc_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
+        $previousState=in_array($reply,['cookie_delete_confirm','ig_cookie_confirm','igs_cookie_confirm','igc_cookie_confirm','ytc_cookie_confirm','pin_cookie_confirm','tt_cookie_confirm','x_cookie_confirm'],true)?$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn():null;
         if(in_array($text,$commands,true)||$reply!==null) { $this->store->query('DELETE FROM states WHERE user_id=?',[$user]); (new CookieJars($this))->cancelLabel($user); }
         if($text==='/id') { $this->send($chat,$this->text('your_id',['id'=>$user])); return; }
         if($this->admin($user)) {
@@ -587,6 +606,7 @@ final class Bot
             if($reply!==null&&(new InstagramCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new InstagramStoryCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new InstagramCheckerCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
+            if($reply!==null&&(new YoutubeCheckerCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new PinterestCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new TikTokCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
             if($reply!==null&&(new TwitterCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
@@ -622,11 +642,12 @@ final class Bot
             elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
             elseif($state==='igs_cookie.upload') (new InstagramStoryCookies($this))->document($chat,$user,$message);
             elseif($state==='igc_cookie.upload') (new InstagramCheckerCookies($this))->document($chat,$user,$message);
+            elseif($state==='ytc_cookie.upload') (new YoutubeCheckerCookies($this))->document($chat,$user,$message);
             else $this->cookieDocument($chat,$user,$message);
             return;
         }
         // Phones often cannot save a file, so a pasted export (Netscape, JSON or header string) is accepted while an import waits.
-        $pasting=$text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','igs_cookie.upload','igc_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)?$this->pastedParts($chat,$user,$message,$text,$state):false;
+        $pasting=$text!==''&&$this->admin($user)&&in_array($state,['cookie.upload','ig_cookie.upload','igs_cookie.upload','igc_cookie.upload','ytc_cookie.upload','pin_cookie.upload','tt_cookie.upload','x_cookie.upload'],true)?$this->pastedParts($chat,$user,$message,$text,$state):false;
         if($pasting===true) return;
         if(is_string($pasting)) {
             $message['text']=$pasting;
@@ -636,11 +657,13 @@ final class Bot
             elseif($state==='ig_cookie.upload') (new InstagramCookies($this))->document($chat,$user,$message);
             elseif($state==='igs_cookie.upload') (new InstagramStoryCookies($this))->document($chat,$user,$message);
             elseif($state==='igc_cookie.upload') (new InstagramCheckerCookies($this))->document($chat,$user,$message);
+            elseif($state==='ytc_cookie.upload') (new YoutubeCheckerCookies($this))->document($chat,$user,$message);
             else $this->cookieDocument($chat,$user,$message);
             return;
         }
         if($text==='') return;
         if($state==='cookie.upload'&&$this->admin($user)) { $this->cookieNotice($chat,$user,$this->text('cookie_waiting')); return; }
+        if($state==='ytc_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('ytc_cookie_waiting')); return; }
         if($state==='igc_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('igc_cookie_waiting')); return; }
         if($state==='igs_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('igs_cookie_waiting')); return; }
         if($state==='ig_cookie.upload'&&$this->admin($user)) { $this->send($chat,$this->text('ig_cookie_waiting')); return; }
