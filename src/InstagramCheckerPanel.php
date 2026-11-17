@@ -163,10 +163,13 @@ class InstagramCheckerPanel
         $replyPanel=$replyId>0?$this->query("SELECT * FROM {checker}panels WHERE chat_id=? AND CAST(json_extract(data,'$.input_message') AS INTEGER)=CAST(? AS INTEGER)",[$chat,$replyId])->fetch():false;
         if($replyPanel) {
             $botId=(int)$this->bot->store->get('bot_id','0');
+            $topic=(int)$replyPanel['thread_id'];
+            // Non-topic replies can carry Telegram discussion IDs. Only real forum topics use them as destinations.
             if((int)$replyPanel['owner']!==$owner||empty($reply['from']['is_bot'])||($botId>0&&(int)($reply['from']['id']??0)!==$botId)
-                ||(array_key_exists('message_thread_id',$message)&&(int)$replyPanel['thread_id']!==$thread)
-                ||(array_key_exists('message_thread_id',$reply)&&(int)$replyPanel['thread_id']!==(int)$reply['message_thread_id'])) return true;
-            $thread=(int)$replyPanel['thread_id'];
+                ||($topic===0&&(!empty($message['is_topic_message'])||!empty($reply['is_topic_message'])))
+                ||($topic>0&&((array_key_exists('message_thread_id',$message)&&$topic!==$thread)
+                    ||(array_key_exists('message_thread_id',$reply)&&$topic!==(int)$reply['message_thread_id'])))) return true;
+            $thread=$topic;
         }
         if($command!==null||$text===$this->bot->label(static::SERVICE.'_checker')) {
             if($command!==null&&$command['bot']!==''&&strcasecmp($command['bot'],$this->bot->store->get('bot_username'))!==0) return true;

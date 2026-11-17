@@ -119,6 +119,49 @@ try {
     replyCheck($failed&&$prompt($private)===$good&&$pending(7)==='ic:'.$private['token'],'a rejected replacement prompt retains the previous confirmed reply binding');
     $send('/cancel',7,7);
 
+    // Telegram also reports discussion-thread IDs on replies outside real forum topics (stored topic 0).
+    foreach(['instagram'=>['ig_check_','ic','/insta_checker'], 'youtube'=>['yt_check_','yc','/youtube_checker']] as $service=>[$table,$prefix,$command]) {
+        $store->set($service.'.checker.enabled','1'); $chat=$service==='instagram'?-300:-400;
+        $class=$service==='instagram'?Zero\InstagramChecker::class:Zero\YoutubeChecker::class; $checker=new $class($config,$store,$api);
+        $send($command,42,$chat);
+        $p=$store->query('SELECT * FROM '.$table.'panels WHERE owner=42 AND chat_id=? ORDER BY rowid DESC LIMIT 1',[$chat])->fetch();
+        $current=fn()=>$store->query('SELECT * FROM '.$table.'panels WHERE token=?',[$p['token']])->fetch();
+        $replyPrompt=fn()=>(int)(json_decode($current()['data'],true)['input_message']??0);
+        $checkerTap=function(string $op,?int $id=null) use($bot,&$serial,$p,$current,$prefix,$chat): void {
+            $bot->handle(['update_id'=>++$serial,'callback_query'=>['id'=>'thread'.$serial,'from'=>['id'=>42],
+                'message'=>['message_id'=>(int)$current()['message_id'],'chat'=>['id'=>$chat,'type'=>'supergroup']],
+                'data'=>$prefix.':'.$p['token'].':'.$op.($id===null?'':':'.$id)]]);
+        };
+        $groupReply=function(string $text,int $prompt,int $owner=42,?bool $topic=null,?bool $nestedTopic=null,int $sender=123) use($bot,&$serial,$chat,$service): void {
+            $message=['message_id'=>++$serial,'from'=>['id'=>$owner,'is_bot'=>false],
+                'chat'=>['id'=>$chat,'type'=>'supergroup','is_forum'=>$service==='instagram'],'message_thread_id'=>$prompt+7000,
+                'text'=>$text,'reply_to_message'=>['message_id'=>$prompt,'message_thread_id'=>$prompt+6000,'from'=>['id'=>$sender,'is_bot'=>true]]];
+            if($topic!==null) $message['is_topic_message']=$topic;
+            if($nestedTopic!==null) $message['reply_to_message']['is_topic_message']=$nestedTopic;
+            $bot->handle(['update_id'=>$serial,'message'=>$message]);
+        };
+        $checkerTap('add'); $add=$replyPrompt(); $before=count($api->calls);
+        $groupReply('foreign_page',$add,8); $groupReply('wrong_topic',$add,42,true); $groupReply('nested_topic',$add,42,false,true); $groupReply('other_bot',$add,42,false,false,999);
+        replyCheck(count($api->calls)===$before&&$replyPrompt()===$add,'ordinary group replies retain owner, bot and real-topic guards: '.$service);
+        $groupReply('tatali00',$add);
+        replyCheck($current()['view']==='new'&&(int)$current()['thread_id']===0&&!$pending(42),'discussion-thread metadata does not swallow Add in the General topic: '.$service);
+        $checkerTap('save',$service==='instagram'?3:7);
+        $id=(int)(json_decode($current()['data'],true)['id']??0); $sub=$checker->owned($id,42);
+        replyCheck($sub!==null&&(int)$sub['thread_id']===0,'registration keeps the original unthreaded destination: '.$service);
+        $checkerTap('rename',$id); $rename=$replyPrompt(); $before=count($api->calls);
+        $groupReply('foreign_rename',$rename,8); $groupReply('topic_rename',$rename,42,true); $groupReply('nested_topic_rename',$rename,42,false,true);
+        replyCheck(count($api->calls)===$before&&$checker->owned($id,42)['username']===$sub['username'],'foreign and real-topic replies cannot rename the General-topic checker: '.$service);
+        $groupReply('invalid name',$rename); $retry=$replyPrompt();
+        replyCheck($retry>0&&$retry!==$rename&&$current()['view']==='rename','invalid input keeps a usable unthreaded reply prompt: '.$service);
+        $groupReply('mmad',$retry);
+        $changed=$checker->owned($id,42);
+        replyCheck($changed['username']===$checker->normalizeName('mmad')&&(int)$changed['chat_id']===$chat&&(int)$changed['thread_id']===0
+            &&(int)$changed['mode']===(int)$sub['mode']&&(int)$changed['generation']===(int)$sub['generation']+1&&$current()['view']==='item'&&!$pending(42),
+            'the owner can rename tatali00 to mmad using a normal group reply: '.$service);
+        foreach(array_slice($api->calls,$before) as [$method,$params]) if($method==='sendMessage'&&(int)($params['chat_id']??0)===$chat)
+            replyCheck(!isset($params['message_thread_id']),'reply handling never sends to a discussion ID as though it were a forum topic: '.$service);
+    }
+
     $legacy=new Zero\Store($root.'/legacy'); $defaults=Zero\Ui::definitions()['texts']['instagram_checker_add_prompt']['legacy_values']; $legacy->set('text.instagram_checker_add_prompt',end($defaults));
     $legacy->set('layout.instagram.checker_manage',json_encode([['toggle'],['check','mode'],['delete'],['back','close']])); $legacy->set('button.style.instagram_checker_check','danger'); $legacy->query("DELETE FROM settings WHERE key='ui_checker_reply_v1'");
     new Zero\Store($root.'/legacy'); $ui=new Zero\Ui($legacy);
