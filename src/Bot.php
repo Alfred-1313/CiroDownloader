@@ -33,6 +33,7 @@ require_once __DIR__.'/InstagramCheckerCookies.php';
 require_once __DIR__.'/YoutubeCheckerCookies.php';
 require_once __DIR__.'/CheckerMenu.php';
 require_once __DIR__.'/YoutubePosts.php';
+require_once __DIR__.'/DatabaseBackups.php';
 
 final class Bot
 {
@@ -221,6 +222,7 @@ final class Bot
             'health'=>$this->ui->label('health'),'cookies'=>$this->ui->label('cookies'),'cookie_settings'=>$this->ui->label('cookie_settings'),'add_admin'=>$this->ui->label('add_admin')],['state','commands']),[
             [$this->replyButton('customize'),$this->replyButton('health')],
             [$this->replyButton('cookies'),$this->replyButton('cookie_settings')],
+            [$this->replyButton('database_backups'),$this->replyButton('database_backup_import')],
             [$this->replyButton('update'),$this->replyButton('add_admin')],
             [$this->replyButton('instagram_checker'),$this->replyButton('youtube_checker')],
             [$this->replyButton($on?'off':'on')],
@@ -487,6 +489,7 @@ final class Bot
         $custom=new Personalization($this);
         if($cb) {
             $action=(string)($cb['data']??''); $isQuality=preg_match('/^quality:(\d+):(\d+|audio|cancel)$/D',$action,$choice)===1;
+            if(str_starts_with($action,'dbb:')) { (new DatabaseBackups($this))->callback($cb,$user,$chat); return; }
             // Old downloader controls remain inert after the feature is removed.
             if(str_starts_with($action,'gp:')||in_array($action,['custom:play','custom:playsource'],true)) {
                 $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$this->ui->plain('callback_stale'),'show_alert'=>true,'cache_time'=>0]); return;
@@ -601,6 +604,7 @@ final class Bot
         if($this->admin($user)) {
             if($text==='/admin'||$reply==='admin') { $this->panel($chat); return; }
             if($reply==='add_admin') { (new Administrators($this))->begin($chat,$user); return; }
+            if(in_array($reply,['database_backups','database_backup_import'],true)) { (new DatabaseBackups($this))->open($user,$chat,$reply==='database_backup_import'); return; }
             if($text==='/health'||$reply==='health') { $this->health($chat); return; }
             if($text==='/cookies') { (new Cookies($this))->handle($chat,$user,'cookies'); return; }
             if($reply!==null&&(new InstagramCookies($this))->handle($chat,$user,$reply,is_string($previousState)?$previousState:null)) return;
@@ -621,6 +625,7 @@ final class Bot
         if($text==='/help'||$reply==='help') { (new GroupSupport($this))->help($chat); return; }
         if($reply==='download') { $this->send($chat,$this->text('prompt')); return; }
         $state=$this->store->query('SELECT key FROM states WHERE user_id=? AND (expires=0 OR expires>?)',[$user,time()])->fetchColumn();
+        if(is_string($state)&&str_starts_with($state,'database.')) { (new DatabaseBackups($this))->receive($user,$chat,$message,$state); return; }
         if($this->admin($user)&&is_string($state)&&(str_starts_with($state,'handoff.token:')||str_starts_with($state,'handoff.ttl:'))) {
             $custom->receiveHandoff($chat,$user,$message,$state); return;
         }

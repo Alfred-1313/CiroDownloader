@@ -26,6 +26,18 @@ foreach([SIGTERM,SIGINT] as $signal) pcntl_signal($signal,static function() use 
 try {
     while(!$stopping) {
         try {
+            if(isset($databaseBackupPid)&&pcntl_waitpid($databaseBackupPid,$databaseBackupStatus,WNOHANG)!==0) unset($databaseBackupPid);
+            if(!isset($databaseBackupPid)&&time()-($lastDatabaseBackupCheck??0)>=10) {
+                $lastDatabaseBackupCheck=time();
+                if(Zero\DatabaseBackups::due($store)) {
+                    $pid=pcntl_fork();
+                    if($pid===0) {
+                        pcntl_signal(SIGTERM,SIG_DFL); pcntl_signal(SIGINT,SIG_DFL);
+                        try { $backupStore=new Zero\Store($config->storage); (new Zero\DatabaseBackups(new Zero\Bot($config,$backupStore,new Zero\Telegram($config))))->run(); exit(0); }
+                        catch(Throwable) { exit(1); }
+                    } elseif($pid>0) $databaseBackupPid=$pid;
+                }
+            }
             foreach($children as $pid=>$child) {
                 if(empty($child['exited'])&&pcntl_waitpid($pid,$status,WNOHANG)>0) $children[$pid]['exited']=true;
                 if(!empty($children[$pid]['exited'])) {
@@ -96,6 +108,7 @@ try {
                     foreach(Zero\galleryServices() as $service) (new Zero\GalleryPages($config,$store,new Zero\Telegram($config),$service))->prune(); $lastPageCleanup=time();
                 }
                 $store->set('worker_heartbeat',(string)time()); $lastHeartbeat=time();
+                Zero\DatabaseBackups::prune($config,$store);
                 // Expired jars are dropped and administrators are warned once per situation.
                 // A separate short-lived process keeps a slow Telegram call from delaying downloads.
                 if(isset($healthPid)&&pcntl_waitpid($healthPid,$healthStatus,WNOHANG)!==0) unset($healthPid);
@@ -155,6 +168,7 @@ try {
         } catch(Throwable $e) { Zero\ErrorAlerts::event('Worker supervisor error: '.get_class($e)); if(!$stopping) usleep(500000); }
     }
 } finally {
+    if(isset($databaseBackupPid)) { posix_kill($databaseBackupPid,SIGTERM); pcntl_waitpid($databaseBackupPid,$databaseBackupStatus); }
     if(isset($checkerPid)) {
         posix_kill($checkerPid,SIGTERM); $until=microtime(true)+8;
         do { $reaped=pcntl_waitpid($checkerPid,$checkerStatus,WNOHANG); if($reaped===0) usleep(50000); } while($reaped===0&&microtime(true)<$until);

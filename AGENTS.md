@@ -1,5 +1,7 @@
 # Project working rules
 
+- Private database backup controls (`DatabaseBackups`) default off with a typed 60-minute interval. Export a consistent SQLite snapshot as a signed, bot-bound ZIP to the enabling valid administrator; preserve explicit send-now and no uncertain-send replay. Only the existing locked host updater performs `database_restore`: validate before stopping, retain a durable previous-DB recovery record, atomically replace after stopping writers, verify fresh health and roll back interrupted/failed imports. Keep .env, cookie files and external media untouched, invalidate restored work/menus/radio queues, preserve current offset and rebaseline both checkers. Exclude `database-backups` temporary uploads/exports from other backups; never log payloads or send technical DMs. Details: `docs/database-backups.md`.
+
 - Publish authorized changes to GitHub. Do not connect to, deploy to, or change the user's server unless the user explicitly requests deployment again.
 - Work from the latest `main` and publish there, preserving the owner's intervening changes. Do not bump `VERSION` or create a new release unless explicitly requested.
 - Bot UI is Persian. Prefer clear bold headings and blockquotes in default messages. Installer output stays English.

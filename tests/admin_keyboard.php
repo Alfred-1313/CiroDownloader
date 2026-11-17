@@ -30,7 +30,7 @@ try {
     $bot->handle(adminMessage('/start'));
     adminCheck(adminLabels($api)===[$bot->label('help'),$bot->label('checker'),$bot->label('admin')],'the main keyboard contains Help, the checker and the administrator entrance');
     $bot->handle(adminMessage($bot->label('admin')));
-    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','cookie_settings','update','add_admin','instagram_checker','youtube_checker','off','back_home']);
+    $expected=array_map(fn($key)=>$bot->label($key),['customize','health','cookies','cookie_settings','database_backups','database_backup_import','update','add_admin','instagram_checker','youtube_checker','off','back_home']);
     adminCheck(adminLabels($api)===$expected&&!isset(end($api->calls)[1]['reply_markup']['inline_keyboard']),'entering administration replaces the main reply keyboard with the administration tools');
     adminCheck(end($api->calls)[1]['reply_markup']['resize_keyboard']&&end($api->calls)[1]['reply_markup']['is_persistent']===false&&end($api->calls)[1]['reply_markup']['one_time_keyboard']===false,'the keyboard supports Telegram manual hide/show and remains reusable after choosing a control');
     foreach(['customize','health','cookies','cookie_settings','update','add_admin','on','off','back_home'] as $key) adminCheck(!$bot->ui->customizable('button',$key),'administrator reply control stays outside user Personalization: '.$key);

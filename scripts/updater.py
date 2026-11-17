@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Root host agent. Telegram can request only update/rollback, never shell commands."""
+"""Root host agent. Telegram queues fixed update, rollback and database restore actions."""
 import contextlib
 import errno
 import fcntl
 import html
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -314,7 +315,8 @@ class Agent:
                 db.execute('ALTER TABLE update_requests ADD COLUMN thread_id INTEGER NOT NULL DEFAULT 0')
 
     def authorized(self, job, db=None):
-        return (self.is_admin(job['user_id'], db) and job['action'] in ('update', 'rollback')
+        return (self.is_admin(job['user_id'], db) and job['action'] in ('update', 'rollback', 'database_restore')
+                and (job['action'] != 'database_restore' or job['chat_id'] == job['user_id'])
                 and (job['chat_id'] == job['user_id'] or job['chat_id'] < 0)
                 and isinstance(job.get('thread_id', 0), int) and job.get('thread_id', 0) >= 0
                 and (job['chat_id'] < 0 or job.get('thread_id', 0) == 0))
@@ -335,6 +337,16 @@ class Agent:
                          ' UNION SELECT a.user_id FROM bot_admins a JOIN authorized p ON a.added_by=p.id)'
                          ' SELECT 1 FROM authorized WHERE id=?', (*roots, user)).fetchone()
         return row is not None
+
+    def database_services(self):
+        services = command('docker', 'compose', 'ps', '--status', 'running', '--services').splitlines()
+        return sorted({'bot', 'worker'} | {name for name in services if name in ('bot', 'worker', 'radio', 'adult-handoff')})
+
+    def database_restore(self):
+        spec = importlib.util.spec_from_file_location('ciro_database_restore', Path(__file__).with_name('database_restore.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.Restore(self, STATE, BACKUPS)
 
     def menu_scope(self):
         scope = str(self.job['user_id'])
@@ -590,7 +602,7 @@ class Agent:
                     destination.close()
             excluded = {'zero.sqlite', 'zero.sqlite-wal', 'zero.sqlite-shm', snapshot.name,
                         'downloads', 'instagram-pages', 'pinterest-pages', 'tiktok-pages', 'twitter-pages', 'youtube-pages',
-                        'music-batches', 'yt-cache', 'radio', 'google-play', 'adult-handoff', '.youtube-blocked', '.youtube-ok'}
+                        'music-batches', 'yt-cache', 'radio', 'google-play', 'adult-handoff', 'database-backups', '.youtube-blocked', '.youtube-ok'}
             # Media queues/caches are runtime data, not a second copy of delivered files in every update backup.
             with tempfile.NamedTemporaryFile(prefix='.pre-update-', suffix='.partial', dir=BACKUPS, delete=False) as raw:
                 temporary = Path(raw.name)
@@ -844,6 +856,9 @@ class Agent:
     def tick(self):
         if Path('/var/lib/ciro-downloader-telegram-api/migration.json').exists():
             return
+        if (STATE / 'database-restore.json').exists():
+            self.database_restore().recover()
+            return
         # Recover a host reboot or killed updater before accepting another request.
         recovery = STATE / 'recovery.json'
         if recovery.is_file():
@@ -870,6 +885,9 @@ class Agent:
             db.execute("UPDATE update_requests SET status='queued' WHERE status='running'")
             db.execute("INSERT INTO settings(key,value) VALUES('update_in_progress','0') ON CONFLICT(key) DO UPDATE SET value='0'")
         if not self.claim():
+            return
+        if self.job['action'] == 'database_restore':
+            self.database_restore().run()
             return
         try:
             self.execute()
@@ -904,6 +922,8 @@ class CliAgent(Agent):
         (STATE / 'completion-pending.json').unlink(missing_ok=True)
 
     def cli_update(self):
+        if (STATE / 'database-restore.json').exists():
+            self.database_restore().recover()
         recovery = STATE / 'recovery.json'
         if recovery.exists():
             saved = json.loads(recovery.read_text())

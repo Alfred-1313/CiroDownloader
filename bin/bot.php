@@ -14,6 +14,8 @@ $lastHeartbeat=0;
 while(true) {
     try {
         if(time()-$lastHeartbeat>=10) { $store->set('poller_heartbeat',(string)time()); $lastHeartbeat=time(); }
+        // A restored database must pass host health checks before any new Telegram side effects.
+        if($store->get('database.restore.active','0')==='1') { usleep(200000); continue; }
         $groups->syncHelpButtons();
         Zero\MusicSearch::register($api,$store,$bot->ui);
         $updates=$api->call('getUpdates',['offset'=>(int)$store->get('offset','0'),'timeout'=>30,'allowed_updates'=>['message','callback_query','inline_query','channel_post']]);

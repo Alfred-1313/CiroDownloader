@@ -138,7 +138,7 @@ final class Updates
     {
         if(!$this->authorized($chat,$user)) return;
         $active=$this->active();
-        if($active&&(int)$active['user_id']===$user&&(int)$active['chat_id']===$chat&&(int)($active['thread_id']??0)===($chat<0?max(0,$this->thread):0)) {
+        if($active&&in_array($active['action'],['update','rollback'],true)&&(int)$active['user_id']===$user&&(int)$active['chat_id']===$chat&&(int)($active['thread_id']??0)===($chat<0?max(0,$this->thread):0)) {
             $this->resume($active,$chat,$user,$message,$fresh); return;
         }
         $notice=$notice!==''?$this->ui->text('update_notice',['title'=>$notice,'detail'=>''],['title']):'';
