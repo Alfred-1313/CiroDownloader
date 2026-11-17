@@ -320,7 +320,7 @@ class InstagramChecker
         $this->query("DELETE FROM {checker}deliveries WHERE created<? AND status IN ('sent','cancelled','failed','uncertain') AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.id={checker}deliveries.job_id AND j.status IN ('queued','running'))",[$cutoff]);
         $this->query('DELETE FROM {checker}subs WHERE deleted=1 AND created<? AND NOT EXISTS(SELECT 1 FROM {checker}deliveries d WHERE d.subscription={checker}subs.id)',[$cutoff]);
         $this->query("DELETE FROM {checker}seen WHERE (kind='story' AND seen<?) OR NOT EXISTS(SELECT 1 FROM {checker}subs s WHERE s.target={checker}seen.target)",[time()-7*86400]);
-        $this->query('DELETE FROM {checker}targets WHERE lease_until<? AND NOT EXISTS(SELECT 1 FROM {checker}subs s WHERE s.target={checker}targets.id)',[time()]);
+        $this->query("DELETE FROM {checker}targets WHERE lease_until<? AND NOT EXISTS(SELECT 1 FROM {checker}subs s WHERE s.target={checker}targets.id) AND NOT EXISTS(SELECT 1 FROM {checker}panels p WHERE p.view='new' AND p.expires>? AND CAST(json_extract(p.data,'$.profile_target') AS INTEGER)={checker}targets.id)",[time(),time()]);
     }
     public function poll(?\Closure $reader=null): bool
     {

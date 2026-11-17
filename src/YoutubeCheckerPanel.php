@@ -15,10 +15,16 @@ final class YoutubeCheckerPanel extends InstagramCheckerPanel
     protected function renderPanel(array $p,string $view,array &$data,string $text,array $rows,?array $sub): int
     {
         $profile=$sub?$this->checker->profile($sub):null;
+        if($view==='new'&&isset($data['username'])) {
+            $profile=$this->checker->previewProfile((string)$data['username'],(int)$p['owner'],(int)$p['chat_id']);
+            $sub=$profile?['target'=>$profile['id'],'generation'=>0,'paused'=>0]:null;
+            if(!$profile) foreach(['profile_version','profile_generation','profile_target','profile_wait'] as $key) unset($data[$key]);
+        }
         if($profile) {
             $data['profile_version']=(int)$profile['avatar_version'];
             $data['profile_generation']=(int)$sub['generation'];
             $data['profile_target']=(int)$sub['target'];
+            $data['profile_wait']=$profile['avatar']===''&&(int)$profile['avatar_checked']<time()-300&&!(int)$sub['paused'];
         }
         $avatar=$profile['avatar']??''; $photo=(string)($p['photo']??'');
         $chat=(int)$p['chat_id']; $message=(int)$p['message_id']; $api=$this->bot->api;
@@ -61,21 +67,22 @@ final class YoutubeCheckerPanel extends InstagramCheckerPanel
         return $sent;
     }
 
-    /** Enrich only a still-open owner-bound details panel after its channel scan, without a new message. */
+    /** Enrich only the still-open selection/details message; never register a preview as a subscription. */
     public function refreshProfiles(): void
     {
         foreach($this->checker->profilePanels() as $p) {
-            $data=json_decode($p['data'],true); $sub=$this->item($p,(int)$data['id']);
-            if(!$sub||!$this->checker->allowed((int)$p['owner'],(int)$sub['chat_id'])) {
-                $profile=$sub?$this->checker->profile($sub):null;
+            $data=json_decode($p['data'],true); $sub=$p['view']==='item'?$this->item($p,(int)$data['id']):null;
+            $destination=$sub?(int)$sub['chat_id']:(int)$p['chat_id'];
+            if(($p['view']==='item'&&!$sub)||!$this->checker->allowed((int)$p['owner'],$destination)) {
+                $profile=$this->checker->profile(['target'=>$data['profile_target']]);
                 $data['profile_version']=(int)($profile['avatar_version']??0);
                 $this->query('UPDATE {checker}panels SET data=? WHERE token=? AND data=?',[json_encode($data,JSON_THROW_ON_ERROR),$p['token'],$p['data']]); continue;
             }
             if(!$this->query('SELECT 1 FROM {checker}panels WHERE token=? AND view=? AND data=? AND message_id=?',[$p['token'],$p['view'],$p['data'],$p['message_id']])->fetchColumn()) continue;
-            try { $this->show($p,'item',$data,'',true); }
+            try { $this->show($p,$p['view'],$data,'',true); }
             catch(\Throwable) {
                 // No retry sends or diagnostic DMs for missing/rejected/uncertain artwork.
-                $profile=$this->checker->profile($sub); $data['profile_version']=(int)$profile['avatar_version'];
+                $profile=$this->checker->profile(['target'=>$data['profile_target']]); $data['profile_version']=(int)$profile['avatar_version'];
                 $this->query('UPDATE {checker}panels SET data=? WHERE token=? AND data=?',[json_encode($data,JSON_THROW_ON_ERROR),$p['token'],$p['data']]);
             }
         }

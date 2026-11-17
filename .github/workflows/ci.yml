@@ -39,6 +39,7 @@ jobs:
           php tests/youtube_checker.php
           php tests/youtube_checker_cookies.php
           php tests/youtube_checker_profiles.php
+          php tests/youtube_checker_selection_photo.php
           php tests/checker_menu.php
           php tests/instagram_checker.php
           php tests/instagram_checker_ui.php

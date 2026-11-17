@@ -119,6 +119,36 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(result['avatar'], image)
         self.assertEqual(len(seen), 1)
 
+    def test_profile_only_reads_one_channel_page_without_tabs(self):
+        image = 'https://yt3.ggpht.com/fixture-profile'
+        seen = []
+        class Session:
+            def get(self, url, **kwargs):
+                seen.append(url)
+                return Response({'metadata': {'channelMetadataRenderer': {
+                    'externalId': ACCOUNT, 'avatar': {'thumbnails': [{'url': image}]}}}})
+        args = SimpleNamespace(channel='@youtube', proxy=None, cookies=None)
+        with patch.object(checker.posts, 'http_session', return_value=Session()):
+            result = checker.profile(args)
+        self.assertEqual(result, {'account_id': ACCOUNT, 'avatar': image})
+        self.assertEqual(seen, ['https://www.youtube.com/@youtube'])
+        args.channel = 'UC' + 'B' * 22
+        with patch.object(checker.posts, 'http_session', return_value=Session()):
+            with self.assertRaises(checker.posts.PostError):
+                checker.profile(args)
+
+    def test_profile_only_stops_after_a_rate_refusal(self):
+        seen = []
+        class Session:
+            def get(self, url, **kwargs):
+                seen.append(url)
+                return Response({}, 429)
+        with patch.object(checker.posts, 'http_session', return_value=Session()):
+            with self.assertRaises(checker.posts.PostError) as error:
+                checker.profile(SimpleNamespace(channel='@youtube', proxy=None, cookies=None))
+        self.assertEqual(error.exception.reason, 'blocked')
+        self.assertEqual(len(seen), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

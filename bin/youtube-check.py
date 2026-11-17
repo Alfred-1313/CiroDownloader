@@ -78,11 +78,16 @@ def avatar(data):
     return max(valid, default=(0, ""))[1]
 
 
-def parse(data, kind, expected=""):
+def channel_id(data, expected=""):
     metadata = data.get("metadata", {}).get("channelMetadataRenderer", {})
     account = metadata.get("externalId", "")
     if not CHANNEL.fullmatch(account) or (expected and account != expected):
         raise posts.PostError("format")
+    return account
+
+
+def parse(data, kind, expected=""):
+    account = channel_id(data, expected)
     tabs = data.get("contents", {}).get("twoColumnBrowseResultsRenderer", {}).get("tabs", [])
     allowed = {"video": {"videos"}, "short": {"shorts"}, "post": {"posts", "community"}}[kind]
     selected = None
@@ -128,8 +133,8 @@ def parse(data, kind, expected=""):
     return account, list(result.values())
 
 
-def scan(args):
-    if not (CHANNEL.fullmatch(args.channel) or re.fullmatch(r"@[\w.-]{3,30}", args.channel, re.UNICODE)) or not 1 <= args.mode <= 7:
+def channel_session(args):
+    if not (CHANNEL.fullmatch(args.channel) or re.fullmatch(r"@[\w.-]{3,30}", args.channel, re.UNICODE)):
         raise posts.PostError("format")
     session = posts.http_session()
     if args.proxy:
@@ -143,6 +148,31 @@ def scan(args):
             elif cookie.is_expired():
                 jar.clear(cookie.domain, cookie.path, cookie.name)
         session.cookies.update(jar)
+    return session
+
+
+def page_data(session, url):
+    page = b"".join(posts.chunks(posts.response(session, url, posts.PAGE_HOSTS), 8 * 1024 * 1024)).decode("utf-8", "replace")
+    try:
+        with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
+            return YoutubeTabIE(ydl).extract_yt_initial_data("checker", page)
+    except ExtractorError:
+        raise posts.PostError("format") from None
+
+
+def profile(args):
+    """One channel page only; no subscription, tabs, media baseline or download."""
+    session = channel_session(args)
+    expected = args.channel if CHANNEL.fullmatch(args.channel) else ""
+    path = "/channel/" + expected if expected else "/" + args.channel
+    data = page_data(session, "https://www.youtube.com" + path)
+    return {"account_id": channel_id(data, expected), "avatar": avatar(data)}
+
+
+def scan(args):
+    if not 1 <= args.mode <= 7:
+        raise posts.PostError("format")
+    session = channel_session(args)
     account = args.channel if CHANNEL.fullmatch(args.channel) else ""
     result = {"account_id": account, "mode": args.mode, "videos": [], "shorts": [], "posts": [], "avatar": ""}
     for bucket, kind, bit, path in [("videos", "video", 1, "videos"), ("shorts", "short", 2, "shorts"), ("posts", "post", 4, "posts")]:
@@ -151,18 +181,13 @@ def scan(args):
         base = "/channel/" + account if account else "/" + args.channel
         url = "https://www.youtube.com" + base + "/" + path
         try:
-            page = b"".join(posts.chunks(posts.response(session, url, posts.PAGE_HOSTS), 8 * 1024 * 1024)).decode("utf-8", "replace")
+            data = page_data(session, url)
         except posts.PostError as error:
             if kind != "post" or error.reason != "restricted":
                 raise
             # Older channels may still expose /community; never retry a rate refusal.
             url = "https://www.youtube.com" + base + "/community"
-            page = b"".join(posts.chunks(posts.response(session, url, posts.PAGE_HOSTS), 8 * 1024 * 1024)).decode("utf-8", "replace")
-        try:
-            with YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-                data = YoutubeTabIE(ydl).extract_yt_initial_data("checker", page)
-        except ExtractorError:
-            raise posts.PostError("format") from None
+            data = page_data(session, url)
         account, result[bucket] = parse(data, kind, account)
         if not result["avatar"]:
             result["avatar"] = avatar(data)
@@ -173,12 +198,13 @@ def scan(args):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", required=True)
-    parser.add_argument("--mode", type=int, required=True)
+    parser.add_argument("--mode", type=int, default=0)
+    parser.add_argument("--profile-only", action="store_true")
     parser.add_argument("--cookies")
     parser.add_argument("--proxy")
     args = parser.parse_args()
     try:
-        print(json.dumps(scan(args), ensure_ascii=False))
+        print(json.dumps(profile(args) if args.profile_only else scan(args), ensure_ascii=False))
     except posts.PostError as error:
         print("YOUTUBE_CHECK_ERROR " + error.reason, file=sys.stderr)
         return 1
