@@ -118,7 +118,7 @@ class InstagramCheckerPanel
         } elseif(in_array($view,['new','add'],true)) {
             $name=(string)($data['username']??'');
             $text=$ui->text($view==='new'?static::SERVICE.'_checker_choose':static::SERVICE.'_checker_add_prompt',['username'=>$name]);
-            if($view==='new') $rows=$ui->layout(static::SERVICE,'checker_new',$this->modeSlots($p,'save')+['back'=>[$this->b('back',$p,'add')],'close'=>[$this->b('close',$p,'close')]],UiRegistry::rows(static::SERVICE,'checker_new'));
+            if($view==='new') $rows=$ui->layout(static::SERVICE,'checker_new',$this->modeSlots($p,'save')+['close'=>[$this->b('close',$p,'close')]],UiRegistry::rows(static::SERVICE,'checker_new'));
             else $rows[]=$back;
         } elseif(in_array($view,['item','delete','mode'],true)) {
             $id=(int)($data['id']??0); $sub=$this->item($p,$id);
@@ -128,7 +128,7 @@ class InstagramCheckerPanel
                 'status'=>$ui->plain(static::SERVICE.'_checker_status_'.$state),'destination'=>$this->destination($sub),'checked'=>(int)$sub['checked']?$ui->text(static::SERVICE.'_checker_checked_ago',['minutes'=>max(1,(int)((time()-(int)$sub['checked'])/60))]):$ui->plain(static::SERVICE.'_checker_not_checked')]);
             $slots=['back'=>[$this->b('back',$p,$view==='item'?'home':'item',$view==='item'?null:$id)],'close'=>[$this->b('close',$p,'close')]];
             if($view==='delete') { $text.="\n\n".$ui->text(static::SERVICE.'_checker_delete_prompt'); $slots['yes']=[$this->b('delete_yes',$p,'remove',$id)]; $layout='checker_delete'; }
-            elseif($view==='mode') { $slots+=$this->modeSlots($p,'mode',$id); $layout='checker_new'; }
+            elseif($view==='mode') { unset($slots['back']); $slots+=$this->modeSlots($p,'mode',$id); $layout='checker_new'; }
             else { $slots+=['check'=>[$this->b(isset($data['check'])?'checking':'check',$p,'check',$id)],'rename'=>[$this->b('rename',$p,'rename',$id)],'toggle'=>[$this->b((int)$sub['paused']?'resume':'pause',$p,'pause',$id)],'mode'=>[$this->b('change_mode',$p,'mode',$id)],'delete'=>[$this->b('delete',$p,'delete',$id)]]; $layout='checker_manage'; }
             $rows=$ui->layout(static::SERVICE,$layout,$slots,UiRegistry::rows(static::SERVICE,$layout));
         } elseif($view==='settings') {
