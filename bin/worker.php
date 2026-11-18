@@ -104,6 +104,7 @@ try {
             if(time()-$lastHeartbeat>=10) {
                 if(!isset($lastPageCleanup)||time()-$lastPageCleanup>=60) {
                     Zero\MusicMenu::purge($config,$store);
+                    (new Zero\ForceJoin($config,$store,new Zero\Telegram($config)))->prune();
                     $checkerProcessor->prune(); $youtubeCheckerProcessor->prune();
                     foreach(Zero\galleryServices() as $service) (new Zero\GalleryPages($config,$store,new Zero\Telegram($config),$service))->prune(); $lastPageCleanup=time();
                 }

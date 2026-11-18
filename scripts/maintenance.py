@@ -231,6 +231,8 @@ class Maintenance:
                 raise MaintenanceError('This database is not from Ciro Downloader.')
             connection.execute("UPDATE settings SET value='0' WHERE key='update_in_progress'")
             connection.execute("UPDATE jobs SET status='failed' WHERE status IN ('queued','running','choosing','confirming')")
+            if 'membership_downloads' in tables:
+                connection.execute('DELETE FROM membership_downloads')
             if {'ig_check_subs', 'ig_check_targets', 'ig_check_deliveries'}.issubset(tables):
                 # A restored baseline must not replay content already delivered
                 # after the backup; the next scan silently establishes a new one.

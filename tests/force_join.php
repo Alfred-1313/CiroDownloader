@@ -5,6 +5,7 @@ function fjCheck(bool $ok,string $label): void { if(!$ok) throw new RuntimeExcep
 final class JoinApi implements Zero\Api
 {
     public array $calls=[],$members=[],$admins=[]; public int $mid=100; public bool $fail=false,$failSticker=false;
+    public ?Closure $onEdit=null;
     public function call(string $m,array $p=[]): mixed {
         $this->calls[]=[$m,$p];
         if(in_array($m,['sendMessage','editMessageText'],true))Zero\TextFormat::validate($p['text'],4096);
@@ -14,6 +15,7 @@ final class JoinApi implements Zero\Api
         if($m==='getChatAdministrators')return $this->admins[$p['chat_id']]??[];
         if($m==='getChatMember') { if($this->fail)throw new RuntimeException('Fixture API refusal',429); return $this->members[$p['chat_id']][$p['user_id']]??['status'=>'left']; }
         if($m==='sendSticker'&&$this->failSticker)throw new RuntimeException('Fixture premium refusal',400);
+        if($m==='editMessageText'&&$this->onEdit) ($this->onEdit)($p);
         return in_array($m,['sendMessage','sendSticker'],true)?['message_id'=>++$this->mid]:true;
     }
     public function last(): array { foreach(array_reverse($this->calls) as [$m,$p])if(in_array($m,['sendMessage','editMessageText','editMessageCaption'],true))return $p;return []; }
@@ -25,6 +27,13 @@ try {
         $m=['message_id'=>++$serial,'from'=>['id'=>$user],'chat'=>['id'=>$chat,'type'=>$chat<0?'supergroup':'private'],'message_thread_id'=>$thread,'text'=>$text];if($sticker)$m['sticker']=$sticker;$b->handle(['update_id'=>$serial,'message'=>$m]);
     };
     $panel=fn(string $kind='user',int $user=7)=>$s->query('SELECT * FROM membership_panels WHERE owner=? AND kind=? ORDER BY rowid DESC LIMIT 1',[$user,$kind])->fetch();
+    $action=function(string $op)use($a):string {
+        foreach($a->last()['reply_markup']['inline_keyboard']??[] as $row) foreach($row as $button) {
+            $data=explode(':',$button['callback_data']??'');
+            if(($data[2]??'')===$op) return implode(':',array_slice($data,2));
+        }
+        throw new RuntimeException('Missing membership button: '.$op);
+    };
     $tap=function(array $p,string $op='check',int $user=7,?int $thread=null)use($b,&$serial):void{
         $m=['message_id'=>$p['message_id'],'chat'=>['id'=>$p['chat_id'],'type'=>$p['chat_id']<0?'supergroup':'private']];if($thread!==null)$m['message_thread_id']=$thread;
         $b->handle(['update_id'=>++$serial,'callback_query'=>['id'=>'fj'.$serial,'from'=>['id'=>$user],'message'=>$m,'data'=>'fj:'.$p['token'].':'.$op]]);
@@ -36,8 +45,18 @@ try {
     $send('/start');$p=$panel();fjCheck($p&&str_contains($a->last()['text'],'عضویت')&&count($a->last()['reply_markup']['inline_keyboard'])===2,'nonmembers receive channel links and an owner-bound verification button');
     $before=count($a->calls);$tap($p,'check',42);fjCheck(count($a->calls)===$before,'a copied private confirmation is rejected before any mutation');
     $send('https://www.youtube.com/watch?v=AAAAAAAAAAA');fjCheck((int)$s->query('SELECT COUNT(*) FROM jobs')->fetchColumn()===0,'a blocked link consumes no job, quota or accepted-link reaction');
+    $saved=$panel('download');$originalUpdate=$serial;
     $a->members[-10010][7]=['status'=>'member'];$s->set('membership.tap.7','0');$tap($p);
-    fjCheck(!$panel()&&$f->verdict(7,7)==='ok','confirmation freshly checks membership instead of reusing a cached refusal');
+    $continue=$action('resume');
+    fjCheck($f->verdict(7,7)==='ok'&&(int)$s->query('SELECT COUNT(*) FROM jobs')->fetchColumn()===0,'fresh confirmation reveals Continue without already enqueuing the saved link');
+    $a->onEdit=function(array $params)use($s,$originalUpdate,$saved):void {
+        fjCheck((int)$params['message_id']===(int)$saved['message_id']&&(int)$s->query('SELECT message_id FROM jobs WHERE update_id=?',[$originalUpdate])->fetchColumn()===0,'the worker cannot claim the resumed job before its original membership message becomes the status');
+    };
+    $tap($saved,$continue);$a->onEdit=null;$tap($saved,$continue);
+    $resumed=$s->query('SELECT * FROM jobs WHERE update_id=?',[$originalUpdate])->fetch();
+    fjCheck($resumed['phase']==='inspect'&&$resumed['url']==='https://www.youtube.com/watch?v=AAAAAAAAAAA'&&(int)$resumed['message_id']===(int)$saved['message_id']&&(int)$s->query('SELECT COUNT(*) FROM jobs')->fetchColumn()===1,'resuming uses the original URL, normal quality flow and one status message even when tapped twice');
+    $s->query("UPDATE jobs SET status='done' WHERE id=?",[$resumed['id']]);
+    $s->query('UPDATE users SET last_request=0 WHERE id=7');
     $s->query('DELETE FROM membership_cache');$a->members[-10010][7]=['status'=>'restricted','is_member'=>true];fjCheck($f->verdict(7,7)==='ok','restricted members with is_member=true still qualify');
     $s->query('DELETE FROM membership_cache');$a->members[-10010][7]=['status'=>'kicked'];fjCheck($f->verdict(7,7)==='join','a removed channel member loses access');
     $s->query("INSERT INTO membership_channels(chat_id,title,url) VALUES(-10020,'Second','https://t.me/second')");$s->query('DELETE FROM membership_cache');
@@ -60,6 +79,25 @@ try {
     $f->prompt($b,7,7,0,'join',['message_id'=>321,'message_kind'=>'photo']);$photo=$panel('user_photo',7);fjCheck($photo&&(int)$photo['message_id']===321&&isset($a->last()['caption']),'membership can replace the existing quality-photo caption without creating a second status message');
     $a->members[-10010][7]=['status'=>'member'];$s->set('membership.tap.7','0');$tap($photo);fjCheck(!$panel('user_photo',7),'photo-based membership confirmation edits the caption and clears its old controls');
     $b->handle(['inline_query'=>['id'=>'blocked-inline','from'=>['id'=>11],'query'=>'s:abcdefghijklmnop']]);$last=end($a->calls);fjCheck($last[0]==='answerInlineQuery'&&$last[1]['results']===[]&&$last[1]['is_personal']&&$last[1]['cache_time']===0,'inline sharing cannot reuse public cached results to bypass membership');
+    $a->admins[-10055]=[];$s->query('DELETE FROM membership_cache');
+    $send('/download@FixtureBot https://www.youtube.com/watch?v=BBBBBBBBBBB',11,-10055,17);
+    $groupDownload=$panel('download',11);$superseded=$action('cancel');
+    $send('https://www.youtube.com/watch?v=CCCCCCCCCCC',11,-10055,17);$groupUpdate=$serial;
+    $tap($groupDownload,$superseded,11,17);
+    fjCheck($s->query('SELECT url FROM membership_downloads WHERE panel=?',[$groupDownload['token']])->fetchColumn()==='https://www.youtube.com/watch?v=CCCCCCCCCCC','the latest blocked link replaces its predecessor and an old cancel button cannot remove it');
+    $a->members[-10010][11]=$a->members[-10020][11]=['status'=>'member'];
+    $tap($groupDownload,'check',11,17);$groupContinue=$action('resume');
+    $tap($groupDownload,$groupContinue,12,17);$tap($groupDownload,$groupContinue,11,18);
+    fjCheck(!$s->query('SELECT id FROM jobs WHERE update_id=?',[$groupUpdate])->fetchColumn(),'other users and topics cannot resume a saved group download');
+    $tap($groupDownload,$groupContinue,11);
+    fjCheck((int)$s->query('SELECT thread_id FROM jobs WHERE update_id=?',[$groupUpdate])->fetchColumn()===17,'the saved download returns to its original group topic when the callback omits topic metadata');
+    $send('https://www.youtube.com/watch?v=DDDDDDDDDDD',12,-10055,17);$cancelUpdate=$serial;
+    $cancel=$panel('download',12);$tap($cancel,$action('cancel'),12,17);
+    fjCheck(!$panel('download',12)&&!$s->query('SELECT id FROM jobs WHERE update_id=?',[$cancelUpdate])->fetchColumn(),'cancel discards only the current pending link without enqueuing it');
+    $send('https://www.youtube.com/watch?v=EEEEEEEEEEE',13,-10055,17);$expiredUpdate=$serial;
+    $expired=$panel('download',13);$s->query('UPDATE membership_downloads SET expires=? WHERE panel=?',[time()-1,$expired['token']]);$f->prune();
+    $a->members[-10010][13]=$a->members[-10020][13]=['status'=>'member'];$tap($expired,'check',13,17);
+    fjCheck($a->last()['text']===$b->text('membership_download_expired')&&!$s->query('SELECT id FROM jobs WHERE update_id=?',[$expiredUpdate])->fetchColumn(),'a pruned link expires independently of the membership panel and is never queued');
     foreach(['membership_prompt','membership_group_prompt','membership_success','membership_unavailable'] as $key)fjCheck($b->ui->customizable('text',$key),'public membership copy is editable: '.$key);
     foreach(['membership_channel','membership_check'] as $key)fjCheck($b->ui->customizable('button',$key),'public membership buttons support the shared editor: '.$key);
     $s->set('button.icon.membership_check','5368324170671202286');fjCheck(($b->ui->button('membership_check','fj:test:check')['icon_custom_emoji_id']??'')==='5368324170671202286','membership buttons retain the shared premium custom-emoji setting');

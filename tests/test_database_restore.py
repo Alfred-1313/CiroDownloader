@@ -24,6 +24,7 @@ def database(path, label, offset=10):
             CREATE TABLE users(id INTEGER PRIMARY KEY);
             CREATE TABLE jobs(id INTEGER PRIMARY KEY,status TEXT,user_id INTEGER,chat_id INTEGER);
             CREATE TABLE states(user_id INTEGER,key TEXT,expires INTEGER);
+            CREATE TABLE membership_downloads(panel TEXT PRIMARY KEY,revision TEXT,url TEXT,update_id INTEGER,source_message INTEGER,expires INTEGER);
             CREATE TABLE update_requests(id INTEGER PRIMARY KEY,user_id INTEGER,chat_id INTEGER,message_id INTEGER,action TEXT,status TEXT,created INTEGER,thread_id INTEGER DEFAULT 0);
             CREATE TABLE database_restore_files(request_id INTEGER PRIMARY KEY,token TEXT,sha256 TEXT);
             CREATE TABLE radio_stations(chat_id INTEGER,live INTEGER,live_since INTEGER,command TEXT,now TEXT);
@@ -37,6 +38,7 @@ def database(path, label, offset=10):
             CREATE TABLE yt_check_deliveries(id INTEGER,status TEXT);
             INSERT INTO jobs VALUES(1,'running',42,42);
             INSERT INTO states VALUES(42,'cookie.upload',0);
+            INSERT INTO membership_downloads VALUES('fixture','old','https://www.youtube.com/watch?v=AAAAAAAAAAA',25,26,9999999999);
             INSERT INTO radio_stations VALUES(-100,1,123,'play','song');
             INSERT INTO radio_queue VALUES(1);
             INSERT INTO timed_deletes VALUES(-100,777,0);
@@ -169,7 +171,7 @@ class RestoreTests(unittest.TestCase):
         with sqlite3.connect(backups[0]) as db:
             self.assertEqual(db.execute("SELECT value FROM settings WHERE key='fixture'").fetchone()[0], 'current')
         with self.agent.db() as db:
-            for table in ('jobs','states','radio_queue','timed_deletes'):
+            for table in ('jobs','states','membership_downloads','radio_queue','timed_deletes'):
                 self.assertEqual(db.execute('SELECT count(*) FROM ' + table).fetchone()[0], 0)
             self.assertEqual(tuple(db.execute('SELECT posts_ready,stories_ready,generation FROM ig_check_subs').fetchone()), (0,0,6))
             self.assertEqual(tuple(db.execute('SELECT posts_ready,stories_ready,extra_ready FROM yt_check_subs').fetchone()), (0,0,0))

@@ -280,7 +280,9 @@ final class Personalization
     private function sectionItems(string $section): array
     {
         $screens=[
-            'membership'=>[['text','membership_prompt'],['text','membership_group_prompt'],['text','membership_unavailable'],['text','membership_success'],['text','membership_needed'],['text','membership_wait'],['button','membership_channel'],['button','membership_check']],
+            'membership'=>[['text','membership_prompt'],['text','membership_group_prompt'],['text','membership_unavailable'],['text','membership_success'],['text','membership_needed'],['text','membership_wait'],['text','membership_download_saved'],['text','membership_download_ready'],['text','membership_download_expired'],
+                ['text','membership_download_cancelled'],['text','membership_download_closed'],
+                ['button','membership_channel'],['button','membership_check'],['button','membership_download_continue'],['button','membership_download_cancel']],
             'cover'=>[['text','quality_prompt'],['text','cover_title'],['text','cover_instruction'],['text','cover_limit'],['button','quality_360'],['button','quality_480'],['button','quality_720'],['button','quality_high'],['button','extract_audio']],
             'video'=>[['text','video_caption'],['text','video_title'],['text','video_quality'],['text','video_duration'],['button','source_video']],
             'audio'=>[['text','audio_caption'],['text','audio_title'],['text','audio_format'],['text','audio_duration'],['button','source_audio'],['text','audio_downloading'],['text','audio_uploading'],['text','audio_failed'],['text','audio_error_size'],['text','audio_error_format'],['text','audio_error_upload']],

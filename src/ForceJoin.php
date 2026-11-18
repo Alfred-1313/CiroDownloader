@@ -5,6 +5,7 @@ namespace Zero;
 /** Required-channel membership, with one qualifying human administrator sponsoring a group. */
 final class ForceJoin
 {
+    private const DOWNLOAD_TTL=600;
     private static ?\WeakMap $schemas=null;
     private Api $checks;
     private float $deadline=0;
@@ -14,10 +15,14 @@ final class ForceJoin
         self::$schemas??=new \WeakMap(); if(isset(self::$schemas[$store])) return;
         $store->db->exec("CREATE TABLE IF NOT EXISTS membership_channels(id INTEGER PRIMARY KEY,chat_id INTEGER NOT NULL UNIQUE,title TEXT NOT NULL,url TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS membership_cache(key TEXT PRIMARY KEY,value TEXT NOT NULL,expires INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS membership_panels(token TEXT PRIMARY KEY,owner INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL,message_id INTEGER NOT NULL,kind TEXT NOT NULL,expires INTEGER NOT NULL)");
+            CREATE TABLE IF NOT EXISTS membership_panels(token TEXT PRIMARY KEY,owner INTEGER NOT NULL,chat_id INTEGER NOT NULL,thread_id INTEGER NOT NULL,message_id INTEGER NOT NULL,kind TEXT NOT NULL,expires INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS membership_downloads(panel TEXT PRIMARY KEY,revision TEXT NOT NULL,url TEXT NOT NULL,update_id INTEGER NOT NULL,source_message INTEGER NOT NULL,expires INTEGER NOT NULL)");
         self::$schemas[$store]=true;
-        $store->query('DELETE FROM membership_cache WHERE expires<=?',[time()]);
-        $store->query('DELETE FROM membership_panels WHERE expires<=?',[time()]);
+        $this->prune();
+    }
+    public function prune(): void
+    {
+        foreach(['membership_cache','membership_panels','membership_downloads'] as $table) $this->store->query("DELETE FROM $table WHERE expires<=?",[time()]);
     }
     public function channels(): array { return $this->store->query('SELECT * FROM membership_channels ORDER BY id')->fetchAll(); }
     public function active(): bool { return $this->store->get('membership.enabled','0')==='1'&&(bool)$this->channels(); }
@@ -72,48 +77,130 @@ final class ForceJoin
         } catch(\Throwable) { $unknown=true; }
         return $unknown?'unavailable':'join';
     }
-    public function guard(Bot $bot,int $user,int $chat,int $thread=0,?array $callback=null): bool
+    /** @param ?array{url:string,update_id:int,source_message:int} $download a validated link sent by the user */
+    public function guard(Bot $bot,int $user,int $chat,int $thread=0,?array $callback=null,?array $download=null): bool
     {
         $result=$this->verdict($user,$chat); if($result==='ok') return true;
         if($callback) $this->api->call('answerCallbackQuery',['callback_query_id'=>$callback['id'],'text'=>$bot->ui->plain('membership_needed'),'show_alert'=>true,'cache_time'=>0]);
-        $this->prompt($bot,$user,$chat,$thread,$result); return false;
+        $this->prompt($bot,$user,$chat,$thread,$result,null,$download); return false;
     }
-    public function prompt(Bot $bot,int $user,int $chat,int $thread,string $result='join',?array $job=null): void
+    private function pending(string $token): array|false
     {
-        $old=$this->store->query("SELECT * FROM membership_panels WHERE owner=? AND chat_id=? AND thread_id=? AND kind IN ('user','user_photo') AND expires>? ORDER BY rowid DESC LIMIT 1",[$user,$chat,$thread,time()])->fetch();
+        return $this->store->query('SELECT * FROM membership_downloads d WHERE panel=? AND expires>? AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.update_id=d.update_id)',[$token,time()])->fetch();
+    }
+    public function forgetDownload(int $user,int $chat,int $thread): void
+    {
+        $this->store->query("DELETE FROM membership_downloads WHERE panel IN (SELECT token FROM membership_panels WHERE owner=? AND chat_id=? AND thread_id=? AND kind='download')",[$user,$chat,$thread]);
+    }
+    private function edit(Bot $bot,array $panel,string $text,array $rows=[]): void
+    {
+        if($panel['kind']==='user_photo') {
+            $this->api->call('editMessageCaption',['chat_id'=>(int)$panel['chat_id'],'message_id'=>(int)$panel['message_id'],
+                'caption'=>Ui::fitCaption($text),'parse_mode'=>'HTML','reply_markup'=>['inline_keyboard'=>$rows]]);
+            return;
+        }
+        $bot->send((int)$panel['chat_id'],$text,$rows,(int)$panel['message_id']);
+    }
+    public function prompt(Bot $bot,int $user,int $chat,int $thread,string $result='join',?array $job=null,?array $download=null): void
+    {
+        // A worker can update an older job while the poller is handling a new link.
+        // Keep job status panels separate from the saved download and its buttons.
+        $kinds=$job?"'user_photo','user_job'":"'user','download'";
+        $old=$this->store->query("SELECT * FROM membership_panels WHERE owner=? AND chat_id=? AND thread_id=? AND kind IN ($kinds) AND expires>? ORDER BY CASE WHEN kind='download' THEN 0 ELSE 1 END,rowid DESC LIMIT 1",[$user,$chat,$thread,time()])->fetch();
         $p=$old?:['token'=>bin2hex(random_bytes(8)),'message_id'=>0];
         if($job) $p['message_id']=(int)$job['message_id'];
-        $photo=$job?($job['message_kind']??'text')==='photo':($old&&$old['kind']==='user_photo');
+        $photo=$job&&($job['message_kind']??'text')==='photo'&&(int)$p['message_id']>0;
+        $kept=$job?false:$this->pending($p['token']);
+        if($download) {
+            if($kept&&(int)$kept['update_id']===$download['update_id']) $download=null;
+            else $download+=['revision'=>bin2hex(random_bytes(8)),'expires'=>time()+self::DOWNLOAD_TTL];
+        }
+        $pending=$download??$kept;
         $ui=$bot->ui; $rows=[];
         foreach($this->channels() as $channel) { $button=$ui->button('membership_channel','',['title'=>$channel['title']]); $button['url']=$channel['url']; unset($button['callback_data']); $rows[]=[$button]; }
         $rows[]=[$ui->button('membership_check','fj:'.$p['token'].':check')];
+        if($pending) $rows[]=[$ui->button('membership_download_cancel','fj:'.$p['token'].':cancel:'.$pending['revision'])];
         if(!$old&&!$job&&($sticker=$this->store->get('membership.sticker'))!=='') try { $args=['chat_id'=>$chat,'sticker'=>$sticker]; if($chat<0&&$thread>0) $args['message_thread_id']=$thread; $this->api->call('sendSticker',$args); } catch(\Throwable) {}
         $key=$result==='unavailable'?'membership_unavailable':($chat<0&&$this->store->get('membership.group_admin','1')==='1'?'membership_group_prompt':'membership_prompt');
-        try {
-            if($photo) { $this->api->call('editMessageCaption',['chat_id'=>$chat,'message_id'=>(int)$p['message_id'],'caption'=>Ui::fitCaption($ui->text($key)),'parse_mode'=>'HTML','reply_markup'=>['inline_keyboard'=>$rows]]); $id=(int)$p['message_id']; }
-            else $id=$bot->send($chat,$ui->text($key),$rows,(int)$p['message_id'],$thread);
+        $text=$ui->text($key);
+        if($pending) {
+            $notice=$ui->text('membership_download_saved');
+            if(TextFormat::length(html_entity_decode(strip_tags($text."\n\n".$notice),ENT_QUOTES|ENT_HTML5,'UTF-8'))>4096) {
+                $notice=$ui->definition('text','membership_download_saved')['value'];
+            }
+            $text.="\n\n".$notice;
         }
-        catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; $photo=false; $id=$bot->send($chat,$ui->text($key),$rows,0,$thread); }
-        $this->store->query('INSERT OR REPLACE INTO membership_panels VALUES(?,?,?,?,?,?,?)',[$p['token'],$user,$chat,$thread,$id,$photo?'user_photo':'user',time()+900]);
+        try {
+            if($photo) { $this->edit($bot,array_replace($p,['kind'=>'user_photo','chat_id'=>$chat]),$text,$rows); $id=(int)$p['message_id']; }
+            else $id=$bot->send($chat,$text,$rows,(int)$p['message_id'],$thread);
+        }
+        catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; $photo=false; $id=$bot->send($chat,$text,$rows,0,$thread); }
+        if($id<1) throw new \RuntimeException('Missing membership message ID');
+        $kind=$job?($photo?'user_photo':'user_job'):($pending?'download':'user');
+        $this->store->query('INSERT OR REPLACE INTO membership_panels VALUES(?,?,?,?,?,?,?)',[$p['token'],$user,$chat,$thread,$id,$kind,time()+900]);
+        if($download) $this->store->query('INSERT OR REPLACE INTO membership_downloads VALUES(?,?,?,?,?,?)',
+            [$p['token'],$download['revision'],$download['url'],$download['update_id'],$download['source_message'],$download['expires']]);
+    }
+    private function downloadButtons(Bot $bot,array $panel,array $pending): array
+    {
+        $callback='fj:'.$panel['token'];
+        return [[$bot->ui->button('membership_download_continue',$callback.':resume:'.$pending['revision'])],
+                [$bot->ui->button('membership_download_cancel',$callback.':cancel:'.$pending['revision'])]];
+    }
+    private function continueDownload(Bot $bot,array $panel,array $pending): void
+    {
+        $user=(int)$panel['owner'];
+        $chat=(int)$panel['chat_id'];
+        $thread=(int)$panel['thread_id'];
+        // Recheck current access and use the original update ID to deduplicate repeated taps.
+        if(!$this->guard($bot,$user,$chat,$thread)) return;
+        $result=$bot->requestVideo((int)$pending['update_id'],$user,$chat,$pending['url'],$thread,(int)$pending['source_message'],
+            adopt:['message'=>(int)$panel['message_id'],'kind'=>'text','poster'=>'']);
+        if(in_array($result,['busy','full','cooldown','updating'],true)) return;
+        $this->store->query('DELETE FROM membership_downloads WHERE panel=?',[$panel['token']]);
+        $this->store->query('DELETE FROM membership_panels WHERE token=?',[$panel['token']]);
+        if($result==='denied') $this->edit($bot,$panel,$bot->text('membership_download_closed'));
     }
     public function callback(Bot $bot,array $cb,int $user,int $chat,?int $thread): void
     {
         $parts=explode(':',(string)$cb['data']);$p=$this->store->query('SELECT * FROM membership_panels WHERE token=?',[$parts[1]??''])->fetch();
         $error=!$p?'callback_stale':((int)$p['owner']!==$user?'callback_owner':(((int)$p['chat_id']!==$chat||(int)$p['message_id']!==(int)$cb['message']['message_id']||($thread!==null&&(int)$p['thread_id']!==$thread)||(int)$p['expires']<=time())?'callback_stale':''));
-        if($error===''&&$p['kind']!=='admin'&&!$bot->allowed($user,$chat)) $error='callback_access';
+        $op=$parts[2]??'';
+        $pending=false;
         if($error===''&&$p['kind']!=='admin') {
+            if(!in_array($op,['check','resume','cancel'],true)) $error='callback_stale';
+            elseif($op!=='check') {
+                $pending=$this->pending($p['token']);
+                if(!$pending||$pending['revision']!==($parts[3]??'')) $error='membership_download_expired';
+            }
+            if($error===''&&$op!=='cancel'&&!$bot->allowed($user,$chat)) $error='callback_access';
+        }
+        if($error===''&&$p['kind']!=='admin'&&$op==='check') {
             $key='membership.tap.'.$user; $last=(int)$this->store->get($key,'0');
             if($last>=time()) $error='membership_wait'; else $this->store->set($key,(string)time());
         }
-        if($error!=='') { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>$bot->ui->plain($error),'show_alert'=>true]); return; }
+        if($error!=='') { $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id'],'text'=>mb_substr($bot->ui->plain($error),0,200),'show_alert'=>true]); return; }
         $this->api->call('answerCallbackQuery',['callback_query_id'=>$cb['id']]);
-        if($p['kind']==='admin') { if($chat!==$user||!$bot->admin($user)) return; $this->adminAction($bot,$p,$parts[2]??''); return; }
+        if($p['kind']==='admin') { if($chat!==$user||!$bot->admin($user)) return; $this->adminAction($bot,$p,$op); return; }
+        if($op==='cancel') {
+            $this->store->query('DELETE FROM membership_downloads WHERE panel=?',[$p['token']]);
+            $this->store->query('DELETE FROM membership_panels WHERE token=?',[$p['token']]);
+            $this->edit($bot,$p,$bot->text('membership_download_cancelled'));
+            return;
+        }
+        if($op==='resume') { $this->continueDownload($bot,$p,$pending); return; }
         $result=$this->verdict($user,$chat,true);
         if($result==='ok') {
-            if($p['kind']==='user_photo') $this->api->call('editMessageCaption',['chat_id'=>$chat,'message_id'=>(int)$p['message_id'],'caption'=>Ui::fitCaption($bot->text('membership_success')),'parse_mode'=>'HTML','reply_markup'=>['inline_keyboard'=>[]]]);
-            else $bot->send($chat,$bot->text('membership_success'),[],(int)$p['message_id']);
+            $pending=$this->pending($p['token']);
+            if($pending) {
+                $this->edit($bot,$p,$bot->text('membership_download_ready'),$this->downloadButtons($bot,$p,$pending));
+                return;
+            }
+            $this->edit($bot,$p,$bot->text($p['kind']==='download'?'membership_download_expired':'membership_success'));
             $this->store->query('DELETE FROM membership_panels WHERE token=?',[$p['token']]);
             if($chat===$user) $bot->home($chat,$user);
+        } elseif(in_array($p['kind'],['user_photo','user_job'],true)) {
+            $this->prompt($bot,$user,$chat,(int)$p['thread_id'],$result,$p+['message_kind'=>$p['kind']==='user_photo'?'photo':'text']);
         } else $this->prompt($bot,$user,$chat,(int)$p['thread_id'],$result);
     }
     public function admin(Bot $bot,int $user,int $message=0,string $notice=''): void

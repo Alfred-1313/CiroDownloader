@@ -118,23 +118,29 @@ final class Bot
         $this->api->call('sendMessage',['chat_id'=>$chat,'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,
             'reply_markup'=>['keyboard'=>$rows,'resize_keyboard'=>true,'one_time_keyboard'=>false,'is_persistent'=>false]]);
     }
-    public function jobMessage(array $job,string $text,array $rows=[]): void
+    public function jobMessage(array $job,string $text,array $rows=[],?array $adopt=null): void
     {
         $saved=$this->store->query('SELECT message_id,message_kind,poster FROM jobs WHERE id=?',[$job['id']])->fetch();
+        if($adopt&&$adopt['message']>0) $saved=['message_id'=>$adopt['message'],'message_kind'=>$adopt['kind'],'poster'=>$adopt['poster']];
+        else $adopt=null;
         $message=(int)$saved['message_id']; $photo=$saved['message_kind']==='photo';
         $params=['chat_id'=>(int)$job['chat_id'],'text'=>$text,'parse_mode'=>'HTML','disable_web_page_preview'=>true,'reply_markup'=>['inline_keyboard'=>$rows]];
         if($photo) {
             $params['caption']=Ui::fitCaption($text); unset($params['text'],$params['disable_web_page_preview']);
         }
         if($message>0) {
-            try { $this->api->call($photo?'editMessageCaption':'editMessageText',$params+['message_id'=>$message]); return; }
+            try {
+                $this->api->call($photo?'editMessageCaption':'editMessageText',$params+['message_id'=>$message]);
+                if($adopt) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$message,$photo?'photo':'text',$saved['poster'],$job['id']]);
+                return;
+            }
             catch(\RuntimeException $e) { if($e->getCode()!==404) throw $e; }
         }
         if($photo) { $params['photo']=$saved['poster']; $params+=$this->posterSpoiler($job); }
         if((int)$job['chat_id']<0&&(int)($job['thread_id']??0)>0) $params['message_thread_id']=(int)$job['thread_id'];
         $result=$this->api->call($photo?'sendPhoto':'sendMessage',$params);
         if(!is_array($result)||empty($result['message_id'])) throw new \RuntimeException('Missing download status message ID');
-        $this->store->query('UPDATE jobs SET message_id=? WHERE id=?',[(int)$result['message_id'],$job['id']]);
+        $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[(int)$result['message_id'],$photo?'photo':'text',$saved['poster'],$job['id']]);
     }
     public function jobPoster(array $job,string $poster,string $caption,array $rows): void
     {
@@ -418,20 +424,22 @@ final class Bot
     public function catalog(string $kind): array { return in_array($kind,['text','button'],true)?$this->ui->catalog($kind):[]; }
     /** @return string what happened: queued, duplicate, busy, full, cooldown, updating, denied or failed */
     /**
-     * @param ?array{message:int,kind:string,poster:string} $adopt an existing message (a music menu) that becomes this
-     *        download's status message instead of a new one, so the menu closes into the download
+     * @param ?array{message:int,kind:string,poster:string} $adopt an existing message to turn into the download status
      */
-    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0,?string $phase=null,array $options=[],bool $menu=false,?array $adopt=null): string
+    public function requestVideo(int $update,int $user,int $chat,string $url,int $thread=0,int $sourceMessage=0,?string $phase=null,array $options=[],bool $menu=false,?array $adopt=null,bool $rememberLink=false): string
     {
         $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
         if(!$this->allowed($user,$chat)) { $this->send($chat,$this->denial($chat),[],0,$thread); return 'denied'; }
-        if(!$this->membership()->guard($this,$user,$chat,$thread)) return 'denied';
+        $site=adultService($url);
+        if($site!==null&&!$this->adultAllowed($user,$chat,$site)) { $this->send($chat,$this->text('invalid'),[],0,$thread); return 'denied'; }
         if(instagramStoryUrl($url)!==null&&!InstagramStories::enabled($this->store)) { $this->send($chat,$this->text('instagram_story_disabled'),[],0,$thread); return 'denied'; }
         if(youtubePostUrl($url)!==null&&!YoutubePosts::enabled($this->store)) { $this->send($chat,$this->text('youtube_post_disabled'),[],0,$thread); return 'denied'; }
+        $membership=$this->membership();
+        $pending=$rememberLink&&$sourceMessage>0?['url'=>$url,'update_id'=>$update,'source_message'=>$sourceMessage]:null;
+        if(!$membership->guard($this,$user,$chat,$thread,download:$pending)) return 'denied';
         $result=$this->store->enqueue($update,$user,$chat,$url,$thread,$phase,$options,$menu);
         if($result==='queued') {
             $job=$this->store->query('SELECT * FROM jobs WHERE update_id=?',[$update])->fetch();
-            $site=adultService($url);
             $deleteSource=$sourceMessage>0&&$site!==null&&$this->adultAllowed($user,$chat,$site)&&$this->store->get('adult.delete_source','1')==='1';
             if($deleteSource) {
                 // A new job has message_id=0 and cannot be claimed. Keep that barrier until the link is gone.
@@ -439,23 +447,23 @@ final class Bot
                 catch(\Throwable) { $deleted=false; }
                 if(!$deleted) {
                     $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]);
-                    $this->jobMessage($job,$this->text('adult_link_delete_failed'));
+                    $this->jobMessage($job,$this->text('adult_link_delete_failed'),adopt:$adopt);
                     ErrorAlerts::report($site,'process',$site.'=delete');
                     return 'failed';
                 }
             }
-            if($adopt!==null&&$adopt['message']>0) $this->store->query('UPDATE jobs SET message_id=?,message_kind=?,poster=? WHERE id=?',[$adopt['message'],$adopt['kind']==='photo'?'photo':'text',$adopt['poster'],$job['id']]);
             // A page with a list of tracks opens a menu; every other link is one download.
             $service=galleryService($url)??$phase??musicService($url);
             try {
                 $collection=$service?null:collectionUrl($url);
-                $ui=$this->ui->forService($service??adultService($url)??(youtubeUrl($url)!==null?'youtube':''));
+                $ui=$this->ui->forService($service??$site??(youtubeUrl($url)!==null?'youtube':''));
                 $key=$service?galleryUiPrefix($service,$url).'_queued':($collection!==null?($collection['service']==='search'?'search_queued':'menu_queued'):'queued');
-                $this->jobMessage($job,$ui->text($key));
+                $this->jobMessage($job,$ui->text($key),adopt:$adopt);
             }
             catch(\Throwable $e) { $this->store->query("UPDATE jobs SET status='failed' WHERE id=?",[$job['id']]); throw $e; }
             if(!$deleteSource) Reactions::apply($this->store,$this->api,$chat,$sourceMessage,musicService($url)!==null||collectionUrl($url)!==null||$phase==='spotify');
         } elseif($result!=='duplicate'&&!$menu) $this->send($chat,$this->text(match($result) {'busy'=>'busy','full'=>'queue_full','cooldown'=>'cooldown','updating'=>'maintenance',default=>'failed'}),[],0,$thread);
+        if($rememberLink&&$result==='queued') $membership->forgetDownload($user,$chat,$thread);
         return $result;
     }
     public function inputNotice(int $chat,array $message,string $key,int $thread=0): void
@@ -493,11 +501,12 @@ final class Bot
         }
         $this->store->observeUser($cb['from']??$message['from']);
         if(!$group) $this->store->query('INSERT OR IGNORE INTO users(id) VALUES(?)',[$user]);
-        if(!$cb&&!$this->admin($user)) {
+        if(!$cb&&!$this->admin($user)&&$this->membership()->active()) {
             $text=trim((string)($message['text']??''));
             $command=preg_match('~^/(start|help|music|spotify|insta|checker|insta_checker|youtube_checker|yt_checker|radio)(?:@([A-Za-z0-9_]+))?(?:\s|$)~i',$text,$cmd);
             $addressed=!$command||empty($cmd[2])||strcasecmp($cmd[2],$this->store->get('bot_username'))===0;
-            $wanted=(!$group&&$addressed)||($addressed&&($command||mediaUrl($text)!==null||collectionUrl($text)!==null||adultService($text)!==null));
+            // Valid links are checked in requestVideo after URL and service validation, so they can be resumed.
+            $wanted=$addressed&&($group?$command:(mediaUrl($text)===null&&adultUrl($text)===null));
             if($wanted&&$this->allowed($user,$chat)&&!$this->membership()->guard($this,$user,$chat,$thread)) return;
         }
         if(!$cb&&(new InstagramCheckerPanel($this))->message($update,$user,$chat,$thread)) return;
@@ -709,7 +718,7 @@ final class Bot
                 ||(bool)array_filter($message['entities']??[],fn($entity)=>in_array($entity['type']??'',['url','text_link'],true));
             $this->inputNotice($chat,$message,$link?'invalid':'unknown_message'); return;
         }
-        $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0));
+        $this->requestVideo((int)$update['update_id'],$user,$chat,$url,0,(int)($message['message_id']??0),rememberLink:true);
     }
 }
 

@@ -118,6 +118,6 @@ final class GroupSupport
             if($command==='download') $this->bot->inputNotice($chat,$message,'invalid',$thread);
             return;
         }
-        $this->bot->requestVideo((int)$update['update_id'],$user,$chat,$url,$thread,(int)($message['message_id']??0));
+        $this->bot->requestVideo((int)$update['update_id'],$user,$chat,$url,$thread,(int)($message['message_id']??0),rememberLink:true);
     }
 }

@@ -1,6 +1,11 @@
 {
   "groups": {"membership":"عضویت اجباری کانال","public":"کاربران و راهنما","download":"دانلود و کیفیت","admin":"مدیریت و دسترسی","cookies":"کوکی یوتیوب","custom":"شخصی‌سازی","updates":"به‌روزرسانی","errors":"خطاها","instagram":"اینستاگرام","pinterest":"پینترست","tiktok":"تیک‌تاک","twitter":"X","spotify":"اسپاتیفای","soundcloud":"ساوندکلاود","menu":"منوی هنرمند","pornhub":"Pornhub","radio":"رادیو","beeg":"Beeg","xnxx":"XNXX","xvideos":"XVideos","tikporn":"TikPorn","youporn":"YouPorn","eporner":"Eporner","youtube":"یوتیوب","admin_replies":"مدیریت ادمین با ریپلای","inputs":"🤔 پیام ناشناس و لینک غیرقابل استفاده","checkers":"منوی همهٔ چکرها"},
   "texts": {
+    "membership_download_saved":{"audience":"user","group":"membership","label":"لینک منتظر عضویت","value":"لینک تا ۱۰ دقیقه نگه داشته می‌شود. پس از تأیید عضویت، دکمهٔ ادامهٔ دانلود را بزن."},
+    "membership_download_ready":{"audience":"user","group":"membership","label":"ادامهٔ دانلود پس از عضویت","value":"✅ دسترسی تأیید شد. برای دانلود آخرین لینکی که فرستادی، دکمهٔ ادامه را بزن."},
+    "membership_download_expired":{"audience":"user","group":"membership","label":"انقضای لینک منتظر","value":"زمان نگهداری لینک تمام شده است. لینک را دوباره بفرست."},
+    "membership_download_cancelled":{"audience":"user","group":"membership","label":"لغو دانلود منتظر","value":"درخواست دانلود لغو شد. هر وقت خواستی لینک دیگری بفرست."},
+    "membership_download_closed":{"audience":"user","group":"membership","label":"دانلود منتظر بسته شد","value":"این درخواست دیگر قابل ادامه نیست. برای درخواست تازه یک لینک بفرست."},
     "membership_no_channels":{"audience":"admin","group":"admin","label":"ابتدا افزودن کانال","value":"ابتدا یک کانال اضافه کن؛ سپس عضویت اجباری را روشن کن."},
     "membership_prompt":{"audience":"user","group":"membership","label":"پیام عضویت اجباری","value":"<blockquote><b>📣 عضویت در کانال‌های ربات</b></blockquote>\n\nبرای استفاده از ربات، ابتدا عضو کانال‌های زیر شو و سپس «عضو شدم؛ بررسی کن» را بزن."},
     "membership_group_prompt":{"audience":"user","group":"membership","label":"پیام عضویت در گروه","value":"<blockquote><b>📣 عضویت در کانال‌های ربات</b></blockquote>\n\nبرای استفاده، عضو کانال‌های زیر شو و دکمهٔ بررسی را بزن.\n\n<blockquote>اگر یکی از مدیران گروه عضو همهٔ این کانال‌ها باشد، کاربران همین گروه بدون عضویت می‌توانند استفاده کنند.</blockquote>"},
@@ -1081,6 +1086,8 @@
     "instagram_checker_username_placeholder":{"audience":"user","group":"instagram","label":"راهنمای کادر آیدی چکر","value":"آیدی پیج، مثلاً @instagram","inline":true,"limit":64}
   },
   "buttons": {
+    "membership_download_continue":{"audience":"user","group":"membership","label":"ادامهٔ دانلود پس از عضویت","value":"▶️ ادامهٔ همین دانلود","style":"success","required":true},
+    "membership_download_cancel":{"audience":"user","group":"membership","label":"لغو دانلود منتظر","value":"❌ لغو دانلود","style":"danger","required":true},
     "membership_settings":{"audience":"admin","group":"admin","label":"📣 عضویت اجباری","value":"📣 عضویت اجباری","style":"primary"},
     "membership_channel":{"audience":"user","group":"membership","label":"📣 {title}","value":"📣 {title}","required":true,"variables":["title"]},
     "membership_check":{"audience":"user","group":"membership","label":"✅ عضو شدم؛ بررسی کن","value":"✅ عضو شدم؛ بررسی کن","required":true},
